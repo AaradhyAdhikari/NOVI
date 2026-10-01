@@ -77,11 +77,14 @@ Each tool: `{ name, description, schema, tier, run(args, ctx) }`.
 One Claude Code task at a time in the MVP.
 
 ### 4.4 Claude Code manager (`tools/claudeCode.js`)
-- Spawns the Claude Code CLI headless in the project folder: `claude -p <instruction> --output-format stream-json --verbose`, with `--resume <session_id>` for follow-ups. Uses the CLI's existing login (Claude Pro).
-- Permission bridge: Novi provides a small MCP server exposing an approval tool, passed via `--mcp-config` + `--permission-prompt-tool`, so every Claude Code permission request is routed to `permissions.js`.
-- Parses each JSON line into normalized events: `started`, `thinking/text`, `tool_use` (Read/Edit/Write/Bash…), `tool_result`, `permission_request`, `result` (success/error, cost/turns), `exited`.
-- Stop = terminate the process tree (Windows: `taskkill /T /F`). Session id retained so "continue" can resume.
-- Exact CLI flags are verified against the installed CLI during implementation (`claude --help`) before coding against them.
+- Spawns one long-lived Claude Code process per task in the project folder (verified on CLI 2.1.286, logged in with Claude Pro):
+  `claude -p --input-format stream-json --output-format stream-json --verbose --permission-prompts host --permission-prompt-tool stdio`
+- Protocol (newline-delimited JSON over stdin/stdout):
+  - Novi → Claude: `{"type":"control_request","request_id":…,"request":{"subtype":"initialize"}}` once, then user turns as `{"type":"user","message":{"role":"user","content":"…"}}`. Follow-ups are written to the same stdin (same session, full context).
+  - Claude → Novi permission ask: `{"type":"control_request","request_id":…,"request":{"subtype":"can_use_tool","tool_name","input","description","tool_use_id"}}`, answered with `{"type":"control_response","response":{"subtype":"success","request_id":…,"response":{"behavior":"allow","updatedInput":input}}}` or `behavior:"deny"` + `message`.
+  - Observed event types: `system/init` (session_id, model, tools), `assistant` (content blocks: thinking, text, tool_use{name,input}), `user` (tool_result, is_error), `system/permission_denied`, `rate_limit_event`, `result/success|error` (result text, session_id, num_turns, permission_denials). Unknown types are ignored.
+- Read-only tools (Read/Glob/Grep) are auto-allowed by Claude Code itself; anything that prompts is routed to `permissions.js`.
+- Stop = send an interrupt control request; if not exited within 5s, kill the process tree (Windows: `taskkill /T /F`). Session id retained so a later "continue" can relaunch with `--resume <session_id>`.
 
 ### 4.5 Narrator (`narrator.js`)
 - Groups raw events into human updates and throttles speech: at most one spoken update per ~8s, always speaks immediately for: permission requests, errors, test failures, task finished.
