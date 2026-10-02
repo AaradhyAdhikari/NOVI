@@ -114,6 +114,7 @@ describe('systemPrompt', () => {
     const p = systemPrompt({ projects: [], task: { active: false } });
     for (const name of ['open_website', 'play_youtube', 'youtube_search', 'open_app']) expect(p).toContain(name);
     expect(p).toMatch(/position/);
+    expect(p).toMatch(/read out the top 5/i);
   });
 });
 

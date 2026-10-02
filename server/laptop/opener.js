@@ -21,7 +21,10 @@ export function toUrl(target) {
 
 // Opens a URL in the laptop's default browser.
 export async function openUrl(url, { spawnImpl = spawn, platform = process.platform } = {}) {
-  const [command, args] = platform === 'win32' ? ['explorer.exe', [url]] : platform === 'darwin' ? ['open', [url]] : ['xdg-open', [url]];
+  // explorer.exe silently drops many web links (e.g. with ?query&params); the URL protocol handler does not.
+  const [command, args] = platform === 'win32'
+    ? ['rundll32.exe', ['url.dll,FileProtocolHandler', url]]
+    : platform === 'darwin' ? ['open', [url]] : ['xdg-open', [url]];
   const child = spawnImpl(command, args, { detached: true, stdio: 'ignore', windowsHide: true });
   child.on?.('error', () => {});
   child.unref?.();

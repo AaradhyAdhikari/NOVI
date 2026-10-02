@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { toUrl } from '../../server/laptop/opener.js';
+import { toUrl, openUrl } from '../../server/laptop/opener.js';
 import { parseYouTubeResults, searchYouTube, watchUrl, searchUrl } from '../../server/laptop/youtube.js';
 import { parseStartApps, matchApps, resolveApp } from '../../server/laptop/apps.js';
 import { addLaptopTools } from '../../server/laptop/laptopTools.js';
@@ -50,6 +50,15 @@ describe('toUrl', () => {
   it('refuses direct downloads', () => {
     expect(() => toUrl('https://x.com/setup.exe')).toThrow(/download/);
     expect(() => toUrl('https://x.com/files/archive.zip?x=1')).toThrow(/download/);
+  });
+});
+
+describe('openUrl', () => {
+  it('uses the Windows URL handler (explorer.exe silently fails for links with query strings)', async () => {
+    const calls = [];
+    const spawnImpl = (cmd, args) => { calls.push([cmd, ...args]); return { unref() {}, on() {} }; };
+    await openUrl('https://www.youtube.com/watch?v=v5&t=1', { spawnImpl, platform: 'win32' });
+    expect(calls).toEqual([['rundll32.exe', 'url.dll,FileProtocolHandler', 'https://www.youtube.com/watch?v=v5&t=1']]);
   });
 });
 
