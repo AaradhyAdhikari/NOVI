@@ -43,6 +43,15 @@ describe('loadConfig', () => {
     expect(loadConfig(base).port).toBe(3001);
   });
 
+  it('reads Google OAuth credentials and private providers', () => {
+    const c = loadConfig({ ...base, GOOGLE_CLIENT_ID: ' id.apps.googleusercontent.com ', GOOGLE_CLIENT_SECRET: 'GOCSPX-x' });
+    expect(c.googleClientId).toBe('id.apps.googleusercontent.com');
+    expect(c.googleClientSecret).toBe('GOCSPX-x');
+    expect(c.privateProviders).toEqual(['groq']);
+    expect(loadConfig({ ...base, NOVI_PRIVATE_PROVIDERS: 'groq,cerebras' }).privateProviders).toEqual(['groq', 'cerebras']);
+    expect(loadConfig(base).googleClientId).toBe('');
+  });
+
   it('defaults the coding agent to the free Novi Coder', () => {
     expect(loadConfig(base).coder).toBe('free');
     expect(loadConfig({ ...base, NOVI_CODER: 'claude' }).coder).toBe('claude');

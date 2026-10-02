@@ -52,5 +52,8 @@ export function loadConfig(env = process.env) {
     order: { fast: order(env.NOVI_FAST_ORDER, DEFAULT_FAST), long: order(env.NOVI_LONG_ORDER, DEFAULT_LONG) },
     claudeCommand: env.CLAUDE_PATH || (fs.existsSync(localClaude) ? localClaude : 'claude'),
     coder: env.NOVI_CODER === 'claude' ? 'claude' : 'free',
+    googleClientId: (env.GOOGLE_CLIENT_ID || '').trim(),
+    googleClientSecret: (env.GOOGLE_CLIENT_SECRET || '').trim(),
+    privateProviders: splitList(env.NOVI_PRIVATE_PROVIDERS || 'groq'),
   };
 }
