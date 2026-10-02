@@ -63,6 +63,16 @@ describe('Novi server', () => {
     expect(await res.json()).toEqual({ text: 'heard 4 bytes of audio/webm' });
   });
 
+  it('speaks replies without markdown but keeps them in the transcript', async () => {
+    const { ws } = await start({ agent: { handle: async () => 'Created **math.js**.' } });
+    const c = connect(ws);
+    await c.waitFor((m) => m.type === 'snapshot');
+    c.ws.send(JSON.stringify({ type: 'user_message', text: 'go' }));
+    await c.waitFor((m) => m.type === 'chat' && m.entry.text === 'Created **math.js**.');
+    await c.waitFor((m) => m.type === 'speak' && m.text === 'Created math.js.');
+    c.ws.close();
+  });
+
   it('sends a snapshot with pending approvals on connect, and answers user messages', async () => {
     const approvals = new ApprovalQueue();
     const { ws } = await start({ approvals });

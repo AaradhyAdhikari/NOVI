@@ -6,7 +6,9 @@ const LABEL = { running: 'Working', done: 'Finished', failed: 'Failed', stopped:
 export default function TaskPanel({ task, feed, onStop, onAllowEdits }) {
   const [open, setOpen] = useState(true);
   if (!task.active) return <div className="task empty"><p>No coding task yet.</p></div>;
-  const lines = feed.slice(-30);
+  // Only this task's lines; after a reconnect the live feed is empty, so fall back to the server's recent updates.
+  const own = feed.filter((l) => l.taskId === task.id);
+  const lines = own.length ? own.slice(-30) : (task.recent || []).map((text, i) => ({ text, at: i }));
   return (
     <div className="task">
       <div className="task-head">

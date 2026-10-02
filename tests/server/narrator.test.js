@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { describeEvent, summarize, Narrator, firstSentence } from '../../server/narrator.js';
+import { describeEvent, summarize, Narrator, firstSentence, plainText } from '../../server/narrator.js';
 
 const use = (name, input) => ({ kind: 'tool_use', id: 'x', name, input });
 
@@ -21,6 +21,16 @@ describe('describeEvent', () => {
     expect(describeEvent({ kind: 'result', isError: true, text: 'Usage limit reached' }).text).toBe('Claude stopped: Usage limit reached');
     expect(describeEvent({ kind: 'exit', code: 0, error: null })).toBeNull();
     expect(describeEvent({ kind: 'exit', code: 1, error: null }).urgent).toBe(true);
+  });
+});
+
+describe('spoken text', () => {
+  it('strips markdown from finished summaries so TTS does not read symbols', () => {
+    const d = describeEvent({ kind: 'result', isError: false, text: 'Created **math.js** exporting `add(a, b)`. Ran it.' }, 'Novi Coder');
+    expect(d.text).toBe('Novi Coder finished. Created math.js exporting add(a, b).');
+  });
+  it('strips headings and list markers', () => {
+    expect(plainText('## Done\n- added *x*')).toBe('Done added x');
   });
 });
 

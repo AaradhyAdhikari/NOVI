@@ -4,6 +4,17 @@ const TEST_RE = /\b(test|tests|jest|vitest|pytest|mocha)\b/i;
 const short = (s, n) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 const base = (file) => (file ? path.win32.basename(path.posix.basename(String(file))) : 'a file');
 
+// Models often answer in markdown; speech should not read out the symbols.
+export function plainText(text = '') {
+  return String(text)
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/^\s{0,3}#{1,6}\s+/gm, '')
+    .replace(/^\s*[-*+]\s+/gm, '')
+    .replace(/[*`~]+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export function firstSentence(text = '') {
   const trimmed = text.trim();
   if (!trimmed) return '';
@@ -36,7 +47,7 @@ export function describeEvent(event, agentName = 'Claude') {
     case 'result':
       return event.isError
         ? { text: `${agentName} stopped: ${short(event.text || 'an error occurred', 120)}`, urgent: true }
-        : { text: `${agentName} finished. ${firstSentence(event.text)}`.trim(), urgent: true };
+        : { text: `${agentName} finished. ${firstSentence(plainText(event.text))}`.trim(), urgent: true };
     case 'exit':
       if (!event.error && (event.code === 0 || event.code === null)) return null;
       return { text: `${agentName} exited unexpectedly${event.error ? `: ${short(event.error, 80)}` : ''}.`, urgent: true };

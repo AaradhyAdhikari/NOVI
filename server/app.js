@@ -12,6 +12,7 @@ import { FreeCoderSession } from './coder/freeCoder.js';
 import { createNoviTools } from './tools/noviTools.js';
 import { Pairing, isLocalAddress } from './auth.js';
 import { transcribe } from './voice/stt.js';
+import { plainText } from './narrator.js';
 
 export function createNovi(config, overrides = {}) {
   const memory = overrides.memory || new Memory(path.join(config.dataDir, 'memory.json'));
@@ -107,7 +108,7 @@ export function createNovi(config, overrides = {}) {
       try {
         const reply = await agent.handle(text);
         say('novi', reply);
-        broadcast({ type: 'speak', text: reply });
+        broadcast({ type: 'speak', text: plainText(reply) });
       } catch (err) {
         say('novi', `Something went wrong: ${err.message}`);
       } finally {
