@@ -44,7 +44,7 @@ export default function App() {
       </main>
       <ApprovalCards approvals={state.approvals} onAnswer={(id, allow) => send({ type: 'approval', id, allow })} />
       <TalkButton onText={sendText} api={novi.api} />
-      <SettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} projects={state.projects} devices={state.devices} api={novi.api} isLocal={novi.isLocal} />
+      <SettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} projects={state.projects} devices={state.devices} accounts={state.accounts} googleConfigured={state.googleConfigured} api={novi.api} isLocal={novi.isLocal} />
     </div>
   );
 }

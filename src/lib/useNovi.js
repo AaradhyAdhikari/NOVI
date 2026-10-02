@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { getItem, setItem } from './storage.js';
 
 const isLocal = ['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname);
-const initialState = { transcript: [], task: { active: false }, approvals: [], providers: [], projects: [], devices: [], feed: [], thinking: false };
+const initialState = { transcript: [], task: { active: false }, approvals: [], providers: [], projects: [], devices: [], feed: [], thinking: false, accounts: [], googleConfigured: false };
 
 export function useNovi({ onSpeak }) {
   const [token, setToken] = useState(() => getItem('novi.token'));

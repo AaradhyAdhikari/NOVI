@@ -1,8 +1,18 @@
 import { useEffect, useState } from 'react';
-import { X, Trash2 } from 'lucide-react';
+import { X, Trash2, Pencil } from 'lucide-react';
 
-export default function SettingsDrawer({ open, onClose, projects, devices, api, isLocal }) {
+export default function SettingsDrawer({ open, onClose, projects, devices, accounts = [], googleConfigured, api, isLocal }) {
   const [pairing, setPairing] = useState(null);
+  const [accountMsg, setAccountMsg] = useState(null);
+  const patchAccount = async (id, body) => {
+    const res = await api(`/api/accounts/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (!res.ok) setAccountMsg((await res.json().catch(() => ({}))).error || 'That did not work.');
+  };
+  const connectGmail = async () => {
+    const res = await api('/api/accounts/google/connect', { method: 'POST' });
+    const body = await res.json().catch(() => ({}));
+    setAccountMsg(res.ok ? 'Finish signing in in the browser window that opened on the laptop.' : body.error || 'Could not start the Gmail connection.');
+  };
 
   useEffect(() => {
     if (!open || !isLocal) return undefined;
@@ -28,6 +38,33 @@ export default function SettingsDrawer({ open, onClose, projects, devices, api, 
             <div className="code">{pairing.code}</div>
           </section>
         )}
+
+        <section>
+          <h3>Accounts</h3>
+          {!googleConfigured && <p className="muted">Gmail isn't set up yet: add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to .env and restart Novi.</p>}
+          {googleConfigured && accounts.length === 0 && <p className="muted">No accounts connected yet.</p>}
+          <ul className="list">
+            {accounts.map((a) => (
+              <li key={a.id}>
+                <div>
+                  <strong>
+                    {a.label}
+                    {a.isDefault && <span className="badge done">default</span>}
+                    {a.status === 'expired' && <span className="badge failed">expired</span>}
+                  </strong>
+                  <span className="muted">Gmail · {a.email}</span>
+                </div>
+                <div className="row-actions">
+                  {!a.isDefault && <button className="btn" onClick={() => patchAccount(a.id, { default: true })}>Make default</button>}
+                  <button className="icon" aria-label={`Rename ${a.label}`} onClick={() => { const label = window.prompt('New name for this account', a.label); if (label) patchAccount(a.id, { label }); }}><Pencil size={16} /></button>
+                  <button className="icon" aria-label={`Disconnect ${a.label}`} onClick={() => { if (window.confirm(`Disconnect ${a.email}? Novi will lose access to this Gmail.`)) api(`/api/accounts/${a.id}`, { method: 'DELETE' }); }}><Trash2 size={16} /></button>
+                </div>
+              </li>
+            ))}
+          </ul>
+          <button className="btn primary" disabled={!googleConfigured} onClick={connectGmail}>Connect Gmail</button>
+          {accountMsg && <p className="muted">{accountMsg}</p>}
+        </section>
 
         <section>
           <h3>Projects Novi remembers</h3>

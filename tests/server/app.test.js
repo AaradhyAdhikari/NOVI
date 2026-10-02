@@ -22,6 +22,7 @@ async function start(overrides = {}) {
     router: { status: () => [{ name: 'groq', healthy: true }] },
     transcribe: async (audio, mime) => `heard ${audio.length} bytes of ${mime}`,
     lanUrls: ['https://192.168.1.5:3001'],
+    cipher: { protect: async (v) => `enc:${v}`, unprotect: async (v) => v.slice(4) },
     ...overrides,
   });
   server = http.createServer(novi.app);
@@ -47,6 +48,35 @@ describe('Novi server', () => {
   it('registers the laptop tools for the brain', async () => {
     const { novi } = await start();
     for (const name of ['open_website', 'youtube_search', 'play_youtube', 'open_app']) expect(novi.tools.get(name)).toBeTruthy();
+  });
+
+  it('includes accounts in the snapshot and refuses to connect Gmail without credentials', async () => {
+    const { base, ws } = await start();
+    const c = connect(ws);
+    const snap = await c.waitFor((m) => m.type === 'snapshot');
+    expect(snap.accounts).toEqual([]);
+    expect(snap.googleConfigured).toBe(false);
+    c.ws.close();
+    const res = await fetch(`${base}/api/accounts/google/connect`, { method: 'POST' });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/GOOGLE_CLIENT_ID/);
+  });
+
+  it('registers the Gmail tools for the brain', async () => {
+    const { novi } = await start();
+    for (const name of ['gmail_search', 'gmail_read', 'gmail_send', 'gmail_connect', 'accounts_list']) expect(novi.tools.get(name)).toBeTruthy();
+  });
+
+  it('renames, sets default and disconnects accounts via the API', async () => {
+    const { base, novi } = await start();
+    const a = novi.accounts.add({ provider: 'google', email: 'c@college.edu' });
+    const patch = await fetch(`${base}/api/accounts/${a.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ label: 'College', default: true }) });
+    expect(patch.status).toBe(200);
+    expect(novi.accounts.get(a.id).label).toBe('college');
+    expect(novi.accounts.defaultFor('google').id).toBe(a.id);
+    expect((await fetch(`${base}/api/accounts/nope`, { method: 'DELETE' })).status).toBe(404);
+    expect((await fetch(`${base}/api/accounts/${a.id}`, { method: 'DELETE' })).status).toBe(200);
+    expect(novi.accounts.list()).toEqual([]);
   });
 
   it('rejects wrong pairing codes', async () => {

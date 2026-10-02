@@ -14,9 +14,18 @@ import { addLaptopTools } from './laptop/laptopTools.js';
 import { Pairing, isLocalAddress } from './auth.js';
 import { transcribe } from './voice/stt.js';
 import { plainText } from './narrator.js';
+import { AccountRegistry } from './accounts/registry.js';
+import { SecretStore, defaultCipher } from './accounts/secrets.js';
+import { GoogleAuth } from './google/oauth.js';
+import { GmailClient } from './google/gmail.js';
+import { addAccountTools } from './tools/accountTools.js';
 
 export function createNovi(config, overrides = {}) {
   const memory = overrides.memory || new Memory(path.join(config.dataDir, 'memory.json'));
+  const accounts = overrides.accounts || new AccountRegistry(path.join(config.dataDir, 'accounts.json'));
+  const secrets = new SecretStore({ file: path.join(config.dataDir, 'secrets.json'), cipher: overrides.cipher || defaultCipher(config.dataDir) });
+  const auth = overrides.auth || new GoogleAuth({ clientId: config.googleClientId, clientSecret: config.googleClientSecret, accounts, secrets });
+  const gmail = new GmailClient({ getToken: (a) => auth.accessToken(a), invalidate: (a) => auth.invalidate(a.id) });
   const approvals = overrides.approvals || new ApprovalQueue();
   const router = overrides.router || new Router({ providers: config.providers, order: config.order });
   const useClaude = config.coder === 'claude'; // opt-in: uses the user's Claude plan
@@ -28,8 +37,10 @@ export function createNovi(config, overrides = {}) {
       ? (opts) => new ClaudeSession({ command: config.claudeCommand, ...opts })
       : (opts) => new FreeCoderSession({ router, ...opts }),
   });
-  const tools = addLaptopTools(createNoviTools({ memory, tasks }), overrides.laptop);
-  const agent = overrides.agent || new Agent({ router, tools, approvals, memory, tasks });
+  const tools = addAccountTools(addLaptopTools(createNoviTools({ memory, tasks }), overrides.laptop), {
+    accounts, auth, gmail, onConnected: (a) => onConnected(a), onConnectError: (e) => onConnectError(e),
+  });
+  const agent = overrides.agent || new Agent({ router, tools, approvals, memory, tasks, accounts, privateProviders: config.privateProviders || ['groq'] });
   const pairing = overrides.pairing || new Pairing({ file: path.join(config.dataDir, 'devices.json') });
   const groqKeys = config.providers.find((p) => p.name === 'groq')?.keys || [];
   const stt = overrides.transcribe || ((audio, mimeType) => transcribe({ audio, mimeType, keys: groqKeys }));
@@ -52,6 +63,17 @@ export function createNovi(config, overrides = {}) {
   const transcript = [];
   const send = (ws, msg) => ws.readyState === 1 && ws.send(JSON.stringify(msg));
   const broadcast = (msg) => { for (const ws of clients) send(ws, msg); };
+  const accountsView = () => accounts.list().map((a) => ({ id: a.id, provider: a.provider, label: a.label, email: a.email, status: a.status, isDefault: accounts.defaultFor(a.provider)?.id === a.id }));
+  const onConnected = (a) => {
+    const text = `Gmail connected: ${a.email}. I'll call it ${a.label}.`;
+    say('novi', text);
+    broadcast({ type: 'speak', text });
+    broadcast(snapshot());
+  };
+  const onConnectError = (e) => {
+    say('novi', e.message);
+    broadcast({ type: 'speak', text: e.message });
+  };
   const snapshot = () => ({
     type: 'snapshot',
     transcript,
@@ -60,6 +82,8 @@ export function createNovi(config, overrides = {}) {
     providers: router.status(),
     projects: memory.listProjects(),
     devices: pairing.listDevices(),
+    accounts: accountsView(),
+    googleConfigured: auth.configured,
   });
   const say = (role, text) => {
     const entry = { role, text, at: new Date().toISOString() };
@@ -99,6 +123,34 @@ export function createNovi(config, overrides = {}) {
     } catch (err) {
       res.status(502).json({ error: err.message });
     }
+  });
+  app.post('/api/accounts/google/connect', async (req, res) => {
+    try {
+      const { url, done } = await auth.connect();
+      done.then(onConnected, onConnectError);
+      res.json({ url });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+  app.patch('/api/accounts/:id', (req, res) => {
+    const account = accounts.get(req.params.id);
+    if (!account) return res.status(404).json({ error: 'No such account' });
+    try {
+      if (typeof req.body?.label === 'string') accounts.setLabel(account.id, req.body.label);
+      if (req.body?.default === true) accounts.setDefault(account.provider, account.id);
+      if (req.body?.default === false) accounts.setDefault(account.provider, null);
+      res.json({ ok: true });
+      broadcast(snapshot());
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+  app.delete('/api/accounts/:id', async (req, res) => {
+    if (!accounts.get(req.params.id)) return res.status(404).json({ error: 'No such account' });
+    await auth.disconnect(req.params.id);
+    res.json({ removed: true });
+    broadcast(snapshot());
   });
   app.delete('/api/devices/:id', (req, res) => {
     res.json({ revoked: pairing.revoke(req.params.id) });
@@ -163,5 +215,5 @@ export function createNovi(config, overrides = {}) {
     return wss;
   }
 
-  return { app, attachWebSocket, memory, approvals, tasks, router, agent, tools, pairing, broadcast };
+  return { app, attachWebSocket, memory, accounts, approvals, tasks, router, agent, tools, pairing, broadcast };
 }
