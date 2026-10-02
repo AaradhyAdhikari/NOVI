@@ -145,19 +145,20 @@ Novi never blindly executes. Actions are tiered:
 
 **MVP**
 
-- [ ] Voice input
-- [ ] Conversational AI with tool calling
-- [ ] Basic memory
-- [ ] Small plugin/tool system
-- [ ] Basic computer interaction
-- [ ] Task execution with live status updates
+- [x] Voice input (push-to-talk, Groq Whisper, browser speech fallback)
+- [x] Conversational AI with tool calling
+- [x] Basic memory (projects and tasks)
+- [x] Small plugin/tool system
+- [x] Basic computer interaction (the coding agent's file and shell tools, confined to a project)
+- [x] Task execution with live status updates
 
 **Then**
 
-- [ ] Multi-AI orchestration
-- [ ] Remote phone → laptop control
-- [ ] Coding-agent supervision by voice
-- [ ] Persistent memory
+- [x] Multi-AI orchestration across free providers (Groq ⇄ Gemini with automatic fallback)
+- [x] Phone → laptop control on home Wi-Fi (pairing code)
+- [x] Coding-agent supervision by voice (Novi Coder; Claude Code adapter ready, off by default)
+- [ ] Remote phone → laptop control from anywhere
+- [ ] Persistent memory (preferences, decisions, conversations)
 - [ ] Browser automation
 - [ ] GitHub integration
 - [ ] TV / casting output
@@ -169,11 +170,35 @@ The intended evolution: **voice assistant → AI agent → multi-AI orchestrator
 
 ## Status
 
-Early development. The architecture and scope are being designed before implementation; the repository will fill in as the MVP is built.
+MVP working. Everything runs on free Groq and Gemini API keys, including the built-in coding agent, **Novi Coder**.
+
+## Run it
+
+Requirements: Node 24+ and free API keys from [Groq](https://console.groq.com) and [Google AI Studio](https://aistudio.google.com). No paid APIs are needed.
+
+```bash
+npm install
+cp .env.example .env   # add GROQ_API_KEYS and GEMINI_API_KEYS
+npm start              # builds the UI and starts https://localhost:3001
+```
+
+Open `https://localhost:3001` on the laptop and accept the certificate warning (Novi uses a self-signed certificate so phones allow the microphone). Then:
+
+- **Tell Novi about a project:** "Remember my portfolio project at C:\path\to\portfolio"
+- **Give it work:** "Ask the coder to add a contact page to my portfolio project"
+- **Check in:** "What's the coder doing?" · **Follow up:** "Tell the coder to also add tests" · **Stop:** "stop"
+
+Every file edit and command asks for your approval (Allow / Deny cards, also spoken). Risky commands such as `git push` or recursive deletes are marked high risk and can only be approved on screen.
+
+**Phone:** on the same Wi-Fi, open Settings (gear icon) → *Pair a phone*, visit the URL shown on your phone, accept the certificate warning, and enter the 6-digit code.
+
+**Development:** `npm run dev` (UI with hot reload on http://localhost:5173) · `npm test`.
+
+**Later — Claude Code:** set `NOVI_CODER=claude` in `.env` to hand coding tasks to [Claude Code](https://claude.com/claude-code) instead of Novi Coder (requires the `claude` CLI logged in; uses your Claude plan).
 
 ## Design notes
 
-Novi is planned to build on an existing agent runtime rather than reimplementing the plumbing (chat transport, model routing, session handling), so effort goes into what makes it distinct: **voice-first supervision of running agents**, **narrated real-time progress**, **TV as an output surface**, and **permission tiers as a core design element rather than an afterthought**.
+Novi builds on an existing agent runtime rather than reimplementing the plumbing (chat transport, model routing, session handling), so effort goes into what makes it distinct: **voice-first supervision of running agents**, **narrated real-time progress**, **TV as an output surface**, and **permission tiers as a core design element rather than an afterthought**.
 
 ---
 
