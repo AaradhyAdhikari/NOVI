@@ -8,19 +8,19 @@ Source vision: `NOVI CONTEXT.txt`, `README.md`
 
 Deliver Novi's signature scenario end to end:
 
-> From the couch, on my phone, I say "Ask Claude to add login to my portfolio project." Novi starts Claude Code on my laptop, narrates progress out loud, asks me before risky actions, and lets me ask "what's Claude doing?", give follow-ups, or say "stop".
+> From the couch, on my phone, I say "Add a login page to my portfolio project." Novi starts a coding agent on my laptop, narrates progress out loud, asks me before risky actions, and lets me ask "what's the coder doing?", give follow-ups, or say "stop".
 
 Success criteria:
 
 1. Push-to-talk voice from the laptop browser **and** a phone browser on the same Wi-Fi.
-2. Novi starts a Claude Code task in a named project, streams narrated progress, accepts follow-up instructions in the same session, and can stop it.
-3. Risky actions requested by Claude Code are approved/denied by me via the UI (and announced by voice) according to permission tiers.
+2. Novi starts a coding task in a named project, streams narrated progress, accepts follow-up instructions in the same session, and can stop it.
+3. Risky actions requested by the coding agent are approved/denied by me via the UI (and announced by voice) according to permission tiers.
 4. Novi keeps working when one free LLM provider is rate-limited (automatic fallback).
-5. Zero paid API usage: the brain runs on free tiers (Groq, Gemini); coding runs on Claude Code with my Claude Pro login.
+5. Zero paid usage and no Claude usage: the brain **and** the coding agent run on free tiers (Groq, Gemini). Claude Code support exists but is off by default (`NOVI_CODER=claude` enables it later, after deployment, for higher-level tasks).
 
 ## 2. Scope
 
-**In:** voice in/out, conversational brain with tool calling, multi-provider router with key pools + fallback, Claude Code control tool, narrator, permission tiers, JSON-file memory (projects, recent tasks), LAN phone access with pairing code over HTTPS, task feed UI.
+**In:** voice in/out, conversational brain with tool calling, multi-provider router with key pools + fallback, coding-agent control tools (built-in free "Novi Coder" by default; Claude Code adapter opt-in), narrator, permission tiers, JSON-file memory (projects, recent tasks), LAN phone access with pairing code over HTTPS, task feed UI.
 
 **Out (later sub-projects):** laptop basics (open apps/URLs), project git summaries, reminders, remote access outside home Wi-Fi, TV casting, wake word, Ollama/local models, other MCP plugins.
 
@@ -36,7 +36,8 @@ Success criteria:
  │ brain/router.js    provider chain, key pools, cooldowns    │
  │ brain/agent.js     conversation loop + tool calling        │
  │ tools/registry.js  tool definitions + risk tier each       │
- │ tools/claudeCode.js  Claude Code process manager           │
+ │ coder/freeCoder.js Novi Coder: Groq/Gemini coding agent    │
+ │ claude/session.js  Claude Code adapter (opt-in, later)     │
  │ narrator.js        Claude events → short spoken updates    │
  │ permissions.js     tier policy + pending-approval queue    │
  │ memory.js          data/memory.json                        │
@@ -85,6 +86,13 @@ One Claude Code task at a time in the MVP.
   - Observed event types: `system/init` (session_id, model, tools), `assistant` (content blocks: thinking, text, tool_use{name,input}), `user` (tool_result, is_error), `system/permission_denied`, `rate_limit_event`, `result/success|error` (result text, session_id, num_turns, permission_denials). Unknown types are ignored.
 - Read-only tools (Read/Glob/Grep) are auto-allowed by Claude Code itself; anything that prompts is routed to `permissions.js`.
 - Stop = send an interrupt control request; if not exited within 5s, kill the process tree (Windows: `taskkill /T /F`). Session id retained so a later "continue" can relaunch with `--resume <session_id>`.
+
+### 4.4b Novi Coder — free coding agent (default)
+- Selected by `NOVI_CODER=free` (default). Implements the same session interface as the Claude Code adapter (events `init`, `text`, `tool_use`, `tool_result`, `result`, `exit`; `send`, `stop`, `close`; `onPermission`), so the task manager, narrator and UI are shared.
+- Agent loop over the provider router (`long` purpose: Gemini first, Groq fallback), max 25 tool rounds per instruction; a turn stays pinned to one provider; if that provider fails mid-session the history is compacted to text and continues on another provider.
+- Workspace tools, confined to the project folder (paths outside are refused): `read_file`, `list_files`, `search`, `write_file`, `edit_file` (unique exact replace), `run_command` (shell in project folder, 120 s timeout, output capped).
+- Tool calls are reported with Claude-style names (Read, Glob, Grep, Write, Edit, Bash) so the same permission tiers and narration apply.
+- Follow-ups keep the conversation in memory; after a Novi restart a follow-up starts a fresh coder conversation for the same project.
 
 ### 4.5 Narrator (`narrator.js`)
 - Groups raw events into human updates and throttles speech: at most one spoken update per ~8s, always speaks immediately for: permission requests, errors, test failures, task finished.
@@ -145,6 +153,6 @@ Single page, mobile-first: big push-to-talk button, conversation transcript, liv
 
 ## 8. User prerequisites
 
-1. Install Claude Code CLI and log in with Claude Pro (`claude` → `/login`).
+1. (Later, optional) Claude Code CLI logged in with Claude Pro, and `NOVI_CODER=claude`.
 2. Free Groq API key (console.groq.com) and free Gemini API key (aistudio.google.com), pasted into `.env` by the user.
 3. Optional extra free providers (OpenRouter, Cerebras, Mistral) — can be added any time.
