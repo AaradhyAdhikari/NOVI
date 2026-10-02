@@ -1,0 +1,30 @@
+{
+  "name": "novi-ai-companion",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -n server,web \"npm:server\" \"vite\"",
+    "server": "node --env-file-if-exists=.env server/index.js",
+    "build": "vite build",
+    "start": "vite build && node --env-file-if-exists=.env server/index.js",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "lucide-react": "^0.475.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "selfsigned": "^2.4.1",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.8",
+    "@types/react-dom": "^19.0.3",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.2",
+    "vite": "^6.1.0",
+    "vitest": "^3.2.7"
+  }
+}
