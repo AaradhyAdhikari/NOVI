@@ -5,7 +5,7 @@ import { firstSentence } from '../narrator.js';
 const MAX_ROUNDS = 6;
 const MAX_HISTORY = 40;
 
-export function systemPrompt({ projects, task }) {
+export function systemPrompt({ projects, task, accounts = [] }) {
   return [
     'You are Novi, a voice-first personal AI companion. Your replies are spoken aloud: answer in 1-3 short, natural sentences, with no markdown, lists or code.',
     "You control a coding agent on the user's laptop through tools. For coding work on a project, call code_start_task with the project name and a clear, complete instruction for the coding agent. For follow-ups to the current or most recent task, call code_send_message. Use code_status for progress questions and code_stop to stop.",
@@ -14,6 +14,8 @@ export function systemPrompt({ projects, task }) {
     'Never say a task is finished unless a tool result says so. If a tool returns an error, explain it briefly.',
     `Known projects: ${projects.length ? projects.map((p) => `${p.name} (${p.path})`).join('; ') : 'none yet'}.`,
     `Current coding task: ${task.active ? `${task.status} on ${task.project}: "${task.instruction}"` : 'none'}.`,
+    'For email use gmail_search (Gmail search syntax), gmail_read and gmail_send; gmail_connect connects a new account. If a tool result contains "ask", ask the user which account and call the tool again with account. Never guess email addresses. Write the complete email before gmail_send; the user approves it on screen. When summarising mail, mention sender and subject briefly.',
+    `Connected accounts: ${accounts.length ? accounts.map((a) => `Gmail ${a.label} (${a.email}${a.isDefault ? ', default' : ''}${a.status === 'expired' ? ', expired' : ''})`).join('; ') : 'none'}.`,
   ].join('\n');
 }
 
@@ -39,7 +41,9 @@ export function describeStatus(s) {
 }
 
 export class Agent {
-  constructor({ router, tools, approvals, memory, tasks }) {
+  constructor({ router, tools, approvals, memory, tasks, accounts = null, privateProviders = ['groq'] }) {
+    this.accounts = accounts;
+    this.privateProviders = privateProviders;
     this.router = router;
     this.tools = tools;
     this.approvals = approvals;
@@ -56,7 +60,7 @@ export class Agent {
     }
 
     const messages = [
-      { role: 'system', content: systemPrompt({ projects: this.memory.listProjects(), task: this.tasks.status() }) },
+      { role: 'system', content: systemPrompt({ projects: this.memory.listProjects(), task: this.tasks.status(), accounts: this._accountsForPrompt() }) },
       ...this.history,
       { role: 'user', content: text },
     ];
@@ -75,10 +79,16 @@ export class Agent {
       const calls = res.message.tool_calls || [];
       if (!calls.length) return this._remember(text, (res.message.content || '').trim() || notes.join(' ') || 'Done.');
       messages.push(res.message);
+      let sensitive = false;
       for (const call of calls) {
         const result = await this._runTool(call);
         if (result.note) notes.push(result.note);
+        if (result.output?.sensitive) sensitive = true;
         messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(result.output) });
+      }
+      // Private data (email) only ever goes to providers the user trusts with it.
+      if (sensitive && !this.privateProviders.includes(provider)) {
+        return this._remember(text, "I can't read your mail right now — my private AI provider is busy. Try again in a minute.");
       }
     }
     return this._remember(text, notes.join(' ') || 'I got stuck working that out. Could you rephrase?');
@@ -103,8 +113,12 @@ export class Agent {
     } catch {
       return { output: { error: 'Arguments were not valid JSON' } };
     }
+    if (tool.precheck) {
+      const pre = await tool.precheck(args);
+      if (pre) return { output: pre, note: pre.note };
+    }
     if (tool.tier !== 'low') {
-      const allowed = await this.approvals.request({ title: tool.describe(args), tier: tool.tier, source: 'novi' });
+      const allowed = await this.approvals.request({ title: tool.describe(args), detail: tool.detail ? tool.detail(args) : '', tier: tool.tier, source: 'novi' });
       if (!allowed) return { output: { error: 'The user declined this action.' } };
     }
     try {
@@ -113,6 +127,11 @@ export class Agent {
     } catch (err) {
       return { output: { error: err.message }, note: err instanceof UserFacingError ? err.message : undefined };
     }
+  }
+
+  _accountsForPrompt() {
+    if (!this.accounts) return [];
+    return this.accounts.list().map((a) => ({ ...a, isDefault: this.accounts.defaultFor(a.provider)?.id === a.id }));
   }
 
   _remember(text, replyText) {

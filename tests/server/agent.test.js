@@ -118,6 +118,56 @@ describe('systemPrompt', () => {
   });
 });
 
+describe('Agent account features', () => {
+  function build(steps, { tool, privateProviders } = {}) {
+    const router = scriptedRouter(steps);
+    const approvals = new ApprovalQueue();
+    const requested = [];
+    approvals.on('added', (a) => { requested.push(a); approvals.resolve(a.id, true); });
+    const tools = new ToolRegistry().add(tool);
+    const agent = new Agent({ router, tools, approvals, memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }), stop: async () => false }, privateProviders });
+    return { agent, router, requested };
+  }
+
+  it('precheck can answer instead of asking for approval', async () => {
+    const tool = { name: 'send', description: 's', parameters: { type: 'object', properties: {} }, tier: 'medium', describe: () => 'Send', precheck: async () => ({ ask: ['a', 'b'], note: 'Which account?' }), run: async () => { throw new Error('must not run'); } };
+    const { agent, router, requested } = build([{ message: { role: 'assistant', content: null, tool_calls: [toolCall('send', {})] }, provider: 'groq', model: 'm' }, reply('Which account?')], { tool });
+    expect(await agent.handle('send it')).toBe('Which account?');
+    expect(requested).toEqual([]);
+    expect(JSON.parse(router.calls[1].messages.at(-1).content)).toEqual({ ask: ['a', 'b'], note: 'Which account?' });
+  });
+
+  it('puts the tool detail (e.g. the full email) in the approval', async () => {
+    const tool = { name: 'send', description: 's', parameters: { type: 'object', properties: {} }, tier: 'medium', describe: () => 'Send from college to sir', detail: (a) => a.body, run: async () => ({ sent: true }) };
+    const { agent, requested } = build([{ message: { role: 'assistant', content: null, tool_calls: [toolCall('send', { body: 'Full email text' })] }, provider: 'groq', model: 'm' }, reply('Sent.')], { tool });
+    await agent.handle('send it');
+    expect(requested[0]).toMatchObject({ title: 'Send from college to sir', detail: 'Full email text' });
+  });
+
+  it('never passes sensitive results to a non-private provider', async () => {
+    const tool = { name: 'mail', description: 'm', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'mail', run: async () => ({ sensitive: true, messages: ['secret'] }) };
+    const { agent, router } = build([{ message: { role: 'assistant', content: null, tool_calls: [toolCall('mail', {})] }, provider: 'gemini', model: 'g' }], { tool });
+    expect(await agent.handle('check my mail')).toBe("I can't read your mail right now — my private AI provider is busy. Try again in a minute.");
+    expect(router.calls).toHaveLength(1);
+  });
+
+  it('continues on the private provider', async () => {
+    const tool = { name: 'mail', description: 'm', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'mail', run: async () => ({ sensitive: true, messages: ['secret'] }) };
+    const { agent, router } = build([{ message: { role: 'assistant', content: null, tool_calls: [toolCall('mail', {})] }, provider: 'groq', model: 'm' }, reply('One new email from Sir.')], { tool });
+    expect(await agent.handle('check my mail')).toBe('One new email from Sir.');
+    expect(router.calls[1].only).toBe('groq');
+    expect(agent.history.map((m) => m.content)).toEqual(['check my mail', 'One new email from Sir.']);
+  });
+
+  it('mentions connected accounts and Gmail tools in the system prompt', async () => {
+    const { systemPrompt } = await import('../../server/brain/agent.js');
+    const p = systemPrompt({ projects: [], task: { active: false }, accounts: [{ provider: 'google', label: 'college', email: 'c@college.edu', isDefault: true }] });
+    expect(p).toContain('gmail_search');
+    expect(p).toContain('college (c@college.edu, default)');
+    expect(p).toMatch(/ask the user which account/i);
+  });
+});
+
 describe('describeStatus', () => {
   it('summarises task states', () => {
     expect(describeStatus({ active: false })).toBe('No coding task is running right now.');
