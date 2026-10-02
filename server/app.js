@@ -33,6 +33,19 @@ export function createNovi(config, overrides = {}) {
   const groqKeys = config.providers.find((p) => p.name === 'groq')?.keys || [];
   const stt = overrides.transcribe || ((audio, mimeType) => transcribe({ audio, mimeType, keys: groqKeys }));
   const lanUrls = overrides.lanUrls || [];
+  // Browsers attach Origin to WebSocket and cross-site requests. Because localhost is
+  // trusted, any other website open in the laptop's browser could otherwise drive Novi
+  // (start tasks, approve commands). Only Novi's own pages are allowed; non-browser
+  // clients send no Origin and still go through the localhost/token checks.
+  const port = config.port || 3001;
+  const allowedOrigins = new Set([
+    ...lanUrls,
+    `https://localhost:${port}`,
+    `https://127.0.0.1:${port}`,
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+  ]);
+  const originAllowed = (req) => !req.headers.origin || allowedOrigins.has(req.headers.origin);
 
   const clients = new Set();
   const transcript = [];
@@ -67,6 +80,7 @@ export function createNovi(config, overrides = {}) {
   const isLocal = (req) => isLocalAddress(req.socket.remoteAddress);
 
   const app = express();
+  app.use('/api', (req, res, next) => (originAllowed(req) ? next() : res.status(403).json({ error: 'Cross-site request blocked' })));
   app.use(express.json({ limit: '100kb' }));
   app.post('/api/pair', (req, res) => {
     const result = pairing.pair(req.body?.code, req.body?.name);
@@ -127,6 +141,10 @@ export function createNovi(config, overrides = {}) {
   function attachWebSocket(server) {
     const wss = new WebSocketServer({ server, path: '/ws' });
     wss.on('connection', (ws, req) => {
+      if (!originAllowed(req)) {
+        ws.close(4003, 'Cross-site connection blocked');
+        return;
+      }
       let authed = isLocalAddress(req.socket.remoteAddress);
       const admit = () => { clients.add(ws); send(ws, snapshot()); };
       if (authed) admit();

@@ -63,6 +63,33 @@ describe('Novi server', () => {
     expect(await res.json()).toEqual({ text: 'heard 4 bytes of audio/webm' });
   });
 
+  it('rejects WebSocket connections from other websites (cross-site WebSocket hijacking)', async () => {
+    const { ws } = await start();
+    const evil = new WebSocket(ws, { headers: { Origin: 'https://evil.example' } });
+    const got = [];
+    evil.on('message', (d) => got.push(JSON.parse(d)));
+    const code = await new Promise((resolve) => evil.on('close', (c) => resolve(c)));
+    expect(code).toBe(4003);
+    expect(got).toEqual([]);
+  });
+
+  it('accepts its own page origin and non-browser local clients', async () => {
+    const { ws, novi } = await start();
+    const page = connect(ws.replace('ws://', 'ws://'));
+    await page.waitFor((m) => m.type === 'snapshot');
+    page.ws.close();
+    const own = new WebSocket(ws, { headers: { Origin: 'https://192.168.1.5:3001' } });
+    await new Promise((resolve) => own.on('message', resolve));
+    own.close();
+    expect(novi).toBeTruthy();
+  });
+
+  it('rejects API calls from other websites', async () => {
+    const { base } = await start();
+    const res = await fetch(`${base}/api/stt`, { method: 'POST', headers: { Origin: 'https://evil.example', 'Content-Type': 'audio/webm' }, body: Buffer.from('a') });
+    expect(res.status).toBe(403);
+  });
+
   it('speaks replies without markdown but keeps them in the transcript', async () => {
     const { ws } = await start({ agent: { handle: async () => 'Created **math.js**.' } });
     const c = connect(ws);
