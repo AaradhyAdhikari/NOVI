@@ -11,7 +11,7 @@ const PROVIDERS = {
   gemini: {
     baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai',
     fast: ['gemini-flash-latest', 'gemini-flash-lite-latest'],
-    long: ['gemini-flash-latest', 'gemini-3.8-flash', 'gemini-flash-lite-latest'],
+    long: ['gemini-flash-latest', 'gemini-flash-lite-latest'],
   },
   cerebras: { baseURL: 'https://api.cerebras.ai/v1', fast: [], long: [] },
   openrouter: { baseURL: 'https://openrouter.ai/api/v1', fast: [], long: [] },
@@ -19,7 +19,8 @@ const PROVIDERS = {
 };
 
 const DEFAULT_FAST = ['groq', 'gemini', 'cerebras', 'openrouter', 'mistral'];
-const DEFAULT_LONG = ['gemini', 'groq', 'cerebras', 'openrouter', 'mistral'];
+// Groq first for both: measured ~0.5s vs Gemini 12-30s for tool-calling turns (2026-10-02).
+const DEFAULT_LONG = ['groq', 'gemini', 'cerebras', 'openrouter', 'mistral'];
 
 export function splitList(value) {
   return (value || '').split(',').map((s) => s.trim()).filter(Boolean);

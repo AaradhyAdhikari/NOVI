@@ -16,7 +16,7 @@ describe('loadConfig', () => {
     expect(c.providers.map((p) => p.name)).toEqual(['groq', 'gemini']);
     expect(c.providers[0].keys).toEqual(['g1', 'g2']);
     expect(c.providers[0].models.fast[0]).toBe('openai/gpt-oss-120b');
-    expect(c.providers[1].models.long).toContain('gemini-3.8-flash');
+    expect(c.providers[1].models.long).toEqual(['gemini-flash-latest', 'gemini-flash-lite-latest']);
   });
 
   it('skips providers without keys and extras without models', () => {
@@ -29,8 +29,8 @@ describe('loadConfig', () => {
     expect(c.providers.find((p) => p.name === 'cerebras').models.fast).toEqual(['llama-x']);
   });
 
-  it('orders providers: fast prefers groq, long prefers gemini, env overrides', () => {
-    expect(loadConfig(base).order).toEqual({ fast: ['groq', 'gemini'], long: ['gemini', 'groq'] });
+  it('orders providers: groq first for both (measured latency), env overrides', () => {
+    expect(loadConfig(base).order).toEqual({ fast: ['groq', 'gemini'], long: ['groq', 'gemini'] });
     expect(loadConfig({ ...base, NOVI_FAST_ORDER: 'gemini' }).order.fast).toEqual(['gemini', 'groq']);
   });
 
