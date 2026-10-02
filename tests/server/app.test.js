@@ -44,6 +44,11 @@ function connect(url) {
 }
 
 describe('Novi server', () => {
+  it('registers the laptop tools for the brain', async () => {
+    const { novi } = await start();
+    for (const name of ['open_website', 'youtube_search', 'play_youtube', 'open_app']) expect(novi.tools.get(name)).toBeTruthy();
+  });
+
   it('rejects wrong pairing codes', async () => {
     const { base } = await start();
     const res = await fetch(`${base}/api/pair`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: 'nope' }) });

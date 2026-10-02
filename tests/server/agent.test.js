@@ -108,6 +108,15 @@ describe('Agent', () => {
   });
 });
 
+describe('systemPrompt', () => {
+  it('tells the brain about laptop actions and positions in YouTube results', async () => {
+    const { systemPrompt } = await import('../../server/brain/agent.js');
+    const p = systemPrompt({ projects: [], task: { active: false } });
+    for (const name of ['open_website', 'play_youtube', 'youtube_search', 'open_app']) expect(p).toContain(name);
+    expect(p).toMatch(/position/);
+  });
+});
+
 describe('describeStatus', () => {
   it('summarises task states', () => {
     expect(describeStatus({ active: false })).toBe('No coding task is running right now.');

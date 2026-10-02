@@ -10,6 +10,7 @@ import { TaskManager } from './claude/taskManager.js';
 import { ClaudeSession } from './claude/session.js';
 import { FreeCoderSession } from './coder/freeCoder.js';
 import { createNoviTools } from './tools/noviTools.js';
+import { addLaptopTools } from './laptop/laptopTools.js';
 import { Pairing, isLocalAddress } from './auth.js';
 import { transcribe } from './voice/stt.js';
 import { plainText } from './narrator.js';
@@ -27,7 +28,7 @@ export function createNovi(config, overrides = {}) {
       ? (opts) => new ClaudeSession({ command: config.claudeCommand, ...opts })
       : (opts) => new FreeCoderSession({ router, ...opts }),
   });
-  const tools = createNoviTools({ memory, tasks });
+  const tools = addLaptopTools(createNoviTools({ memory, tasks }), overrides.laptop);
   const agent = overrides.agent || new Agent({ router, tools, approvals, memory, tasks });
   const pairing = overrides.pairing || new Pairing({ file: path.join(config.dataDir, 'devices.json') });
   const groqKeys = config.providers.find((p) => p.name === 'groq')?.keys || [];
@@ -162,5 +163,5 @@ export function createNovi(config, overrides = {}) {
     return wss;
   }
 
-  return { app, attachWebSocket, memory, approvals, tasks, router, agent, pairing, broadcast };
+  return { app, attachWebSocket, memory, approvals, tasks, router, agent, tools, pairing, broadcast };
 }
