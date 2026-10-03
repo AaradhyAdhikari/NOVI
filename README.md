@@ -212,7 +212,7 @@ Then: "summarize my inbox", "any mail from my teacher?", "read me the one from A
 
 ## Design notes
 
-Novi builds on an existing agent runtime rather than reimplementing the plumbing (chat transport, model routing, session handling), so effort goes into what makes it distinct: **voice-first supervision of running agents**, **narrated real-time progress**, **TV as an output surface**, and **permission tiers as a core design element rather than an afterthought**.
+Novi has its own small, tested core (provider router, tool-calling agent, task manager, approvals) rather than depending on a general-purpose agent framework, so free providers, privacy routing and approvals are built in from the start. Effort goes into what makes it distinct: **voice-first supervision of running agents**, **narrated real-time progress**, **TV as an output surface**, and **permission tiers as a core design element rather than an afterthought**.
 
 ---
 
