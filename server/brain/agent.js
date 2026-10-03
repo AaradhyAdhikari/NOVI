@@ -113,16 +113,26 @@ export class Agent {
     } catch {
       return { output: { error: 'Arguments were not valid JSON' } };
     }
-    if (tool.precheck) {
-      const pre = await tool.precheck(args);
-      if (pre) return { output: pre, note: pre.note };
-    }
-    if (tool.tier !== 'low') {
-      const allowed = await this.approvals.request({ title: tool.describe(args), detail: tool.detail ? tool.detail(args) : '', tier: tool.tier, source: 'novi' });
-      if (!allowed) return { output: { error: 'The user declined this action.' } };
+    if (tool.gate) {
+      // Plugin tools: approval and blocking come from before_tool_call hooks (OpenClaw shape).
+      const gate = await tool.gate(args, { toolCallId: call.id });
+      if (gate.block) return { output: { error: gate.blockReason, ...(gate.details || {}) }, note: gate.blockReason };
+      if (gate.approval) {
+        const allowed = await this.approvals.request({ title: gate.approval.title, detail: gate.approval.detail || '', tier: gate.approval.tier, source: 'novi' });
+        if (!allowed) return { output: { error: 'The user declined this action.' } };
+      }
+    } else {
+      if (tool.precheck) {
+        const pre = await tool.precheck(args);
+        if (pre) return { output: pre, note: pre.note };
+      }
+      if (tool.tier !== 'low') {
+        const allowed = await this.approvals.request({ title: tool.describe(args), detail: tool.detail ? tool.detail(args) : '', tier: tool.tier, source: 'novi' });
+        if (!allowed) return { output: { error: 'The user declined this action.' } };
+      }
     }
     try {
-      const output = await tool.run(args);
+      const output = await tool.run(args, { toolCallId: call.id });
       return { output, note: output?.note };
     } catch (err) {
       return { output: { error: err.message }, note: err instanceof UserFacingError ? err.message : undefined };
