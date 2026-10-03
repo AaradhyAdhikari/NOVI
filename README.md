@@ -158,6 +158,8 @@ Novi never blindly executes. Actions are tiered:
 - [x] Phone → laptop control on home Wi-Fi (pairing code)
 - [x] Coding-agent supervision by voice (Novi Coder; Claude Code adapter ready, off by default)
 - [ ] Remote phone → laptop control from anywhere
+- [x] Account sign-in: Gmail (multiple accounts, approval before sending)
+- [ ] GitHub, LeetCode and other sites via Novi's own browser
 - [ ] Persistent memory (preferences, decisions, conversations)
 - [ ] Browser automation
 - [ ] GitHub integration
@@ -193,6 +195,18 @@ Every file edit and command asks for your approval (Allow / Deny cards, also spo
 **Phone:** on the same Wi-Fi, open Settings (gear icon) → *Pair a phone*, visit the URL shown on your phone, accept the certificate warning, and enter the 6-digit code.
 
 **Development:** `npm run dev` (UI with hot reload on http://localhost:5173) · `npm test`.
+
+### Gmail (optional)
+
+Novi can search, read and send email from one or more Gmail accounts. You sign in on Google's own page, so Novi never sees your password; its access key is stored encrypted with your Windows login (DPAPI). Email content is only ever processed by Groq, never by Gemini's free tier.
+
+1. In [Google Cloud Console](https://console.cloud.google.com) create a project, enable the **Gmail API**, configure the OAuth consent screen (External; home page and privacy policy can point to this repo and [PRIVACY.md](PRIVACY.md)) and click **Publish app** so access does not expire after 7 days.
+2. Create an OAuth client of type **Desktop app** and put `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `.env`.
+3. Start Novi, open **Settings → Connect Gmail**, pick the account, and on "Google hasn't verified this app" choose **Advanced → Go to Novi**. Repeat for more accounts.
+
+Then: "summarize my inbox", "any mail from my teacher?", "read me the one from Amazon", "email Sir that I'll be late" (Novi shows the full email and sends only after you tap Allow). With several accounts Novi asks which one, unless you name it ("my college Gmail") or set a default ("use personal by default"). "Check all my inboxes" searches every account.
+
+**Windows tip:** if PowerShell says running scripts is disabled, use `npm.cmd start` or double-click **Start Novi.cmd**.
 
 **Later — Claude Code:** set `NOVI_CODER=claude` in `.env` to hand coding tasks to [Claude Code](https://claude.com/claude-code) instead of Novi Coder (requires the `claude` CLI logged in; uses your Claude plan).
 
