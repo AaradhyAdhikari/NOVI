@@ -1,0 +1,9 @@
+{
+  "id": "clock",
+  "name": "Clock",
+  "description": "Tells the time and can announce a message (example plugin).",
+  "categories": ["other"],
+  "contracts": { "tools": ["clock_now", "clock_announce"] },
+  "activation": { "onStartup": true },
+  "configSchema": { "type": "object", "additionalProperties": false }
+}

@@ -26,5 +26,8 @@
     "concurrently": "^9.1.2",
     "vite": "^6.1.0",
     "vitest": "^3.2.7"
+  },
+  "imports": {
+    "#plugin-sdk": "./server/plugins/sdk.js"
   }
 }
