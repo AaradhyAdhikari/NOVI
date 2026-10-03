@@ -19,6 +19,10 @@ import { SecretStore, defaultCipher } from './accounts/secrets.js';
 import { GoogleAuth } from './google/oauth.js';
 import { GmailClient } from './google/gmail.js';
 import { addAccountTools } from './tools/accountTools.js';
+import { ToolRegistry } from './tools/registry.js';
+import { PluginHost } from './plugins/host.js';
+import { wrapRegistryAsPlugin } from './plugins/builtin.js';
+import { openUrl } from './laptop/opener.js';
 
 export function createNovi(config, overrides = {}) {
   const memory = overrides.memory || new Memory(path.join(config.dataDir, 'memory.json'));
@@ -37,9 +41,18 @@ export function createNovi(config, overrides = {}) {
       ? (opts) => new ClaudeSession({ command: config.claudeCommand, ...opts })
       : (opts) => new FreeCoderSession({ router, ...opts }),
   });
-  const tools = addAccountTools(addLaptopTools(createNoviTools({ memory, tasks }), overrides.laptop), {
-    accounts, auth, gmail, onConnected: (a) => onConnected(a), onConnectError: (e) => onConnectError(e),
+  // Every feature is an OpenClaw-shaped plugin; built-ins wrap the existing tool registries.
+  const plugins = new PluginHost({
+    runtime: { memory, accounts, tasks, openUrl, speak: (text) => broadcast({ type: 'speak', text: plainText(text) }), logger: console },
   });
+  plugins.register(wrapRegistryAsPlugin({ id: 'coding', name: 'Coding tasks', registry: createNoviTools({ memory, tasks }) }));
+  plugins.register(wrapRegistryAsPlugin({ id: 'laptop', name: 'Laptop basics', registry: addLaptopTools(new ToolRegistry(), overrides.laptop) }));
+  plugins.register(wrapRegistryAsPlugin({
+    id: 'accounts',
+    name: 'Accounts and Gmail',
+    registry: addAccountTools(new ToolRegistry(), { accounts, auth, gmail, onConnected: (a) => onConnected(a), onConnectError: (e) => onConnectError(e) }),
+  }));
+  const tools = plugins;
   const agent = overrides.agent || new Agent({ router, tools, approvals, memory, tasks, accounts, privateProviders: config.privateProviders || ['groq'] });
   const pairing = overrides.pairing || new Pairing({ file: path.join(config.dataDir, 'devices.json') });
   const groqKeys = config.providers.find((p) => p.name === 'groq')?.keys || [];
@@ -215,5 +228,5 @@ export function createNovi(config, overrides = {}) {
     return wss;
   }
 
-  return { app, attachWebSocket, memory, accounts, approvals, tasks, router, agent, tools, pairing, broadcast };
+  return { app, attachWebSocket, memory, accounts, approvals, tasks, router, agent, tools, plugins, pairing, broadcast };
 }

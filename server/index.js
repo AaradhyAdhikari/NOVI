@@ -10,6 +10,7 @@ if (!config.providers.length) console.warn('⚠  No AI provider keys found. Add 
 
 const lanUrls = lanAddresses().map((ip) => `https://${ip}:${config.port}`);
 const novi = createNovi(config, { lanUrls });
+await novi.plugins.loadDirectory(path.resolve('plugins'));
 const server = https.createServer(loadOrCreateCert(path.join(config.dataDir, 'certs')), novi.app);
 novi.attachWebSocket(server);
 
@@ -19,6 +20,7 @@ server.listen(config.port, '0.0.0.0', () => {
   for (const url of lanUrls) console.log(`  Phone:  ${url}`);
   console.log(`  Coding agent: ${config.coder === 'claude' ? 'Claude Code (uses your Claude plan)' : 'Novi Coder (free Groq/Gemini)'}`);
   console.log(`  Providers: ${config.providers.map((p) => `${p.name} (${p.keys.length} key${p.keys.length === 1 ? '' : 's'})`).join(', ') || 'none'}`);
+  console.log(`  Plugins: ${novi.plugins.plugins.map((p) => p.id).join(', ')}`);
   console.log(`  Pairing code: ${novi.pairing.currentCode().code} (also shown in the app)\n`);
 });
 

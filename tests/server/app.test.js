@@ -79,6 +79,13 @@ describe('Novi server', () => {
     expect(novi.accounts.list()).toEqual([]);
   });
 
+  it('serves built-in features as plugins', async () => {
+    const { novi } = await start();
+    expect(novi.plugins.plugins.map((p) => p.id)).toEqual(['coding', 'laptop', 'accounts']);
+    expect(novi.tools).toBe(novi.plugins);
+    expect(await novi.tools.get('gmail_send').gate({ to: 'a@b.c', subject: 's', body: 'b' })).toEqual({ block: true, blockReason: 'No Gmail account is connected yet — say "connect my Gmail".', details: { error: 'No Gmail account is connected yet — say "connect my Gmail".', note: 'No Gmail account is connected yet — say "connect my Gmail".' } });
+  });
+
   it('rejects wrong pairing codes', async () => {
     const { base } = await start();
     const res = await fetch(`${base}/api/pair`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: 'nope' }) });

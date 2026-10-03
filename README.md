@@ -210,6 +210,10 @@ Then: "summarize my inbox", "any mail from my teacher?", "read me the one from A
 
 **Later — Claude Code:** set `NOVI_CODER=claude` in `.env` to hand coding tasks to [Claude Code](https://claude.com/claude-code) instead of Novi Coder (requires the `claude` CLI logged in; uses your Claude plan).
 
+## Adding features
+
+Every feature is a plugin in [`plugins/`](plugins), written in the same shape as [OpenClaw](https://docs.openclaw.ai) plugins so Novi can move onto OpenClaw later without rewriting features. See **[docs/PLUGINS.md](docs/PLUGINS.md)** and the example [`plugins/clock`](plugins/clock).
+
 ## Design notes
 
 Novi has its own small, tested core (provider router, tool-calling agent, task manager, approvals) rather than depending on a general-purpose agent framework, so free providers, privacy routing and approvals are built in from the start. Effort goes into what makes it distinct: **voice-first supervision of running agents**, **narrated real-time progress**, **TV as an output surface**, and **permission tiers as a core design element rather than an afterthought**.
