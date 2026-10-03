@@ -62,6 +62,10 @@ describe('resolveAccount', () => {
     expect(resolveAccount(new AccountRegistry(file()), 'google').error).toMatch(/No Gmail account is connected/);
   });
 
+  it('names GitHub correctly', () => {
+    expect(resolveAccount(new AccountRegistry(file()), 'github').error).toBe('No GitHub account is connected yet — say "connect my GitHub".');
+  });
+
   it('uses the only account without asking', () => {
     const r = new AccountRegistry(file());
     r.add({ provider: 'google', email: 'solo@gmail.com' });

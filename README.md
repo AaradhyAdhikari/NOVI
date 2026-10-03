@@ -159,7 +159,8 @@ Novi never blindly executes. Actions are tiered:
 - [x] Coding-agent supervision by voice (Novi Coder; Claude Code adapter ready, off by default)
 - [ ] Remote phone → laptop control from anywhere
 - [x] Account sign-in: Gmail (multiple accounts, approval before sending)
-- [ ] GitHub, LeetCode and other sites via Novi's own browser
+- [x] GitHub plugin (notifications, repos, issues/PRs; comments and new issues with approval)
+- [ ] LeetCode and other sites via Novi's own browser
 - [ ] Persistent memory (preferences, decisions, conversations)
 - [ ] Browser automation
 - [ ] GitHub integration
@@ -205,6 +206,14 @@ Novi can search, read and send email from one or more Gmail accounts. You sign i
 3. Start Novi, open **Settings → Connect Gmail**, pick the account, and on "Google hasn't verified this app" choose **Advanced → Go to Novi**. Repeat for more accounts.
 
 Then: "summarize my inbox", "any mail from my teacher?", "read me the one from Amazon", "email Sir that I'll be late" (Novi shows the full email and sends only after you tap Allow). With several accounts Novi asks which one, unless you name it ("my college Gmail") or set a default ("use personal by default"). "Check all my inboxes" searches every account.
+
+### GitHub (optional)
+
+1. On GitHub: **Settings → Developer settings → OAuth Apps → New OAuth App** (name `Novi`, homepage this repo, callback `http://127.0.0.1`), click **Register application**, tick **Enable Device Flow**, then **Update application**.
+2. Put the **Client ID** in `.env` as `NOVI_PLUGIN_GITHUB_CLIENT_ID=...` (no secret needed) and restart Novi.
+3. Say "connect my GitHub" (or Settings → **Connect GitHub**): Novi shows a short code and opens github.com/login/device. Enter it and click **Authorize**.
+
+Then: "any GitHub notifications?", "list my repos", "open issues on NOVI", "read issue 3", and, with an approval card showing the full text, "comment on issue 3 that it's fixed", "open an issue on NOVI: add TV casting", "mark my notifications read". Private-repo content stays on Groq, like email.
 
 **Windows tip:** if PowerShell says running scripts is disabled, use `npm.cmd start` or double-click **Start Novi.cmd**.
 

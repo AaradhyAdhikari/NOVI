@@ -1,0 +1,15 @@
+{
+  "id": "github",
+  "name": "GitHub",
+  "description": "GitHub notifications, repositories, issues and pull requests; comments and new issues need approval.",
+  "categories": ["developer"],
+  "contracts": {
+    "tools": ["github_connect", "github_notifications", "github_repos", "github_issues", "github_read", "github_comment", "github_create_issue", "github_mark_read"]
+  },
+  "activation": { "onStartup": true },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": { "client_id": { "type": "string", "description": "GitHub OAuth app Client ID (Device Flow enabled). Set NOVI_PLUGIN_GITHUB_CLIENT_ID in .env." } }
+  }
+}

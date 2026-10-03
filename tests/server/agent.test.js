@@ -164,6 +164,7 @@ describe('Agent account features', () => {
     const p = systemPrompt({ projects: [], task: { active: false }, accounts: [{ provider: 'google', label: 'college', email: 'c@college.edu', isDefault: true }] });
     expect(p).toContain('gmail_search');
     expect(p).toContain('college (c@college.edu, default)');
+    expect(systemPrompt({ projects: [], task: { active: false }, accounts: [{ provider: 'github', label: 'octo', email: 'octo' }] })).toContain('GitHub octo (octo)');
     expect(p).toMatch(/ask the user which account/i);
   });
 });

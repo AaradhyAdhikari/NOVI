@@ -8,6 +8,11 @@ export default function SettingsDrawer({ open, onClose, projects, devices, accou
     const res = await api(`/api/accounts/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     if (!res.ok) setAccountMsg((await res.json().catch(() => ({}))).error || 'That did not work.');
   };
+  const connectGithub = async () => {
+    const res = await api('/api/accounts/github/connect', { method: 'POST' });
+    const body = await res.json().catch(() => ({}));
+    setAccountMsg(body.user_code ? `On github.com/login/device (opened on the laptop) enter: ${body.user_code}` : body.error || 'Could not start the GitHub connection.');
+  };
   const connectGmail = async () => {
     const res = await api('/api/accounts/google/connect', { method: 'POST' });
     const body = await res.json().catch(() => ({}));
@@ -52,7 +57,7 @@ export default function SettingsDrawer({ open, onClose, projects, devices, accou
                     {a.isDefault && <span className="badge done">default</span>}
                     {a.status === 'expired' && <span className="badge failed">expired</span>}
                   </strong>
-                  <span className="muted">Gmail · {a.email}</span>
+                  <span className="muted">{a.provider === 'github' ? 'GitHub' : 'Gmail'} · {a.email}</span>
                 </div>
                 <div className="row-actions">
                   {!a.isDefault && <button className="btn" onClick={() => patchAccount(a.id, { default: true })}>Make default</button>}
@@ -62,7 +67,10 @@ export default function SettingsDrawer({ open, onClose, projects, devices, accou
               </li>
             ))}
           </ul>
-          <button className="btn primary" disabled={!googleConfigured} onClick={connectGmail}>Connect Gmail</button>
+          <div className="row-actions">
+            <button className="btn primary" disabled={!googleConfigured} onClick={connectGmail}>Connect Gmail</button>
+            <button className="btn" onClick={connectGithub}>Connect GitHub</button>
+          </div>
           {accountMsg && <p className="muted">{accountMsg}</p>}
         </section>
 

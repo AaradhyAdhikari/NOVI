@@ -86,6 +86,25 @@ describe('Novi server', () => {
     expect(await novi.tools.get('gmail_send').gate({ to: 'a@b.c', subject: 's', body: 'b' })).toEqual({ block: true, blockReason: 'No Gmail account is connected yet — say "connect my Gmail".', details: { error: 'No Gmail account is connected yet — say "connect my Gmail".', note: 'No Gmail account is connected yet — say "connect my Gmail".' } });
   });
 
+  it('gives plugins account services and disconnects GitHub accounts locally', async () => {
+    const { base, novi } = await start();
+    expect(novi.plugins.runtime.resolveAccount('github').error).toMatch(/No GitHub account/);
+    const a = novi.accounts.add({ provider: 'github', email: 'octo' });
+    await novi.plugins.runtime.secrets.set(a.id, 'gho_x');
+    expect(await novi.plugins.runtime.secrets.get(a.id)).toBe('gho_x');
+    expect((await fetch(`${base}/api/accounts/${a.id}`, { method: 'DELETE' })).status).toBe(200);
+    expect(novi.accounts.list()).toEqual([]);
+    expect(await novi.plugins.runtime.secrets.get(a.id)).toBeNull();
+  });
+
+  it('starts GitHub connection from Settings via the github plugin', async () => {
+    const { base, novi } = await start();
+    expect((await fetch(`${base}/api/accounts/github/connect`, { method: 'POST' })).status).toBe(404);
+    novi.plugins.register({ id: 'github', name: 'GitHub', register(api) { api.registerTool({ name: 'github_connect', description: 'c', parameters: { type: 'object', properties: {} }, execute: async () => ({ content: [], details: { user_code: 'AB12-CD34', note: 'Enter AB12-CD34' } }) }); } });
+    const res = await fetch(`${base}/api/accounts/github/connect`, { method: 'POST' });
+    expect(await res.json()).toEqual({ user_code: 'AB12-CD34', note: 'Enter AB12-CD34' });
+  });
+
   it('rejects wrong pairing codes', async () => {
     const { base } = await start();
     const res = await fetch(`${base}/api/pair`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: 'nope' }) });

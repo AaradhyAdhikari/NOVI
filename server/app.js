@@ -19,6 +19,7 @@ import { SecretStore, defaultCipher } from './accounts/secrets.js';
 import { GoogleAuth } from './google/oauth.js';
 import { GmailClient } from './google/gmail.js';
 import { addAccountTools } from './tools/accountTools.js';
+import { resolveAccount, askNote } from './accounts/resolve.js';
 import { ToolRegistry } from './tools/registry.js';
 import { PluginHost } from './plugins/host.js';
 import { wrapRegistryAsPlugin } from './plugins/builtin.js';
@@ -43,7 +44,11 @@ export function createNovi(config, overrides = {}) {
   });
   // Every feature is an OpenClaw-shaped plugin; built-ins wrap the existing tool registries.
   const plugins = new PluginHost({
-    runtime: { memory, accounts, tasks, openUrl, speak: (text) => broadcast({ type: 'speak', text: plainText(text) }), logger: console },
+    runtime: {
+      memory, accounts, secrets, tasks, openUrl,
+      resolveAccount: (provider, requested, opts) => resolveAccount(accounts, provider, requested, opts),
+      askNote,
+      speak: (text) => broadcast({ type: 'speak', text: plainText(text) }), logger: console },
   });
   plugins.register(wrapRegistryAsPlugin({ id: 'coding', name: 'Coding tasks', registry: createNoviTools({ memory, tasks }) }));
   plugins.register(wrapRegistryAsPlugin({ id: 'laptop', name: 'Laptop basics', registry: addLaptopTools(new ToolRegistry(), overrides.laptop) }));
@@ -146,6 +151,16 @@ export function createNovi(config, overrides = {}) {
       res.status(400).json({ error: err.message });
     }
   });
+  app.post('/api/accounts/github/connect', async (req, res) => {
+    const tool = plugins.get('github_connect');
+    if (!tool) return res.status(404).json({ error: 'The GitHub plugin is not loaded.' });
+    try {
+      const out = await tool.run({});
+      res.status(out.error ? 400 : 200).json(out);
+    } catch (err) {
+      res.status(502).json({ error: err.message });
+    }
+  });
   app.patch('/api/accounts/:id', (req, res) => {
     const account = accounts.get(req.params.id);
     if (!account) return res.status(404).json({ error: 'No such account' });
@@ -161,7 +176,13 @@ export function createNovi(config, overrides = {}) {
   });
   app.delete('/api/accounts/:id', async (req, res) => {
     if (!accounts.get(req.params.id)) return res.status(404).json({ error: 'No such account' });
-    await auth.disconnect(req.params.id);
+    const account = accounts.get(req.params.id);
+    if (account.provider === 'google') await auth.disconnect(account.id);
+    else {
+      // Other providers: forget the key locally (revoke remains available on the provider's site).
+      secrets.delete(account.id);
+      accounts.remove(account.id);
+    }
     res.json({ removed: true });
     broadcast(snapshot());
   });

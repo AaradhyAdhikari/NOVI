@@ -1,4 +1,4 @@
-const NAMES = { google: 'Gmail' };
+const NAMES = { google: 'Gmail', github: 'GitHub' };
 
 // Which account a request means: named → that one; else the only one; else the default; else ask.
 export function resolveAccount(registry, provider, requested, { allowAll = false } = {}) {
