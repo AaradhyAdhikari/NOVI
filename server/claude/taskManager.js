@@ -12,9 +12,10 @@ export function permissionTitle(toolName, input = {}, agentName = 'Claude') {
 }
 
 export class TaskManager extends EventEmitter {
-  constructor({ memory, approvals, createSession, agentName = 'Claude', narratorIntervalMs = 8000 }) {
+  constructor({ memory, approvals, createSession, agentName = 'Claude', agentLabels = {}, narratorIntervalMs = 8000 }) {
     super();
-    this.agentName = agentName;
+    this.agentName = agentName; // label of the default coder
+    this.agentLabels = agentLabels; // e.g. { 'novi-coder': 'Novi Coder', claude: 'Claude' }
     this.memory = memory;
     this.approvals = approvals;
     this.createSession = createSession;
@@ -29,8 +30,8 @@ export class TaskManager extends EventEmitter {
     return Boolean(this.task?.status === 'running' && this.session && !this.session.exited);
   }
 
-  start(projectName, instruction) {
-    if (this.isRunning()) throw new UserFacingError(`${this.agentName} is already working on ${this.task.project}. Say "stop" first, or give it a follow-up.`);
+  start(projectName, instruction, { agent } = {}) {
+    if (this.isRunning()) throw new UserFacingError(`${this.task.agentName || this.agentName} is already working on ${this.task.project}. Say "stop" first, or give it a follow-up.`);
     const project = this.memory.findProject(projectName);
     if (!project) throw new UserFacingError(`I don't know a project called "${projectName}". Tell me its folder and I'll remember it.`);
     this._closeSession();
@@ -45,6 +46,8 @@ export class TaskManager extends EventEmitter {
       summary: null,
       updates: [],
       allowEdits: false,
+      agent: agent || null,
+      agentName: this.agentLabels[agent] || this.agentName,
     };
     this.task = task;
     this.memory.touchProject(project.name);
@@ -92,7 +95,7 @@ export class TaskManager extends EventEmitter {
   status() {
     if (!this.task) return { active: false };
     const { id, project, instruction, status, startedAt, summary, allowEdits } = this.task;
-    return { active: true, agent: this.agentName, id, project, instruction, status, startedAt, summary, allowEdits, recent: this.task.updates.slice(-5).map((u) => u.text) };
+    return { active: true, agent: this.task.agentName || this.agentName, id, project, instruction, status, startedAt, summary, allowEdits, recent: this.task.updates.slice(-5).map((u) => u.text) };
   }
 
   _restoreLastTask() {
@@ -107,14 +110,14 @@ export class TaskManager extends EventEmitter {
     this.stopping = false;
     this.narrator = new Narrator({
       intervalMs: this.narratorIntervalMs,
-      agentName: this.agentName,
+      agentName: task.agentName || this.agentName,
       onFeed: (text) => {
         task.updates = [...task.updates, { at: new Date().toISOString(), text }].slice(-50);
         this.emit('feed', { taskId: task.id, text });
       },
       onSpeak: (text) => this.emit('speak', text),
     });
-    const session = this.createSession({ cwd: task.path, resumeSessionId, onPermission: (req) => this._onPermission(task, req) });
+    const session = this.createSession({ cwd: task.path, resumeSessionId, agent: task.agent || null, onPermission: (req) => this._onPermission(task, req) });
     this.session = session;
     session.on('event', (event) => this._onEvent(task, session, event));
   }
@@ -147,7 +150,7 @@ export class TaskManager extends EventEmitter {
     const tier = classifyClaudeTool(toolName, input, task.path);
     if (tier === 'low') return { allow: true };
     if (tier === 'medium' && task.allowEdits && EDIT_TOOLS.has(toolName)) return { allow: true };
-    const allow = await this.approvals.request({ title: permissionTitle(toolName, input, this.agentName), detail: description || '', tier, source: 'claude' });
+    const allow = await this.approvals.request({ title: permissionTitle(toolName, input, task.agentName || this.agentName), detail: description || '', tier, source: 'claude' });
     return allow ? { allow: true } : { allow: false, message: 'The user denied this action. Do not retry it; continue without it or explain what you need.' };
   }
 

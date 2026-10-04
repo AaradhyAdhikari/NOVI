@@ -33,14 +33,17 @@ export function createNovi(config, overrides = {}) {
   const gmail = new GmailClient({ getToken: (a) => auth.accessToken(a), invalidate: (a) => auth.invalidate(a.id) });
   const approvals = overrides.approvals || new ApprovalQueue();
   const router = overrides.router || new Router({ providers: config.providers, order: config.order });
-  const useClaude = config.coder === 'claude'; // opt-in: uses the user's Claude plan
+  // Default coder: Novi Coder (free). Claude Code only when configured, or when the user says "use Claude instead".
+  const defaultCoder = config.coder === 'claude' ? 'claude' : 'novi-coder';
+  const claudeInstalled = Boolean(config.claudeCommand) && fs.existsSync(config.claudeCommand);
   const tasks = overrides.tasks || new TaskManager({
     memory,
     approvals,
-    agentName: useClaude ? 'Claude' : 'Novi Coder',
-    createSession: useClaude
-      ? (opts) => new ClaudeSession({ command: config.claudeCommand, ...opts })
-      : (opts) => new FreeCoderSession({ router, ...opts }),
+    agentName: defaultCoder === 'claude' ? 'Claude' : 'Novi Coder',
+    agentLabels: { 'novi-coder': 'Novi Coder', claude: 'Claude' },
+    createSession: (opts) => ((opts.agent || defaultCoder) === 'claude'
+      ? new ClaudeSession({ command: config.claudeCommand, ...opts })
+      : new FreeCoderSession({ router, ...opts })),
   });
   // Every feature is an OpenClaw-shaped plugin; built-ins wrap the existing tool registries.
   const plugins = new PluginHost({
@@ -50,7 +53,7 @@ export function createNovi(config, overrides = {}) {
       askNote,
       speak: (text) => broadcast({ type: 'speak', text: plainText(text) }), logger: console },
   });
-  plugins.register(wrapRegistryAsPlugin({ id: 'coding', name: 'Coding tasks', registry: createNoviTools({ memory, tasks }) }));
+  plugins.register(wrapRegistryAsPlugin({ id: 'coding', name: 'Coding tasks', registry: createNoviTools({ memory, tasks, coder: defaultCoder, alternativeAvailable: defaultCoder === 'claude' || claudeInstalled }) }));
   plugins.register(wrapRegistryAsPlugin({ id: 'laptop', name: 'Laptop basics', registry: addLaptopTools(new ToolRegistry(), overrides.laptop) }));
   plugins.register(wrapRegistryAsPlugin({
     id: 'accounts',
@@ -115,7 +118,7 @@ export function createNovi(config, overrides = {}) {
   tasks.on('task', (task) => broadcast({ type: 'task', task }));
   approvals.on('added', (approval) => {
     broadcast({ type: 'approval_added', approval });
-    broadcast({ type: 'speak', text: approval.tier === 'high' ? `High risk: ${approval.title}. Please confirm on screen.` : `${approval.title}. Should I allow it?` });
+    broadcast({ type: 'speak', text: approval.tier === 'high' ? `High risk: ${approval.title}. Please confirm on screen.` : approval.prompt || `${approval.title}. Should I allow it?` });
   });
   approvals.on('resolved', (r) => broadcast({ type: 'approval_resolved', ...r }));
 
@@ -217,7 +220,7 @@ export function createNovi(config, overrides = {}) {
         broadcast(snapshot());
       }
     } else if (msg.type === 'approval') {
-      approvals.resolve(msg.id, Boolean(msg.allow), 'screen');
+      approvals.resolve(msg.id, Boolean(msg.allow), 'screen', typeof msg.choice === 'string' ? msg.choice : null);
     } else if (msg.type === 'allow_edits') {
       tasks.setAllowEdits(Boolean(msg.allow));
     } else if (msg.type === 'stop') {

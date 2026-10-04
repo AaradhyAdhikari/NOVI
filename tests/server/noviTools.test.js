@@ -54,6 +54,6 @@ describe('createNoviTools', () => {
 
   it('describes actions for approval prompts', () => {
     const { tools } = setup();
-    expect(tools.get('code_start_task').describe({ project: 'site', instruction: 'add login' })).toBe('Start the coder on site: "add login"');
+    expect(tools.get('code_start_task').describe({ project: 'site', instruction: 'add login' })).toBe('Start Novi Coder (free, Groq) on site: "add login"');
   });
 });

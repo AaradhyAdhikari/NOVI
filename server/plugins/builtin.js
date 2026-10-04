@@ -29,6 +29,9 @@ export function wrapRegistryAsPlugin({ id, name, description = '', registry }) {
             title: tool.describe(params),
             description: tool.detail ? tool.detail(params) : '',
             severity: tool.tier === 'high' ? 'critical' : 'warning',
+            // Novi extensions: what to say aloud, and alternative options ("use Claude instead").
+            prompt: tool.prompt ? tool.prompt(params) : undefined,
+            choices: tool.choices ? tool.choices(params) : undefined,
           },
         };
       });

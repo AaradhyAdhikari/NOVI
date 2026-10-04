@@ -19,11 +19,16 @@ export function systemPrompt({ projects, task, accounts = [] }) {
   ].join('\n');
 }
 
+const CHOICE_RE = /^(?:no[, ]+)?(?:(?:use|with|switch to)\s+)?(?:the\s+)?(claude(?: code)?|novi coder|free one)(?:\s+instead)?(?:[, ]+please)?$/;
+
+// Short spoken replies Novi handles without calling the AI (stop, yes/no, "use Claude instead", status).
 export function quickCommand(text) {
-  const t = text.trim().toLowerCase().replace(/[.!?]+$/, '');
+  const t = text.trim().toLowerCase().replace(/[.!?]+$/, '').replace(/\s+/g, ' ');
   if (/^(stop|cancel|abort|stop it|stop claude|stop the task)$/.test(t)) return 'stop';
-  if (/^(yes|yeah|yep|allow|allow it|approve|go ahead|do it|ok|okay)$/.test(t)) return 'approve';
-  if (/^(no|nope|deny|don't|do not|reject)$/.test(t)) return 'deny';
+  const choice = CHOICE_RE.exec(t);
+  if (choice) return choice[1].startsWith('claude') ? 'choose:claude' : 'choose:novi-coder';
+  if (/^(yes|yeah|yep|yup|sure|allow|allow it|approve|go ahead|do it|ok|okay|start|start it)(?:[, ]+(?:please|start|go ahead|do it))?$/.test(t)) return 'approve';
+  if (/^(no|nope|nah|deny|don't|do not|reject)(?:[, ]+(?:thanks|thank you))?$/.test(t)) return 'deny';
   if (/^(what('s| is) (claude|the coder|novi coder|it) doing|status|what('s| is) the progress)$/.test(t)) return 'status';
   return null;
 }
@@ -97,6 +102,22 @@ export class Agent {
   async _quick(kind) {
     if (kind === 'stop') return (await this.tasks.stop()) ? 'Okay, I stopped the coding task.' : 'Nothing is running right now.';
     if (kind === 'status') return describeStatus(this.tasks.status());
+    if (kind.startsWith('choose:')) {
+      const choice = kind.slice('choose:'.length);
+      const open = this.approvals.pending().filter((a) => a.tier !== 'high' && a.choices);
+      const withChoice = open.filter((a) => a.choices.some((c) => c.id === choice)).at(-1);
+      const label = choice === 'claude' ? 'Claude Code' : 'Novi Coder';
+      if (withChoice) {
+        this.approvals.resolve(withChoice.id, true, 'voice', choice);
+        return `Okay, using ${label}.`;
+      }
+      // Picking the option Novi already proposed is just a yes.
+      if (open.length) {
+        this.approvals.resolve(open.at(-1).id, true, 'voice');
+        return `Okay, using ${label}.`;
+      }
+      return null;
+    }
     const item = this.approvals.latest({ excludeTier: 'high' });
     if (!item) return this.approvals.pending().length ? 'That one is high risk, so please confirm it on screen.' : null;
     const allow = kind === 'approve';
@@ -113,13 +134,21 @@ export class Agent {
     } catch {
       return { output: { error: 'Arguments were not valid JSON' } };
     }
+    // "$"-prefixed arguments are reserved for choices the user makes (e.g. "use Claude instead"); never from the model.
+    for (const key of Object.keys(args)) if (key.startsWith('$')) delete args[key];
     if (tool.gate) {
       // Plugin tools: approval and blocking come from before_tool_call hooks (OpenClaw shape).
       const gate = await tool.gate(args, { toolCallId: call.id });
       if (gate.block) return { output: { error: gate.blockReason, ...(gate.details || {}) }, note: gate.blockReason };
       if (gate.approval) {
-        const allowed = await this.approvals.request({ title: gate.approval.title, detail: gate.approval.detail || '', tier: gate.approval.tier, source: 'novi' });
-        if (!allowed) return { output: { error: 'The user declined this action.' } };
+        const { title, detail, tier, prompt, choices } = gate.approval;
+        const decision = await this.approvals.decide({
+          title, detail: detail || '', tier, source: 'novi', prompt,
+          choices: choices?.map(({ id, label }) => ({ id, label })),
+        });
+        if (!decision.allow) return { output: { error: 'The user declined this action.' } };
+        const picked = decision.choice && choices?.find((c) => c.id === decision.choice);
+        if (picked?.params) Object.assign(args, picked.params);
       }
     } else {
       if (tool.precheck) {

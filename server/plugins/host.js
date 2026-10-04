@@ -118,7 +118,9 @@ export class PluginHost {
         if (result.requireApproval) {
           const req = result.requireApproval;
           const tier = SEVERITY_TIER[req.severity || 'warning'] || 'medium';
-          if (!approval || RANK[tier] > RANK[approval.tier]) approval = { title: req.title, detail: req.description || '', tier };
+          if (!approval || RANK[tier] > RANK[approval.tier]) {
+            approval = { title: req.title, detail: req.description || '', tier, ...(req.prompt ? { prompt: req.prompt } : {}), ...(req.choices?.length ? { choices: req.choices } : {}) };
+          }
         }
       }
     }

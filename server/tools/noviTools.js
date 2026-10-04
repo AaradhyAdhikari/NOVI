@@ -3,7 +3,14 @@ import { ToolRegistry } from './registry.js';
 const obj = (properties = {}, required = []) => ({ type: 'object', properties, required });
 const str = (description) => ({ type: 'string', description });
 
-export function createNoviTools({ memory, tasks }) {
+const CODERS = {
+  'novi-coder': { title: 'Novi Coder (free, Groq)', spoken: 'Novi Coder, free on Groq', other: 'claude', otherLabel: 'Use Claude', otherSpoken: 'use Claude instead' },
+  claude: { title: 'Claude Code (your Claude plan)', spoken: 'Claude Code, on your Claude plan', other: 'novi-coder', otherLabel: 'Use Novi Coder', otherSpoken: 'use Novi Coder instead' },
+};
+
+// coder: default coding agent; alternativeAvailable: whether the other coder can be offered by voice.
+export function createNoviTools({ memory, tasks, coder = 'novi-coder', alternativeAvailable = false }) {
+  const c = CODERS[coder] || CODERS['novi-coder'];
   return new ToolRegistry()
     .add({
       name: 'list_projects',
@@ -34,8 +41,10 @@ export function createNoviTools({ memory, tasks }) {
       description: 'Start the coding agent on a known project with a complete coding instruction. Progress is narrated to the user automatically.',
       parameters: obj({ project: str('Known project name'), instruction: str('Clear, complete instruction for Claude Code') }, ['project', 'instruction']),
       tier: 'medium',
-      describe: ({ project, instruction }) => `Start the coder on ${project}: "${instruction}"`,
-      run: async ({ project, instruction }) => ({ started: true, task: tasks.start(project, instruction), note: 'The coder is working on it; I will narrate the progress.' }),
+      describe: ({ project, instruction }) => `Start ${c.title} on ${project}: "${instruction}"`,
+      prompt: ({ project, instruction }) => `I'll use ${c.spoken}, on ${project}: ${instruction}. Shall I start? ${alternativeAvailable ? `Say yes, no, or ${c.otherSpoken}.` : 'Say yes or no.'}`,
+      choices: () => (alternativeAvailable ? [{ id: c.other, label: c.otherLabel, params: { $agent: c.other } }] : undefined),
+      run: async ({ project, instruction, $agent }) => ({ started: true, task: tasks.start(project, instruction, { agent: $agent }), note: 'The coder is working on it; I will narrate the progress.' }),
     })
     .add({
       name: 'code_send_message',

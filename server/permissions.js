@@ -48,8 +48,10 @@ export class ApprovalQueue extends EventEmitter {
     this.items = new Map();
   }
 
-  request({ title, detail = '', tier, source }) {
-    const approval = { id: crypto.randomUUID(), title, detail, tier, source, createdAt: Date.now() };
+  // Resolves to { allow, choice }. `prompt` is what Novi says aloud; `choices` are extra options
+  // (e.g. { id: 'claude', label: 'Use Claude' }) the user can pick by voice or button.
+  decide({ title, detail = '', tier, source, prompt, choices }) {
+    const approval = { id: crypto.randomUUID(), title, detail, tier, source, createdAt: Date.now(), ...(prompt ? { prompt } : {}), ...(choices?.length ? { choices } : {}) };
     return new Promise((resolve) => {
       const timer = setTimeout(() => this.resolve(approval.id, false, 'timeout'), this.timeoutMs);
       this.items.set(approval.id, { approval, resolve, timer });
@@ -57,13 +59,18 @@ export class ApprovalQueue extends EventEmitter {
     });
   }
 
-  resolve(id, allow, by = 'user') {
+  request(options) {
+    return this.decide(options).then((d) => d.allow);
+  }
+
+  resolve(id, allow, by = 'user', choice = null) {
     const item = this.items.get(id);
     if (!item) return false;
     clearTimeout(item.timer);
     this.items.delete(id);
-    item.resolve(Boolean(allow));
-    this.emit('resolved', { id, allow: Boolean(allow), by });
+    const picked = choice && item.approval.choices?.some((c) => c.id === choice) ? choice : null;
+    item.resolve({ allow: Boolean(allow), choice: picked });
+    this.emit('resolved', { id, allow: Boolean(allow), by, ...(picked ? { choice: picked } : {}) });
     return true;
   }
 

@@ -105,6 +105,19 @@ describe('Novi server', () => {
     expect(await res.json()).toEqual({ user_code: 'AB12-CD34', note: 'Enter AB12-CD34' });
   });
 
+  it('speaks an approval prompt and accepts a choice from the screen', async () => {
+    const approvals = new ApprovalQueue();
+    const { ws } = await start({ approvals });
+    const c = connect(ws);
+    await c.waitFor((m) => m.type === 'snapshot');
+    const decision = approvals.decide({ title: 'Start Novi Coder', tier: 'medium', source: 'novi', prompt: 'Shall I start? Say yes, no, or use Claude instead.', choices: [{ id: 'claude', label: 'Use Claude' }] });
+    const added = await c.waitFor((m) => m.type === 'approval_added');
+    await c.waitFor((m) => m.type === 'speak' && m.text === 'Shall I start? Say yes, no, or use Claude instead.');
+    c.ws.send(JSON.stringify({ type: 'approval', id: added.approval.id, allow: true, choice: 'claude' }));
+    await expect(decision).resolves.toEqual({ allow: true, choice: 'claude' });
+    c.ws.close();
+  });
+
   it('rejects wrong pairing codes', async () => {
     const { base } = await start();
     const res = await fetch(`${base}/api/pair`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: 'nope' }) });
