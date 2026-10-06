@@ -14,6 +14,9 @@ export default function ApprovalCards({ approvals, onAnswer }) {
           {a.tier === 'high' && <p className="warn">High risk — this needs your explicit confirmation.</p>}
           <div className="approval-actions">
             <button className="btn" onClick={() => onAnswer(a.id, false)}>Deny</button>
+            {(a.choices || []).map((c) => (
+              <button key={c.id} className="btn" onClick={() => onAnswer(a.id, true, c.id)}>{c.label}</button>
+            ))}
             <button className={`btn ${a.tier === 'high' ? 'danger' : 'primary'}`} onClick={() => onAnswer(a.id, true)}>{a.tier === 'high' ? 'Yes, do it' : 'Allow'}</button>
           </div>
         </div>

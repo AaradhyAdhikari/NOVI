@@ -16,5 +16,5 @@ describe('clock example plugin', () => {
     expect(await h.get('clock_announce').gate({ message: 'Dinner is ready' })).toEqual({ approval: { title: 'Announce a message on all devices', detail: 'Dinner is ready', tier: 'medium' } });
     expect(await h.get('clock_announce').run({ message: 'Dinner is ready' })).toEqual({ announced: 'Dinner is ready', text: 'Announced.' });
     expect(spoken).toEqual(['Announcement: Dinner is ready']);
-  });
+  }, 20000); // loads every plugin folder; slow under the full parallel run
 });

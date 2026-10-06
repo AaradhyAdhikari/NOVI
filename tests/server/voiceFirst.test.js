@@ -117,3 +117,11 @@ describe('TaskManager picks the coder per task', () => {
     expect(tm.status().agent).toBe('Claude');
   });
 });
+
+describe('dispatch prompt wording', () => {
+  it('does not double the full stop when the instruction ends with one', () => {
+    const tools = createNoviTools({ memory: memoryWithProject(), tasks: {}, alternativeAvailable: true });
+    expect(tools.get('code_start_task').prompt({ project: 'playground', instruction: 'Create notes.txt.' }))
+      .toBe("I'll use Novi Coder, free on Groq, on playground: Create notes.txt. Shall I start? Say yes, no, or use Claude instead.");
+  });
+});

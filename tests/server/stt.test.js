@@ -10,6 +10,7 @@ describe('transcribe', () => {
     expect(seen.url).toBe('https://api.groq.com/openai/v1/audio/transcriptions');
     expect(seen.init.headers.Authorization).toBe('Bearer k1');
     expect(seen.init.body.get('model')).toBe('whisper-large-v3-turbo');
+    expect(seen.init.body.get('prompt')).toMatch(/Hey Novi/);
     expect(seen.init.body.get('file').name).toBe('speech.webm');
   });
 

@@ -30,6 +30,7 @@ export class PluginHost {
     let entry;
     const staged = [];
     const hooks = [];
+    const services = [];
     try {
       entry = definePluginEntry(rawEntry);
       const api = {
@@ -38,6 +39,8 @@ export class PluginHost {
         pluginConfig: this._configFor(entry.id),
         logger: this.logger,
         registerTool: (tool) => { staged.push(tool); },
+        // Background work (e.g. a scheduler), started after all plugins load. Mirrors OpenClaw plugin services.
+        registerService: (service) => { services.push(service); },
         on: (event, handler, opts = {}) => {
           if (!SUPPORTED_HOOKS.has(event)) throw new Error(`unsupported hook "${event}"`);
           hooks.push({ handler, allTools: Boolean(opts.allTools) });
@@ -60,7 +63,7 @@ export class PluginHost {
       this._warn(`Plugin "${rawEntry?.id || '?'}" skipped: ${err.message}`);
       return false;
     }
-    this.plugins.push({ id: entry.id, name: entry.name, description: entry.description, hooks, tools: staged.map((t) => t.name) });
+    this.plugins.push({ id: entry.id, name: entry.name, description: entry.description, hooks, services, tools: staged.map((t) => t.name) });
     for (const tool of staged) this.tools.set(tool.name, { ...tool, pluginId: entry.id });
     return true;
   }
@@ -76,6 +79,26 @@ export class PluginHost {
         this.register(mod.default, { manifest });
       } catch (err) {
         this._warn(`Plugin folder "${name}" skipped: ${err.message}`);
+      }
+    }
+  }
+
+  async startServices() {
+    for (const plugin of this.plugins) {
+      for (const service of plugin.services) {
+        try {
+          await service.start?.();
+        } catch (err) {
+          this._warn(`Plugin "${plugin.id}" service failed to start: ${err.message}`);
+        }
+      }
+    }
+  }
+
+  async stopServices() {
+    for (const plugin of this.plugins) {
+      for (const service of plugin.services) {
+        try { await service.stop?.(); } catch { /* shutting down anyway */ }
       }
     }
   }

@@ -10,6 +10,8 @@ export async function transcribe({ audio, mimeType = 'audio/webm', keys, fetchIm
     form.append('file', new Blob([audio], { type }), filename);
     form.append('model', 'whisper-large-v3-turbo');
     form.append('response_format', 'json');
+    // Vocabulary hint so Whisper spells Novi's names right instead of "Novey" etc.
+    form.append('prompt', 'Hey Novi. Novi, Novi Coder, Claude, Groq, Gemini, GitHub, LeetCode, YouTube, Gmail.');
     let res;
     try {
       res = await fetchImpl(GROQ_STT_URL, { method: 'POST', headers: { Authorization: `Bearer ${key}` }, body: form, signal: AbortSignal.timeout(30_000) });

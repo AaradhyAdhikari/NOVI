@@ -1,58 +1,67 @@
 import { useRef, useState } from 'react';
 import { Mic, Loader2 } from 'lucide-react';
-import { startRecording, listenOnce, hasBrowserRecognition, stopSpeaking } from '../lib/voice.js';
+import { startRecording, stopSpeaking } from '../lib/voice.js';
 
-export default function TalkButton({ onText, api }) {
-  const [phase, setPhase] = useState('idle'); // idle | recording | transcribing
+// Push-to-talk: always records and transcribes with Groq Whisper on the server.
+// (Chrome's own recognizer is left to hands-free mode; two recognizers at once cancel each other.)
+export default function TalkButton({ onText, api, onRecording = () => {}, handsFreeOn = false }) {
+  const [phase, setPhase] = useState('idle'); // idle | starting | recording | transcribing
   const [error, setError] = useState(null);
-  const [useBrowser, setUseBrowser] = useState(false);
   const stopRef = useRef(null);
+  const releasedRef = useRef(false);
 
   async function begin(e) {
     e.preventDefault();
     if (phase !== 'idle') return;
     stopSpeaking();
     setError(null);
-    if (useBrowser) {
-      setPhase('recording');
-      try {
-        const text = await listenOnce();
-        if (text) onText(text);
-      } catch (err) {
-        setError(err.message);
-      }
+    releasedRef.current = false;
+    setPhase('starting');
+    onRecording(true);
+    try {
+      stopRef.current = await startRecording();
+    } catch {
+      onRecording(false);
+      setPhase('idle');
+      setError('Microphone unavailable. Allow the mic for this page (on a phone, open Novi over https).');
+      return;
+    }
+    if (releasedRef.current) {
+      // Let go before the mic was ready (e.g. while Chrome asked for permission): discard and reset.
+      await stopRef.current();
+      stopRef.current = null;
+      onRecording(false);
       setPhase('idle');
       return;
     }
-    try {
-      stopRef.current = await startRecording();
-      setPhase('recording');
-    } catch {
-      setError('Microphone unavailable. On a phone, open Novi over https and allow the mic.');
-    }
+    setPhase('recording');
   }
 
   async function end(e) {
     e.preventDefault();
-    if (phase !== 'recording' || useBrowser || !stopRef.current) return;
+    releasedRef.current = true;
+    if (phase !== 'recording' || !stopRef.current) return;
     setPhase('transcribing');
     const blob = await stopRef.current();
     stopRef.current = null;
+    onRecording(false);
     try {
       const res = await api('/api/stt', { method: 'POST', headers: { 'Content-Type': blob.type || 'audio/webm' }, body: blob });
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.error || 'Speech-to-text failed');
-      if (body.text) onText(body.text);
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || `server error ${res.status}`);
+      const text = String(body.text || '').trim();
+      if (text && text !== '.') onText(text);
+      else setError("I didn't catch that. Hold the button while you speak.");
     } catch (err) {
-      if (hasBrowserRecognition) {
-        setUseBrowser(true);
-        setError('Server speech-to-text failed; switched to browser recognition. Tap the button and speak.');
-      } else {
-        setError(`${err.message}. You can type instead.`);
-      }
+      setError(`Speech-to-text failed (${err.message}). Try again, or type.`);
     }
     setPhase('idle');
   }
+
+  const hint = phase === 'starting' ? 'Starting mic…'
+    : phase === 'recording' ? 'Release to send'
+      : phase === 'transcribing' ? 'Understanding…'
+        : handsFreeOn ? 'Hold to talk, or say “Hey Novi”' : 'Hold to talk';
 
   return (
     <div className="talk">
@@ -67,7 +76,7 @@ export default function TalkButton({ onText, api }) {
       >
         {phase === 'transcribing' ? <Loader2 className="spin" size={34} /> : <Mic size={34} />}
       </button>
-      <span className="talk-hint">{phase === 'recording' ? (useBrowser ? 'Listening…' : 'Release to send') : phase === 'transcribing' ? 'Understanding…' : useBrowser ? 'Tap to talk' : 'Hold to talk'}</span>
+      <span className="talk-hint">{hint}</span>
     </div>
   );
 }

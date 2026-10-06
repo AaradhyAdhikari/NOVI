@@ -118,6 +118,17 @@ describe('Novi server', () => {
     c.ws.close();
   });
 
+  it('lets plugins say things in the chat and out loud, and gives them a data folder', async () => {
+    const { ws, novi } = await start();
+    const c = connect(ws);
+    await c.waitFor((m) => m.type === 'snapshot');
+    expect(novi.plugins.runtime.dataDir).toBeTruthy();
+    novi.plugins.runtime.say('Reminder: call **mom**');
+    await c.waitFor((m) => m.type === 'chat' && m.entry.role === 'novi' && m.entry.text === 'Reminder: call **mom**');
+    await c.waitFor((m) => m.type === 'speak' && m.text === 'Reminder: call mom');
+    c.ws.close();
+  });
+
   it('rejects wrong pairing codes', async () => {
     const { base } = await start();
     const res = await fetch(`${base}/api/pair`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: 'nope' }) });

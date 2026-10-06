@@ -42,7 +42,7 @@ export function createNoviTools({ memory, tasks, coder = 'novi-coder', alternati
       parameters: obj({ project: str('Known project name'), instruction: str('Clear, complete instruction for Claude Code') }, ['project', 'instruction']),
       tier: 'medium',
       describe: ({ project, instruction }) => `Start ${c.title} on ${project}: "${instruction}"`,
-      prompt: ({ project, instruction }) => `I'll use ${c.spoken}, on ${project}: ${instruction}. Shall I start? ${alternativeAvailable ? `Say yes, no, or ${c.otherSpoken}.` : 'Say yes or no.'}`,
+      prompt: ({ project, instruction }) => `I'll use ${c.spoken}, on ${project}: ${String(instruction).trim().replace(/[.!?]+$/, '')}. Shall I start? ${alternativeAvailable ? `Say yes, no, or ${c.otherSpoken}.` : 'Say yes or no.'}`,
       choices: () => (alternativeAvailable ? [{ id: c.other, label: c.otherLabel, params: { $agent: c.other } }] : undefined),
       run: async ({ project, instruction, $agent }) => ({ started: true, task: tasks.start(project, instruction, { agent: $agent }), note: 'The coder is working on it; I will narrate the progress.' }),
     })

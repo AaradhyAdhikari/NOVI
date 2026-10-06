@@ -160,6 +160,8 @@ Novi never blindly executes. Actions are tiered:
 - [ ] Remote phone → laptop control from anywhere
 - [x] Account sign-in: Gmail (multiple accounts, approval before sending)
 - [x] GitHub plugin (notifications, repos, issues/PRs; comments and new issues with approval)
+- [x] Reminders & timers plugin
+- [x] Hands-free "Hey Novi" and spoken approvals
 - [ ] LeetCode and other sites via Novi's own browser
 - [ ] Persistent memory (preferences, decisions, conversations)
 - [ ] Browser automation
@@ -214,6 +216,14 @@ Then: "summarize my inbox", "any mail from my teacher?", "read me the one from A
 3. Say "connect my GitHub" (or Settings → **Connect GitHub**): Novi shows a short code and opens github.com/login/device. Enter it and click **Authorize**.
 
 Then: "any GitHub notifications?", "list my repos", "open issues on NOVI", "read issue 3", and, with an approval card showing the full text, "comment on issue 3 that it's fixed", "open an issue on NOVI: add TV casting", "mark my notifications read". Private-repo content stays on Groq, like email.
+
+### Reminders & timers
+
+"Remind me at 6 pm to call mom", "in 20 minutes remind me to check the oven", "remind me every weekday at 9 to stand up", "set a 10-minute timer called study", "what are my reminders?", "cancel the oven reminder". Novi says them out loud (and in the chat) on every connected device when they're due. They survive restarts; anything that came due while Novi was off is announced as missed when it starts again.
+
+### Hands-free
+
+Click the **ear** icon (Chrome) and say **"Hey Novi, …"**. After Novi asks something ("Shall I start?"), just answer "yes", "no" or "use Claude instead" — no wake word needed for about 8 seconds.
 
 **Windows tip:** if PowerShell says running scripts is disabled, use `npm.cmd start` or double-click **Start Novi.cmd**.
 

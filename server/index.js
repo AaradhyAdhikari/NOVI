@@ -11,6 +11,7 @@ if (!config.providers.length) console.warn('⚠  No AI provider keys found. Add 
 const lanUrls = lanAddresses().map((ip) => `https://${ip}:${config.port}`);
 const novi = createNovi(config, { lanUrls });
 await novi.plugins.loadDirectory(path.resolve('plugins'));
+await novi.plugins.startServices();
 const server = https.createServer(loadOrCreateCert(path.join(config.dataDir, 'certs')), novi.app);
 novi.attachWebSocket(server);
 
@@ -31,6 +32,7 @@ async function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
   await novi.tasks.shutdown();
+  await novi.plugins.stopServices();
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(0), 3000).unref();
 }

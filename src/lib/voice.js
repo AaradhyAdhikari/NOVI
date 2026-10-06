@@ -1,7 +1,25 @@
+// 'start' / 'end' while Novi talks (hands-free pauses listening), 'spoken' once a message has been delivered.
+export const speechEvents = new EventTarget();
+const emit = (type, text) => speechEvents.dispatchEvent(new CustomEvent(type, { detail: { text } }));
+
 export function speak(text, { muted } = {}) {
-  if (muted || !text || !('speechSynthesis' in window)) return;
+  if (!text) return;
+  if (muted || !('speechSynthesis' in window)) {
+    emit('spoken', text);
+    return;
+  }
   const utterance = new SpeechSynthesisUtterance(text);
   utterance.rate = 1.05;
+  utterance.onstart = () => emit('start', text);
+  let finished = false;
+  const done = () => {
+    if (finished) return;
+    finished = true;
+    emit('end', text);
+    emit('spoken', text);
+  };
+  utterance.onend = done;
+  utterance.onerror = done;
   window.speechSynthesis.speak(utterance);
 }
 

@@ -1,0 +1,9 @@
+{
+  "id": "reminders",
+  "name": "Reminders & timers",
+  "description": "Spoken reminders and timers that survive restarts.",
+  "categories": ["productivity"],
+  "contracts": { "tools": ["reminder_add", "timer_set", "reminder_list", "reminder_cancel"] },
+  "activation": { "onStartup": true },
+  "configSchema": { "type": "object", "additionalProperties": false }
+}

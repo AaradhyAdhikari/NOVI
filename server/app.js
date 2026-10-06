@@ -51,7 +51,13 @@ export function createNovi(config, overrides = {}) {
       memory, accounts, secrets, tasks, openUrl,
       resolveAccount: (provider, requested, opts) => resolveAccount(accounts, provider, requested, opts),
       askNote,
-      speak: (text) => broadcast({ type: 'speak', text: plainText(text) }), logger: console },
+      speak: (text) => broadcast({ type: 'speak', text: plainText(text) }),
+      // Chat entry + spoken (e.g. a reminder going off), and a folder for plugin data files.
+      say: (text) => {
+        say('novi', text);
+        broadcast({ type: 'speak', text: plainText(text) });
+      },
+      dataDir: config.dataDir, logger: console },
   });
   plugins.register(wrapRegistryAsPlugin({ id: 'coding', name: 'Coding tasks', registry: createNoviTools({ memory, tasks, coder: defaultCoder, alternativeAvailable: defaultCoder === 'claude' || claudeInstalled }) }));
   plugins.register(wrapRegistryAsPlugin({ id: 'laptop', name: 'Laptop basics', registry: addLaptopTools(new ToolRegistry(), overrides.laptop) }));
