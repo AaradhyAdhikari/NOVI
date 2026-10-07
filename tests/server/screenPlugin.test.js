@@ -12,14 +12,16 @@ function setup({ window = 'WhatsApp', found = { found: true, point: [500, 250], 
     type: async (text) => actions.push(['type', text]),
     key: async (name) => actions.push(['key', name]),
     focus: async (app) => { actions.push(['focus', app]); return /whatsapp/i.test(app); },
+    pageShot: async (url) => { actions.push(['pageShot', url]); return { png: Buffer.from('PAGE') }; },
   };
+  const shown = [];
   const vision = async (png, prompt) => {
     prompts.push(prompt);
     return /JSON/.test(prompt) ? JSON.stringify(found) : look;
   };
-  const host = new PluginHost({ runtime: { vision }, env: {}, logger: { warn() {} } });
+  const host = new PluginHost({ runtime: { vision, showImage: (img) => shown.push(img) }, env: {}, logger: { warn() {} } });
   expect(host.register(createScreenPlugin({ driver }))).toBe(true);
-  return { host, actions, prompts, run: (n, p) => host.get(n).run(p), gate: (n, p) => host.get(n).gate(p) };
+  return { host, actions, prompts, shown, run: (n, p) => host.get(n).run(p), gate: (n, p) => host.get(n).gate(p) };
 }
 
 describe('screen plugin', () => {
@@ -107,4 +109,36 @@ describe('screen plugin', () => {
     expect((await run('screen_focus', { app: 'Telegram' })).text).toMatch(/isn't open/);
     expect(actions).toEqual([['focus', 'WhatsApp'], ['focus', 'Telegram']]);
   });
+
+  it('screen_show sends a picture of the laptop screen to the asker, without vision or approval', async () => {
+    const { run, gate, shown, prompts } = setup({ window: 'GitHub - Microsoft Edge' });
+    expect(await gate('screen_show', {})).toEqual({});
+    const out = await run('screen_show', {});
+    expect(shown).toEqual([{ png: Buffer.from('PNG'), caption: 'The laptop screen right now.' }]);
+    expect(prompts).toEqual([]);
+    expect(out.sensitive).toBe(true);
+  });
+
+  it('screen_show refuses on password / payment screens', async () => {
+    const { run, shown } = setup({ window: 'Sign in - Google Accounts' });
+    const out = await run('screen_show', {});
+    expect(shown).toEqual([]);
+    expect(out.text).toMatch(/won't/);
+  });
+
+  it('screen_page sends a picture of a web page', async () => {
+    const { run, gate, shown, actions } = setup();
+    expect(await gate('screen_page', { url: 'https://github.com/aaradhyadhikari' })).toEqual({});
+    await run('screen_page', { url: 'https://github.com/aaradhyadhikari' });
+    expect(actions).toContainEqual(['pageShot', 'https://github.com/aaradhyadhikari']);
+    expect(shown[0]).toEqual({ png: Buffer.from('PAGE'), caption: 'https://github.com/aaradhyadhikari' });
+  });
+
+  it('screen_page only opens http(s) addresses', async () => {
+    const { run, shown } = setup();
+    const out = await run('screen_page', { url: 'file:///C:/Users/secret.txt' });
+    expect(shown).toEqual([]);
+    expect(out.text).toMatch(/web address/);
+  });
 });
+

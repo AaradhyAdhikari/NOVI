@@ -120,3 +120,73 @@ describe('normalizeVolume', () => {
     expect(Array.from(normalizeVolume(Int16Array.from([32000, -32000])))).toEqual([32000, -32000]);
   });
 });
+
+describe('recording "Hey Novi" practice clips', () => {
+  it('captures the next stretch of mic audio with its best score, without waking', async () => {
+    const ref = {};
+    const events = [];
+    // 10 frames: a wake-like score in the middle must not trigger a command while capturing.
+    const frames = [...repeat(3, () => f(quiet(), 0.01)), f(loud(), 0.42), ...repeat(6, () => f(quiet(), 0.02))];
+    const listener = createWakeListener({
+      recorder: fakeRecorder(frames, ref),
+      detector: fakeDetector(frames),
+      threshold: 0.35,
+      onWake: (score) => events.push({ wake: score }),
+      onCommand: () => events.push({ command: true }),
+    });
+    ref.current = listener;
+    const clip = listener.capture(800); // 10 frames of 80 ms
+    await listener.start();
+    const { audio, best } = await clip;
+    expect(audio.length).toBe(10 * FRAME);
+    expect(best).toBeCloseTo(0.42);
+    expect(events).toEqual([]);
+  });
+
+  it('can change the wake threshold while running', async () => {
+    const ref = {};
+    const events = [];
+    const frames = [f(loud(), 0.2), ...repeat(20, () => f(quiet()))];
+    const listener = createWakeListener({
+      recorder: fakeRecorder(frames, ref), detector: fakeDetector(frames), threshold: 0.35,
+      onWake: (score) => events.push({ wake: score }), onCommand: () => {}, onNoCommand: () => {},
+    });
+    ref.current = listener;
+    listener.setThreshold(0.15);
+    await listener.start();
+    expect(events).toEqual([{ wake: 0.2 }]);
+  });
+});
+
+describe('conversation mode (follow-ups without "Hey Novi")', () => {
+  function listen(frames) {
+    const ref = {};
+    const events = [];
+    const listener = createWakeListener({
+      recorder: fakeRecorder(frames, ref), detector: fakeDetector(frames), threshold: 0.5,
+      onWake: (score) => events.push({ wake: score }),
+      onCommand: (audio, info) => events.push({ command: audio.length, followUp: info?.followUp === true }),
+      onNoCommand: (info) => events.push({ noCommand: true, followUp: info?.followUp === true }),
+    });
+    ref.current = listener;
+    return { listener, events };
+  }
+
+  it("after a reply, records the next sentence without the wake word, ignoring Novi's own voice first", async () => {
+    // 5 loud frames while Novi speaks (deaf), then 4 frames of the user, then quiet.
+    const frames = [...repeat(5, () => f(loud(), 0.9)), ...repeat(4, () => f(loud())), ...repeat(15, () => f(quiet()))];
+    const { listener, events } = listen(frames);
+    listener.followUp({ deafMs: 400, waitMs: 8000 });
+    await listener.start();
+    expect(events).toEqual([{ command: (4 + 13) * FRAME, followUp: true }]); // speech + 1 s of trailing quiet
+  });
+
+  it('ends the conversation quietly when nobody speaks', async () => {
+    const frames = repeat(20, () => f(quiet()));
+    const { listener, events } = listen(frames);
+    listener.followUp({ deafMs: 0, waitMs: 800 });
+    await listener.start();
+    expect(events).toEqual([{ noCommand: true, followUp: true }]);
+  });
+});
+

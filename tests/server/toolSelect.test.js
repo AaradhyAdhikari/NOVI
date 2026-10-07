@@ -20,6 +20,8 @@ const ALL = [
   tool('code_start_task', 'Start a coding task on a project.'),
   tool('code_status', 'Status of the coding task.'),
   tool('backup_now', 'Back up Novi data now.'),
+  tool('screen_show', 'Send a screenshot of the laptop screen.'),
+  tool('screen_page', 'Send a screenshot of a web page.'),
 ];
 const names = (text, opts) => selectTools(ALL, { text, ...opts }).map((t) => t.function.name);
 
@@ -29,6 +31,13 @@ describe('selectTools: send the model only the tools a request needs', () => {
     expect(n).toContain('weather_get');
     expect(n).not.toContain('gmail_send');
     expect(n).not.toContain('github_create_issue');
+  });
+
+  it('screenshot / SS / picture requests get the screenshot tools', () => {
+    for (const text of ['Show me a screenshot of my GitHub contributions', 'send me an ss of the laptop', 'take a picture of the screen']) {
+      expect(names(text)).toEqual(expect.arrayContaining(['screen_show', 'screen_page']));
+    }
+    expect(names('Show me a screenshot of my GitHub contributions')).toContain('github_notifications');
   });
 
   it('always offers the basics: memory and opening apps/websites', () => {

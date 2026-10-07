@@ -61,3 +61,13 @@ describe('Pairing', () => {
     expect(setup().pairing.verify('')).toBeNull();
   });
 });
+
+describe('Pairing.issue (no code: trusted Tailscale phone or laptop-approved request)', () => {
+  it('adds a device and returns its token, which then verifies', () => {
+    const { pairing } = setup();
+    const { token, deviceId } = pairing.issue('Galaxy S24+', 'tailscale');
+    expect(pairing.verify(token).id).toBe(deviceId);
+    expect(pairing.listDevices()[0]).toMatchObject({ name: 'Galaxy S24+', via: 'tailscale' });
+  });
+});
+

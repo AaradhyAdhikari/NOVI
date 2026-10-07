@@ -11,6 +11,7 @@ import TaskPanel from './components/TaskPanel.jsx';
 import ApprovalCards from './components/ApprovalCards.jsx';
 import TalkButton from './components/TalkButton.jsx';
 import PairScreen from './components/PairScreen.jsx';
+import PairRequests from './components/PairRequests.jsx';
 import SettingsDrawer from './components/SettingsDrawer.jsx';
 
 export default function App() {
@@ -47,7 +48,7 @@ export default function App() {
 
   useEffect(() => { if (state.wakeHeardAt) chime(); }, [state.wakeHeardAt]);
 
-  if (novi.needsPairing) return <PairScreen onPair={novi.pair} />;
+  if (novi.needsPairing) return <PairScreen onAdopt={novi.adopt} checking={novi.autoPairing} />;
 
   const toggleMute = () => {
     const next = !muted;
@@ -75,6 +76,7 @@ export default function App() {
           <TaskPanel task={state.task} feed={state.feed} onStop={() => send({ type: 'stop' })} onAllowEdits={(allow) => send({ type: 'allow_edits', allow })} />
         </section>
       </main>
+      {novi.isLocal && <PairRequests requests={state.pairRequests} api={novi.api} />}
       <ApprovalCards api={novi.api} approvals={state.approvals} onAnswer={(id, allow, choice, opts = {}) => send({ type: 'approval', id, allow, ...(choice ? { choice } : {}), ...(opts.always ? { always: true } : {}), ...(opts.proof || {}) })} />
       <TalkButton onText={sendText} api={novi.api} onRecording={(on) => handsFree.current?.enabled && handsFree.current.pause(on)} handsFreeOn={handsFreeOn || serverWake} />
       <SettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} projects={state.projects} devices={state.devices} accounts={state.accounts} googleConfigured={state.googleConfigured} api={novi.api} isLocal={novi.isLocal} />

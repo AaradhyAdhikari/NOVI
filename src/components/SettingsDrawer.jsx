@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react';
 import { X, Trash2, Pencil } from 'lucide-react';
 import VoiceTest from './VoiceTest.jsx';
+import WakeTraining from './WakeTraining.jsx';
 import SystemPanel from './SystemPanel.jsx';
 import PermissionsPanel from './PermissionsPanel.jsx';
 import PasskeySetup from './PasskeySetup.jsx';
+import NotificationsSetup from './NotificationsSetup.jsx';
+import PairQr from './PairQr.jsx';
 
 export default function SettingsDrawer({ open, onClose, projects, devices, accounts = [], googleConfigured, api, isLocal }) {
   const [pairing, setPairing] = useState(null);
@@ -41,10 +44,8 @@ export default function SettingsDrawer({ open, onClose, projects, devices, accou
         {isLocal && pairing && (
           <section>
             <h3>Pair a phone</h3>
-            <p>On your phone (same Wi-Fi), open:</p>
-            <ul className="urls">{pairing.urls.map((u) => <li key={u}><code>{u}</code></li>)}</ul>
-            <p>Accept the certificate warning, then enter this code:</p>
-            <div className="code">{pairing.code}</div>
+            <PairQr pairing={pairing} />
+            <p className="muted">Phones signed in to your own Tailscale account connect by themselves. Others can tap “Ask the laptop” and you allow them here.</p>
           </section>
         )}
 
@@ -94,6 +95,7 @@ export default function SettingsDrawer({ open, onClose, projects, devices, accou
         <section>
           <h3>Paired devices</h3>
           {!isLocal && <PasskeySetup api={api} />}
+          {!isLocal && <NotificationsSetup api={api} />}
           {devices.length === 0 && <p className="muted">No phones paired.</p>}
           <ul className="list">
             {devices.map((d) => (
@@ -113,6 +115,11 @@ export default function SettingsDrawer({ open, onClose, projects, devices, accou
         <section>
           <h3>System</h3>
           <SystemPanel api={api} />
+        </section>
+
+        <section>
+          <h3>“Hey Novi”</h3>
+          {isLocal ? <WakeTraining api={api} /> : <p className="muted">Train the wake word on the laptop.</p>}
         </section>
 
         <section>

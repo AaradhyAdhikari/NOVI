@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getItem, setItem } from './storage.js';
+import { pairCodeFromHash, deviceName, tryAutoPair } from './pairing.js';
 
 const isLocal = ['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname);
 const initialState = { transcript: [], task: { active: false }, approvals: [], providers: [], projects: [], devices: [], feed: [], thinking: false, accounts: [], googleConfigured: false };
@@ -33,6 +34,8 @@ export function useNovi({ onSpeak }) {
         case 'approval_resolved': setState((s) => ({ ...s, approvals: s.approvals.filter((a) => a.id !== msg.id) })); break;
         case 'thinking': setState((s) => ({ ...s, thinking: msg.on, wakeHeardAt: msg.on ? 0 : s.wakeHeardAt })); break;
         case 'speak': speakRef.current?.(msg.text); break;
+        // Updates spoken while Novi wasn't open on this phone, in order.
+        case 'missed': for (const line of msg.lines || []) speakRef.current?.(line); break;
         // The laptop microphone heard "Hey Novi" (server wake word): show it's listening.
         case 'wake': setState((s) => ({ ...s, wakeHeardAt: Date.now() })); break;
         case 'wake_timeout': setState((s) => ({ ...s, wakeHeardAt: 0 })); break;
@@ -77,15 +80,37 @@ export function useNovi({ onSpeak }) {
     headers: { ...(init.headers || {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
   }), [token]);
 
+  // A token from any pairing route (QR code, Tailscale, "Ask the laptop").
+  const adopt = useCallback((newToken) => {
+    setItem('novi.token', newToken);
+    setToken(newToken);
+    setNeedsPairing(false);
+  }, []);
+
   const pair = useCallback(async (code, name) => {
     const res = await fetch('/api/pair', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, name }) });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) return body.error || 'Pairing failed.';
-    setItem('novi.token', body.token);
-    setToken(body.token);
-    setNeedsPairing(false);
+    adopt(body.token);
     return null;
-  }, []);
+  }, [adopt]);
 
-  return { state, connected, needsPairing, send, pair, api, isLocal };
+  // Not paired yet: first the QR link's one-time code, then "my own Tailscale phone". Only if both
+  // fail does the pair screen show ("Ask the laptop").
+  const [autoPairing, setAutoPairing] = useState(needsPairing);
+  useEffect(() => {
+    if (!needsPairing) return;
+    (async () => {
+      const code = pairCodeFromHash(window.location.hash);
+      if (code) {
+        history.replaceState(null, '', window.location.pathname);
+        if (!(await pair(code, deviceName(navigator.userAgent)))) return;
+      }
+      const auto = await tryAutoPair();
+      if (auto) adopt(auto);
+      else setAutoPairing(false);
+    })();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return { state, connected, needsPairing, autoPairing, send, pair, adopt, api, isLocal };
 }

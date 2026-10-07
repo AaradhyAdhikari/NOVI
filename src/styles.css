@@ -44,6 +44,7 @@ code { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--m
 .bubble { max-width: 85%; padding: 9px 13px; border-radius: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .bubble.user { align-self: flex-end; background: linear-gradient(135deg, rgba(121, 40, 202, .5), rgba(0, 242, 254, .25)); }
 .bubble.novi { align-self: flex-start; background: var(--panel-2); border: 1px solid var(--line); }
+.bubble .shot { display: block; max-width: 100%; border-radius: 8px; margin-bottom: 6px; }
 .thinking { display: flex; gap: 4px; }
 .thinking span { width: 6px; height: 6px; border-radius: 50%; background: var(--cyan); animation: blink 1s infinite; }
 .thinking span:nth-child(2) { animation-delay: .2s; }

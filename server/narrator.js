@@ -15,6 +15,15 @@ export function plainText(text = '') {
     .trim();
 }
 
+// What Novi says aloud: at most two sentences, no links (the full reply stays on screen).
+export function spokenText(text = '', { sentences = 2, maxChars = 200 } = {}) {
+  const plain = plainText(text).replace(/\bhttps?:\/\/\S+/gi, '').replace(/\s+([.,!?])/g, '$1').replace(/\s+/g, ' ').trim();
+  const parts = plain.split(/(?<=[.!?])\s+/); // "math.js" stays whole
+  let out = parts.slice(0, sentences).join(' ').replace(/\s+/g, ' ').trim();
+  if (out.length > maxChars) out = `${out.slice(0, maxChars - 1).replace(/\s+\S*$/, '')}…`;
+  return out;
+}
+
 export function firstSentence(text = '') {
   const trimmed = text.trim();
   if (!trimmed) return '';

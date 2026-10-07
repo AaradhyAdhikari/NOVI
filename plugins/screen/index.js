@@ -47,7 +47,34 @@ export const windowsDriver = {
   type: (text) => ps(['type'], { NOVI_SCREEN_TEXT: String(text) }),
   key: (name) => ps(['key', KEY_CODES[name]]),
   focus: async (app) => (await ps(['focus'], { NOVI_SCREEN_APP: String(app) })) === 'True',
+  // A picture of a web page from a hidden Edge (its own empty profile, so not signed in anywhere).
+  async pageShot(url) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'novi-page-'));
+    const file = path.join(dir, 'page.png');
+    try {
+      await new Promise((resolve, reject) => execFile(EDGE, [
+        // --do-not-de-elevate: when Novi runs with admin rights Edge would otherwise hand off to a
+        // normal-rights copy and the screenshot is lost.
+        '--headless=new', '--do-not-de-elevate', '--disable-gpu', '--hide-scrollbars', '--no-first-run', `--user-data-dir=${path.join(dir, 'profile')}`,
+        '--window-size=1280,1400', '--virtual-time-budget=10000', `--screenshot=${file}`, url,
+      ], { windowsHide: true, timeout: 45_000 }, (err) => (err && !fs.existsSync(file) ? reject(err) : resolve())));
+      // msedge.exe can return while a child process is still loading the page: wait for the file
+      // (and for it to stop growing).
+      let last = -1;
+      for (let waited = 0; waited < 25_000; waited += 300) {
+        const size = fs.existsSync(file) ? fs.statSync(file).size : -1;
+        if (size > 0 && size === last) return { png: fs.readFileSync(file) };
+        last = size;
+        await new Promise((r) => setTimeout(r, 300));
+      }
+      throw new Error("The page didn't load in time, so there's no picture.");
+    } finally {
+      // Edge's helper processes hold the profile for a moment after it exits; clean up later if needed.
+      fs.promises.rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 500 }).catch(() => {});
+    }
+  },
 };
+const EDGE = path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'Microsoft', 'Edge', 'Application', 'msedge.exe');
 
 const reply = (text, details = {}) => ({ content: [{ type: 'text', text }], details: { ...details, sensitive: true } });
 const refuse = (what) => reply(`I won't ${what} here: it looks like a password, payment, CAPTCHA or system security screen. Please do that part yourself.`);
@@ -88,6 +115,36 @@ export function createScreenPlugin({ driver = windowsDriver } = {}) {
           const { png } = await driver.screenshot();
           const text = await vision(png, `You are looking at a screenshot of the user's Windows laptop screen. ${question || 'Briefly describe what is on the screen.'} Answer in 1-3 short sentences. Never read out passwords, card numbers or one-time codes.`);
           return reply(String(text).trim());
+        },
+      });
+
+      // Pictures for the user (sent to the device that asked). No vision call: nothing is sent to Gemini.
+      const show = (png, caption) => {
+        if (!api.runtime.showImage) throw new Error("Pictures can't be shown here.");
+        api.runtime.showImage({ png, caption });
+      };
+      api.registerTool({
+        name: 'screen_show',
+        description: 'Send the user a screenshot (picture) of the laptop screen right now, e.g. "show me the screen", "send me a screenshot". Read-only.',
+        parameters: obj({}),
+        async execute() {
+          if (SENSITIVE.test(await driver.window())) return refuse('take a screenshot');
+          const { png } = await driver.screenshot();
+          show(png, 'The laptop screen right now.');
+          return reply('Sent a screenshot of the laptop screen. Just say "here it is" — do not describe it.');
+        },
+      });
+      api.registerTool({
+        name: 'screen_page',
+        description: 'Send the user a screenshot (picture) of a web page, e.g. "show me a screenshot of my GitHub contributions" → https://github.com/<username>. Opens it in a hidden browser that is not signed in. Read-only.',
+        parameters: obj({ url: str('The full web address, starting with https://') }, ['url']),
+        async execute(_id, { url } = {}) {
+          let parsed;
+          try { parsed = new URL(String(url)); } catch { /* checked below */ }
+          if (!parsed || !/^https?:$/.test(parsed.protocol)) return reply('I can only take pictures of web addresses (https://…).');
+          const { png } = await driver.pageShot(parsed.href);
+          show(png, parsed.href);
+          return reply(`Sent a picture of ${parsed.href}. Just say "here it is" — do not describe it.`);
         },
       });
 

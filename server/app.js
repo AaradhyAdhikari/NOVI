@@ -20,7 +20,7 @@ import { createSpeechEngine } from './voice/speechEngine.js';
 import { createGroqWhisperStt } from './voice/providers/groqWhisper.js';
 import { createGeminiStt } from './voice/providers/geminiStt.js';
 import { TEST_PHRASES, createSampleStore } from './voice/samples.js';
-import { plainText } from './narrator.js';
+import { plainText, spokenText } from './narrator.js';
 import { AccountRegistry } from './accounts/registry.js';
 import { SecretStore, defaultCipher } from './accounts/secrets.js';
 import { GoogleAuth } from './google/oauth.js';
@@ -34,6 +34,11 @@ import { openUrl } from './laptop/opener.js';
 import { createRemoteTrust } from './remoteTrust.js';
 import { RemotePin, parseSpokenPin } from './remotePin.js';
 import { Passkeys } from './passkeys.js';
+import { createWakeSampleStore, suggestThreshold } from './voice/wakeSamples.js';
+import { createPush } from './push.js';
+import { createMissedQueue } from './missed.js';
+import { createTailscaleIdentity } from './tailscaleIdentity.js';
+import { PairRequests } from './pairRequests.js';
 
 export function createNovi(config, overrides = {}) {
   const memory = overrides.memory || new Memory(path.join(config.dataDir, 'memory.json'));
@@ -74,7 +79,7 @@ export function createNovi(config, overrides = {}) {
       memory, accounts, secrets, tasks, openUrl,
       resolveAccount: (provider, requested, opts) => resolveAccount(accounts, provider, requested, opts),
       askNote,
-      speak: (text) => broadcast({ type: 'speak', text: plainText(text) }),
+      speak: (text) => sendTo(active, { type: 'speak', text: plainText(text) }),
       // Image understanding (screen control): Gemini vision; the user agreed screenshots may go to Gemini.
       // A plugin may use another plugin's read-only tools (e.g. the briefing reads weather and calendar).
       // Anything that would need approval (sends, changes, deletes) is refused here.
@@ -89,9 +94,19 @@ export function createNovi(config, overrides = {}) {
       google: overrides.google || createGoogleApi({ auth, accounts }),
       vision: overrides.vision || createGeminiVision({ keys: config.providers.find((p) => p.name === 'gemini')?.keys || [] }),
       // Chat entry + spoken (e.g. a reminder going off), and a folder for plugin data files.
-      say: (text) => {
+      // kind: what the phone notification says if Novi isn't open there ('reminder', 'briefing').
+      say: (text, { kind = 'reminder' } = {}) => {
         say('novi', text);
-        broadcast({ type: 'speak', text: plainText(text) });
+        sendTo(active, { type: 'speak', text: plainText(text) });
+        notify(kind);
+      },
+      // A phone notification only (fixed, private-free text per kind; see server/push.js).
+      notify: ({ kind } = {}) => notify(kind),
+      // A picture (screenshot) for whoever asked. Only the caption is kept in the transcript.
+      showImage: ({ png, caption = '' }) => {
+        const at = new Date().toISOString();
+        transcript.push({ role: 'novi', text: caption, at, device: deviceKey(active) });
+        sendTo(active, { type: 'chat', entry: { role: 'novi', text: caption, at, image: `data:image/png;base64,${Buffer.from(png).toString('base64')}` } });
       },
       dataDir: config.dataDir, logger: console },
   });
@@ -105,6 +120,8 @@ export function createNovi(config, overrides = {}) {
   const tools = plugins;
   const agent = overrides.agent || new Agent({ router, tools, approvals, memory, tasks, accounts, privateProviders: config.privateProviders || ['groq'] });
   const pairing = overrides.pairing || new Pairing({ file: path.join(config.dataDir, 'devices.json') });
+  const tailscaleIdentity = overrides.tailscaleIdentity || createTailscaleIdentity();
+  const pairRequests = new PairRequests({ issue: (name) => pairing.issue(name, 'laptop') });
   const providerKeys = (name) => config.providers.find((p) => p.name === name)?.keys || [];
   // Groq Whisper first, Gemini as backup when Groq is down or out of quota.
   const speech = createSpeechEngine({ stt: [createGroqWhisperStt({ keys: providerKeys('groq') }), createGeminiStt({ keys: providerKeys('gemini') })] });
@@ -129,6 +146,9 @@ export function createNovi(config, overrides = {}) {
   const originAllowed = (req) => !req.headers.origin || allowedOrigins.has(req.headers.origin);
 
   const clients = new Set();
+  // Phone notifications + spoken lines a phone missed while Novi wasn't open on it.
+  const push = overrides.push || createPush({ dir: path.join(config.dataDir, 'push') });
+  const missed = createMissedQueue();
   const transcript = [];
   const send = (ws, msg) => ws.readyState === 1 && ws.send(JSON.stringify(msg));
   // With no Novi page open, spoken lines go to the laptop speakers instead (Windows voice).
@@ -137,51 +157,86 @@ export function createNovi(config, overrides = {}) {
     for (const ws of clients) send(ws, msg);
     if (msg.type === 'speak' && clients.size === 0 && msg.text) localSpeaker?.(msg.text);
   };
+  // Replies go only to the device that asked: 'local' = the laptop (its pages, else its speakers),
+  // { deviceId } = that phone. `active` is whoever spoke to Novi last — task updates, reminders and
+  // approval prompts are spoken there.
+  let active = 'local';
+  const deviceKey = (from) => (from === 'local' || !from ? 'local' : from.deviceId);
+  const viewerKey = (ws) => ws.deviceId || 'local';
+  const sendTo = (from, msg) => {
+    const key = deviceKey(from);
+    let reached = 0;
+    for (const ws of clients) if (viewerKey(ws) === key) { send(ws, msg); reached += 1; }
+    if (msg.type === 'speak' && msg.text && !reached && key === 'local') localSpeaker?.(msg.text);
+    // A phone that doesn't have Novi open hears it later (and gets a notification, see notify()).
+    if (msg.type === 'speak' && msg.text && !reached && key !== 'local') missed.add(key, msg.text);
+  };
+  const isOpen = (key) => [...clients].some((ws) => viewerKey(ws) === key);
+  // Phone notification for the device used last, only when Novi isn't open there.
+  const notify = (kind, to = active) => {
+    const key = deviceKey(to);
+    if (key === 'local' || isOpen(key)) return;
+    push.send(key, { kind }).catch(() => {});
+  };
+  const refresh = () => { for (const ws of clients) send(ws, snapshot(viewerKey(ws))); };
   const accountsView = () => accounts.list().map((a) => ({ id: a.id, provider: a.provider, label: a.label, email: a.email, status: a.status, isDefault: accounts.defaultFor(a.provider)?.id === a.id }));
   const onConnected = (a) => {
     const text = `Gmail connected: ${a.email}. I'll call it ${a.label}.`;
     say('novi', text);
-    broadcast({ type: 'speak', text });
-    broadcast(snapshot());
+    sendTo(active, { type: 'speak', text });
+    refresh();
   };
   const onConnectError = (e) => {
     say('novi', e.message);
-    broadcast({ type: 'speak', text: e.message });
+    sendTo(active, { type: 'speak', text: e.message });
   };
   // 'server' when the laptop-mic wake word is running (the browser then doesn't listen too).
   let wakeWord = 'browser';
-  const snapshot = () => ({
+  const snapshot = (viewer = 'local') => ({
     type: 'snapshot',
     wakeWord,
-    transcript,
+    transcript: transcript.filter((e) => e.device === viewer).map(({ device, ...e }) => e),
     task: tasks.status(),
     approvals: approvals.pending(),
     providers: router.status(),
     projects: memory.listProjects(),
     devices: pairing.listDevices(),
+    // Phones asking to connect: only the laptop sees (and answers) them.
+    pairRequests: viewer === 'local' ? pairRequests.pending() : [],
     accounts: accountsView(),
     googleConfigured: auth.configured,
   });
-  const say = (role, text) => {
+  const say = (role, text, to = active) => {
     const entry = { role, text, at: new Date().toISOString() };
-    transcript.push(entry);
+    transcript.push({ ...entry, device: deviceKey(to) });
     if (transcript.length > 100) transcript.splice(0, transcript.length - 100);
-    broadcast({ type: 'chat', entry });
+    sendTo(to, { type: 'chat', entry });
   };
 
   tasks.on('feed', (f) => broadcast({ type: 'feed', ...f }));
-  tasks.on('speak', (text) => broadcast({ type: 'speak', text }));
-  tasks.on('task', (task) => broadcast({ type: 'task', task }));
+  tasks.on('speak', (text) => sendTo(active, { type: 'speak', text }));
+  const notifiedTasks = new Set();
+  tasks.on('task', (task) => {
+    broadcast({ type: 'task', task });
+    const key = `${task.id}:${task.status}`;
+    if ((task.status === 'done' || task.status === 'failed') && !notifiedTasks.has(key)) {
+      notifiedTasks.add(key);
+      notify(task.status === 'done' ? 'task_done' : 'task_failed');
+    }
+  });
   approvals.on('added', (approval) => {
     broadcast({ type: 'approval_added', approval });
-    broadcast({ type: 'speak', text: approval.tier === 'high' ? `High risk: ${approval.title}. Please confirm on screen.` : approval.prompt || `${approval.title}. Should I allow it?` });
+    notify('approval');
+    sendTo(active, { type: 'speak', text: approval.tier === 'high' ? `High risk: ${approval.title}. Please confirm on screen.` : approval.prompt || `${approval.title}. Should I allow it?` });
   });
   approvals.on('resolved', (r) => broadcast({ type: 'approval_resolved', ...r }));
   // Only the phone that tried hears what is missing.
   const NEED_TEXT = { pin: 'Say your PIN to confirm.', passkey: 'Confirm with your fingerprint or face.', laptop: 'This one needs you at the laptop.' };
   remotePin.on('locked', () => {
     broadcast({ type: 'feed', text: 'Wrong PIN 3 times: approvals from phones that need the PIN are locked for 15 minutes.' });
+    // A security alert: every device hears it.
     broadcast({ type: 'speak', text: 'Wrong PIN 3 times. Phone approvals that need the PIN are locked for 15 minutes.' });
+    for (const device of pairing.listDevices()) notify('pin_locked', { deviceId: device.id });
   });
   approvals.on('needs_proof', ({ id, need, from }) => {
     for (const ws of clients) {
@@ -201,10 +256,32 @@ export function createNovi(config, overrides = {}) {
   const app = express();
   app.use('/api', (req, res, next) => (originAllowed(req) ? next() : res.status(403).json({ error: 'Cross-site request blocked' })));
   app.use(express.json({ limit: '100kb' }));
+  // Pairing, three easy ways (no typed code):
+  //  1. /api/pair         — the one-time code inside the QR shown on the laptop
+  //  2. /api/pair/auto    — a phone on the laptop owner's own Tailscale account gets in by itself
+  //  3. /api/pair/request — "Ask the laptop": Allow / Deny on the laptop, phone picks up its token
   app.post('/api/pair', (req, res) => {
     const result = pairing.pair(req.body?.code, req.body?.name);
     res.status(result.ok ? 200 : 401).json(result);
   });
+  app.post('/api/pair/auto', async (req, res) => {
+    const device = await tailscaleIdentity.ownerDevice(req.socket.remoteAddress);
+    if (!device) return res.status(403).json({ error: 'Not a device on your own Tailscale account.' });
+    res.json(pairing.issue(device.name, 'tailscale'));
+    refresh();
+  });
+  app.post('/api/pair/request', (req, res) => {
+    try {
+      const ask = pairRequests.create({ name: req.body?.name, ip: req.socket.remoteAddress });
+      const { name } = pairRequests.pending().find((r) => r.id === ask.id);
+      sendTo('local', { type: 'speak', text: `${name} wants to connect. Allow it on the laptop screen.` });
+      refresh();
+      res.json(ask);
+    } catch (err) {
+      res.status(429).json({ error: err.message });
+    }
+  });
+  app.get('/api/pair/request/:id', (req, res) => res.json(pairRequests.check(req.params.id, String(req.query.secret || ''))));
   // req.from: who is asking — 'local' (the laptop) or { deviceId } (a paired phone).
   app.use('/api', (req, res, next) => {
     if (isLocal(req)) { req.from = 'local'; return next(); }
@@ -215,7 +292,9 @@ export function createNovi(config, overrides = {}) {
   });
   app.get('/api/pairing-code', (req, res) => {
     if (!isLocal(req)) return res.status(403).json({ error: 'The pairing code is only shown on the laptop.' });
-    res.json({ ...pairing.currentCode(), urls: lanUrls });
+    const current = pairing.currentCode();
+    // The QR opens Novi on the phone and pairs it with the one-time code (first URL = Tailscale when available).
+    res.json({ ...current, urls: lanUrls, qrUrl: lanUrls[0] ? `${lanUrls[0]}/#pair=${current.code}` : null, qrUrls: lanUrls.map((u) => `${u}/#pair=${current.code}`) });
   });
   // Voice test recordings (Settings → Voice test): private clips for benchmarking speech-to-text.
   const samples = createSampleStore({ dir: path.join(config.dataDir, 'voice-samples') });
@@ -229,7 +308,42 @@ export function createNovi(config, overrides = {}) {
     }
   });
   // Settings → Permissions: "always allow" grants and what they allowed.
+  // "Hey Novi" practice clips through the laptop wake-word mic (Settings → Voice), laptop only.
+  // wakeTools ({ capture, setThreshold, threshold }) come from the wake-word service once it runs.
+  const wakeSamples = createWakeSampleStore({ dir: path.join(config.dataDir, 'voice-samples', 'hey-novi'), settingsFile: path.join(config.dataDir, 'wakeword.json') });
+  const wakeInfo = () => ({ available: Boolean(wakeTools), ...wakeSamples.list(), threshold: wakeSamples.threshold() ?? wakeTools?.threshold ?? null, suggested: suggestThreshold(wakeSamples.list().scores) });
+  app.get('/api/wake-samples', (req, res) => res.json(wakeInfo()));
+  app.post('/api/wake-samples', async (req, res) => {
+    if (!isLocal(req)) return res.status(403).json({ error: 'Record these on the laptop (they use its microphone).' });
+    if (!wakeTools) return res.status(409).json({ error: 'The laptop wake word is not running.' });
+    const { audio, best } = await wakeTools.capture(2500);
+    res.json(wakeSamples.save(audio, best));
+  });
+  app.put('/api/wake-samples/threshold', (req, res) => {
+    if (!isLocal(req)) return res.status(403).json({ error: 'This can only be changed on the laptop.' });
+    try {
+      wakeSamples.setThreshold(req.body?.threshold);
+      wakeTools?.setThreshold(wakeSamples.threshold());
+      res.json(wakeInfo());
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  // Phone notifications: the phone subscribes once (Settings → Enable notifications).
+  app.get('/api/push/key', (req, res) => res.json({ publicKey: push.publicKey, subscribed: req.from !== 'local' && Boolean(push.has?.(req.from.deviceId)) }));
+  app.post('/api/push/subscribe', (req, res) => {
+    if (req.from === 'local') return res.status(400).json({ error: 'Turn on notifications from your phone.' });
+    try { push.subscribe(req.from.deviceId, req.body); res.json({ subscribed: true }); } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+
   // Voice PIN for high-risk approvals from a phone: set and changed at the laptop only.
+  app.post('/api/pair/requests/:id', (req, res) => {
+    if (!isLocal(req)) return res.status(403).json({ error: 'Only the laptop can let a phone in.' });
+    const ok = pairRequests.decide(req.params.id, req.body?.allow === true);
+    refresh();
+    res.status(ok ? 200 : 404).json({ ok });
+  });
   app.get('/api/remote-pin', (req, res) => res.json({ set: remotePin.isSet(), ...remotePin.getSettings(), lockedUntil: remotePin.lockedUntil || 0 }));
   app.post('/api/remote-pin', (req, res) => {
     if (!isLocal(req)) return res.status(403).json({ error: 'The PIN can only be set on the laptop.' });
@@ -306,7 +420,11 @@ export function createNovi(config, overrides = {}) {
   app.post('/api/stt', express.raw({ type: () => true, limit: '10mb' }), async (req, res) => {
     try {
       const mimeType = String(req.headers['content-type'] || 'audio/webm').split(';')[0];
-      res.json({ text: await stt(req.body, mimeType) });
+      const t0 = Date.now();
+      const text = await stt(req.body, mimeType);
+      // Where the time goes (tap → mic open on the phone, speech-to-text here). Never logs the words.
+      console.log(`[timing] mic open ${Number(req.headers['x-novi-mic-ms']) || '?'} ms, speech-to-text ${Date.now() - t0} ms (${Math.round(req.body.length / 1024)} KB)`);
+      res.json({ text });
     } catch (err) {
       res.status(502).json({ error: err.message });
     }
@@ -338,7 +456,7 @@ export function createNovi(config, overrides = {}) {
       if (req.body?.default === true) accounts.setDefault(account.provider, account.id);
       if (req.body?.default === false) accounts.setDefault(account.provider, null);
       res.json({ ok: true });
-      broadcast(snapshot());
+      refresh();
     } catch (err) {
       res.status(400).json({ error: err.message });
     }
@@ -353,16 +471,18 @@ export function createNovi(config, overrides = {}) {
       accounts.remove(account.id);
     }
     res.json({ removed: true });
-    broadcast(snapshot());
+    refresh();
   });
   app.delete('/api/devices/:id', (req, res) => {
     passkeys?.removeDevice(req.params.id);
+    push.removeDevice(req.params.id);
+    missed.clear(req.params.id);
     res.json({ revoked: pairing.revoke(req.params.id) });
-    broadcast(snapshot());
+    refresh();
   });
   app.delete('/api/projects/:name', (req, res) => {
     res.json({ forgotten: memory.forgetProject(req.params.name) });
-    broadcast(snapshot());
+    refresh();
   });
 
   // Voice-activity detection (Silero VAD) runs in the browser; serve its model and runtime
@@ -406,17 +526,21 @@ export function createNovi(config, overrides = {}) {
   async function handleMessage(msg, from = 'local') {
     if (msg.type === 'user_message' && typeof msg.text === 'string' && msg.text.trim()) {
       const text = msg.text.trim().slice(0, 4000);
-      say('user', text);
-      broadcast({ type: 'thinking', on: true });
+      active = from;
+      say('user', text, from);
+      sendTo(from, { type: 'thinking', on: true });
       try {
+        const t0 = Date.now();
         const reply = await agent.handle(text, { from });
-        say('novi', reply);
-        broadcast({ type: 'speak', text: plainText(reply) });
+        console.log(`[timing] reply ${Date.now() - t0} ms`);
+        say('novi', reply, from);
+        sendTo(from, { type: 'speak', text: spokenText(reply) });
+        return reply;
       } catch (err) {
-        say('novi', `Something went wrong: ${err.message}`);
+        say('novi', `Something went wrong: ${err.message}`, from);
       } finally {
-        broadcast({ type: 'thinking', on: false });
-        broadcast(snapshot());
+        sendTo(from, { type: 'thinking', on: false });
+        refresh();
       }
     } else if (msg.type === 'approval') {
       approvals.resolve(msg.id, Boolean(msg.allow), 'screen', typeof msg.choice === 'string' ? msg.choice : null, { always: msg.always === true, from, proof: await approvalProof(msg, from) });
@@ -437,7 +561,13 @@ export function createNovi(config, overrides = {}) {
       const local = localAddress(req.socket.remoteAddress);
       let authed = local;
       let token = null;
-      const admit = () => { clients.add(ws); send(ws, snapshot()); };
+      const admit = () => {
+        clients.add(ws);
+        send(ws, snapshot(viewerKey(ws)));
+        // What this phone missed while Novi wasn't open on it, spoken in order.
+        const lines = ws.deviceId ? missed.take(ws.deviceId) : [];
+        if (lines.length) send(ws, { type: 'missed', lines });
+      };
       if (authed) admit();
       ws.on('message', async (data) => {
         let msg;
@@ -461,10 +591,15 @@ export function createNovi(config, overrides = {}) {
   // A command heard by the always-on laptop microphone (16 kHz WAV).
   async function runVoiceCommand(wav) {
     const text = String(await stt(wav, 'audio/wav')).trim();
-    if (!text || text === '.') return;
-    await handleMessage({ type: 'user_message', text });
+    if (!text || text === '.') return null;
+    // What was heard and Novi's reply: the wake-word service uses them for conversation mode.
+    return { text, reply: (await handleMessage({ type: 'user_message', text })) || '' };
   }
-  const setWakeWord = (mode) => { wakeWord = mode; broadcast(snapshot()); };
+  let wakeTools = null;
+  const setWakeTools = (tools) => { wakeTools = tools; };
+  // Trigger level chosen in Settings (from the user's own clips), if any.
+  const wakeThreshold = () => wakeSamples.threshold();
+  const setWakeWord = (mode) => { wakeWord = mode; refresh(); };
 
-  return { app, attachWebSocket, remotePin, snapshot, runVoiceCommand, setWakeWord, memory, accounts, approvals, tasks, router, agent, tools, plugins, pairing, broadcast };
+  return { app, attachWebSocket, remotePin, setWakeTools, wakeThreshold, snapshot, runVoiceCommand, setWakeWord, memory, accounts, approvals, tasks, router, agent, tools, plugins, pairing, broadcast };
 }

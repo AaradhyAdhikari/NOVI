@@ -20,7 +20,9 @@ export default function TalkButton({ onText, api, onRecording = () => {}, handsF
   const releasedRef = useRef(false);
   const phaseRef = useRef('idle');
   const go = (p) => { phaseRef.current = p; setPhase(p); };
-  useEffect(() => { loadVad().catch(() => {}); }, []);
+  // Load the speech detector model as soon as the page opens (no mic yet), so the first tap is quick.
+  useEffect(() => { loadVad().then((m) => m.warmVad()).catch(() => {}); }, []);
+  const micOpenMsRef = useRef(0);
 
   async function send(blob) {
     recRef.current = null;
@@ -32,7 +34,7 @@ export default function TalkButton({ onText, api, onRecording = () => {}, handsF
     }
     go('transcribing');
     try {
-      const res = await api('/api/stt', { method: 'POST', headers: { 'Content-Type': blob.type || 'audio/webm' }, body: blob });
+      const res = await api('/api/stt', { method: 'POST', headers: { 'Content-Type': blob.type || 'audio/webm', 'X-Novi-Mic-Ms': String(micOpenMsRef.current) }, body: blob });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error || `server error ${res.status}`);
       const text = String(body.text || '').trim();
@@ -67,6 +69,7 @@ export default function TalkButton({ onText, api, onRecording = () => {}, handsF
     onRecording(true);
     try {
       recRef.current = await open();
+      micOpenMsRef.current = Date.now() - pressedAtRef.current;
     } catch {
       onRecording(false);
       go('idle');

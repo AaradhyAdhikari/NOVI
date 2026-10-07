@@ -151,7 +151,7 @@ export function createBriefingPlugin({ now = () => new Date(), tickMs = 30_000 }
         if (cfg.lastDay === localDay(d) || d < due || d - due > 60 * 60_000) return; // once a day, within an hour of the time
         writeCfg({ ...cfg, lastDay: localDay(d) });
         try {
-          api.runtime.say((await compose()).spoken);
+          api.runtime.say((await compose()).spoken, { kind: 'briefing' });
         } catch (err) {
           api.logger?.warn?.(`[briefing] failed: ${err.message}`);
         }

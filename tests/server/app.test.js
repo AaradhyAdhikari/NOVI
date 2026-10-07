@@ -507,5 +507,190 @@ describe('Novi server', () => {
     expect(res.status).toBe(409);
     c.ws.close();
   });
+
+  it('answers only on the device that asked', async () => {
+    const env = await start({ isLocalAddress: () => false });
+    const a = await pairedPhone(env);
+    const b = await pairedPhone(env);
+    a.c.ws.send(JSON.stringify({ type: 'user_message', text: 'what time is it' }));
+    await a.c.waitFor((m) => m.type === 'chat' && m.entry.text === 'echo: what time is it');
+    await a.c.waitFor((m) => m.type === 'speak' && m.text === 'echo: what time is it');
+    await new Promise((r) => setTimeout(r, 100));
+    expect(b.c.messages.some((m) => m.type === 'chat' || m.type === 'speak' || m.type === 'thinking')).toBe(false);
+    a.c.ws.send(JSON.stringify({ type: 'hello' }));
+    const bSnap = b.c.messages.filter((m) => m.type === 'snapshot').at(-1);
+    expect(bSnap.transcript).toEqual([]);
+    a.c.ws.close(); b.c.ws.close();
+  });
+
+  it('a command heard by the laptop mic is answered on the laptop, not the phone', async () => {
+    const spoken = [];
+    const env = await start({ isLocalAddress: () => false, localSpeaker: (t) => spoken.push(t) });
+    const phone = await pairedPhone(env);
+    await env.novi.runVoiceCommand(Buffer.from('wav'));
+    expect(spoken).toHaveLength(1);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(phone.c.messages.some((m) => m.type === 'speak' || m.type === 'chat')).toBe(false);
+    phone.c.ws.close();
+  });
+
+  it('task and reminder speech goes to the device used last', async () => {
+    const env = await start({ isLocalAddress: () => false });
+    const a = await pairedPhone(env);
+    const b = await pairedPhone(env);
+    a.c.ws.send(JSON.stringify({ type: 'user_message', text: 'start' }));
+    await a.c.waitFor((m) => m.type === 'speak');
+    env.novi.tasks.emit('speak', 'Task done.');
+    await a.c.waitFor((m) => m.type === 'speak' && m.text === 'Task done.');
+    await new Promise((r) => setTimeout(r, 100));
+    expect(b.c.messages.some((m) => m.type === 'speak')).toBe(false);
+    a.c.ws.close(); b.c.ws.close();
+  });
+
+  it('sends pictures only to the device that asked, keeping just the caption in the transcript', async () => {
+    const env = await start({ isLocalAddress: () => false });
+    const a = await pairedPhone(env);
+    const b = await pairedPhone(env);
+    a.c.ws.send(JSON.stringify({ type: 'user_message', text: 'show me the screen' }));
+    await a.c.waitFor((m) => m.type === 'speak');
+    env.novi.plugins.runtime.showImage({ png: Buffer.from('PNG'), caption: 'The laptop screen right now.' });
+    const chat = await a.c.waitFor((m) => m.type === 'chat' && m.entry.image);
+    expect(chat.entry.image).toBe(`data:image/png;base64,${Buffer.from('PNG').toString('base64')}`);
+    expect(JSON.stringify(env.novi.snapshot(a.deviceId))).not.toContain('base64');
+    await new Promise((r) => setTimeout(r, 100));
+    expect(b.c.messages.some((m) => m.type === 'chat')).toBe(false);
+    a.c.ws.close(); b.c.ws.close();
+  });
+
+  it('records "Hey Novi" practice clips through the wake-word mic and applies a trigger level', async () => {
+    const { base, novi } = await start();
+    expect((await (await fetch(`${base}/api/wake-samples`)).json()).available).toBe(false);
+    const applied = [];
+    let n = 0;
+    novi.setWakeTools({ capture: async (ms) => ({ audio: new Int16Array(ms * 16), best: [0.3, 0.2, 0.25, 0.4, 0.35, 0.22, 0.28, 0.31, 0.27, 0.33][n++] }), setThreshold: (t) => applied.push(t), threshold: 0.35 });
+    for (let i = 0; i < 10; i++) {
+      const res = await (await fetch(`${base}/api/wake-samples`, { method: 'POST' })).json();
+      expect(res.count).toBe(i + 1);
+    }
+    const info = await (await fetch(`${base}/api/wake-samples`)).json();
+    expect(info).toMatchObject({ available: true, count: 10, threshold: 0.35, suggested: 0.2 });
+    const put = await fetch(`${base}/api/wake-samples/threshold`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ threshold: 0.2 }) });
+    expect(put.status).toBe(200);
+    expect(applied).toEqual([0.2]);
+    expect(novi.wakeThreshold()).toBe(0.2);
+  });
+
+  it('only the laptop can record wake-word clips', async () => {
+    const env = await start({ isLocalAddress: () => false });
+    const { c, token } = await pairedPhone(env);
+    expect((await fetch(`${env.base}/api/wake-samples`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } })).status).toBe(403);
+    c.ws.close();
+  });
+
+  function fakePush() {
+    const sent = [];
+    const subs = new Set();
+    const removed = [];
+    return { sent, removed, publicKey: 'PUB', subscribe: (id) => { subs.add(id); return true; }, has: (id) => subs.has(id), removeDevice: (id) => { removed.push(id); subs.delete(id); }, send: async (id, m) => { sent.push([id, m.kind]); } };
+  }
+
+  it('a phone without Novi open gets a notification, and hears what it missed when it comes back', async () => {
+    const push = fakePush();
+    const env = await start({ isLocalAddress: () => false, push });
+    const phone = await pairedPhone(env);
+    expect((await fetch(`${env.base}/api/push/key`, { headers: { Authorization: `Bearer ${phone.token}` } }).then((r) => r.json())).publicKey).toBe('PUB');
+    const sub = await fetch(`${env.base}/api/push/subscribe`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${phone.token}` }, body: JSON.stringify({ endpoint: 'https://fcm.googleapis.com/x', keys: { p256dh: 'a', auth: 'b' } }) });
+    expect(sub.status).toBe(200);
+    phone.c.ws.send(JSON.stringify({ type: 'user_message', text: 'start the task' }));
+    await phone.c.waitFor((m) => m.type === 'speak');
+    phone.c.ws.close();
+    await new Promise((r) => setTimeout(r, 100));
+
+    env.novi.approvals.request({ title: 'Edit app.js', tier: 'medium', source: 'test' });
+    env.novi.tasks.emit('speak', 'All done, tests pass.');
+    env.novi.tasks.emit('task', { active: true, id: 't1', status: 'done' });
+    env.novi.tasks.emit('task', { active: true, id: 't1', status: 'done' });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(push.sent).toEqual([[phone.deviceId, 'approval'], [phone.deviceId, 'task_done']]);
+
+    const back = connect(env.ws);
+    await back.opened;
+    back.ws.send(JSON.stringify({ type: 'hello', token: phone.token }));
+    const missed = await back.waitFor((m) => m.type === 'missed');
+    expect(missed.lines).toContain('All done, tests pass.');
+    back.ws.close();
+    const again = connect(env.ws);
+    await again.opened;
+    again.ws.send(JSON.stringify({ type: 'hello', token: phone.token }));
+    await again.waitFor((m) => m.type === 'snapshot');
+    await new Promise((r) => setTimeout(r, 100));
+    expect(again.messages.some((m) => m.type === 'missed')).toBe(false);
+    again.ws.close();
+  });
+
+  it('a phone with Novi open gets no notification', async () => {
+    const push = fakePush();
+    const env = await start({ isLocalAddress: () => false, push });
+    const phone = await pairedPhone(env);
+    push.subscribe(phone.deviceId);
+    phone.c.ws.send(JSON.stringify({ type: 'user_message', text: 'hi' }));
+    await phone.c.waitFor((m) => m.type === 'speak');
+    env.novi.approvals.request({ title: 'Edit app.js', tier: 'medium', source: 'test' });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(push.sent).toEqual([]);
+    phone.c.ws.close();
+  });
+
+  it('removing a phone removes its notifications', async () => {
+    const push = fakePush();
+    const { base, novi } = await start({ push });
+    const { deviceId } = novi.pairing.pair(novi.pairing.currentCode().code, 'S24+');
+    await fetch(`${base}/api/devices/${deviceId}`, { method: 'DELETE' });
+    expect(push.removed).toEqual([deviceId]);
+  });
+
+  const post = (url, body, headers = {}) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body || {}) });
+
+  it("lets the owner's own Tailscale phone in without pairing", async () => {
+    const tailscaleIdentity = { ownerDevice: async () => ({ name: 'Galaxy S24+' }) };
+    const env = await start({ isLocalAddress: () => false, tailscaleIdentity });
+    const res = await post(`${env.base}/api/pair/auto`);
+    expect(res.status).toBe(200);
+    const { token } = await res.json();
+    expect((await fetch(`${env.base}/api/health`, { headers: { Authorization: `Bearer ${token}` } })).status).toBe(200);
+    expect(env.novi.pairing.listDevices()[0]).toMatchObject({ name: 'Galaxy S24+', via: 'tailscale' });
+  });
+
+  it('refuses automatic pairing for anyone else', async () => {
+    const env = await start({ isLocalAddress: () => false, tailscaleIdentity: { ownerDevice: async () => null } });
+    expect((await post(`${env.base}/api/pair/auto`)).status).toBe(403);
+  });
+
+  it('"Ask the laptop": the laptop allows, the phone gets in', async () => {
+    let local = false;
+    const env = await start({ isLocalAddress: () => local });
+    const ask = await (await post(`${env.base}/api/pair/request`, { name: 'Galaxy S24+' })).json();
+    expect((await (await fetch(`${env.base}/api/pair/request/${ask.id}?secret=${ask.secret}`)).json()).status).toBe('pending');
+    // Only the laptop can see and answer requests.
+    expect((await post(`${env.base}/api/pair/requests/${ask.id}`, { allow: true })).status).toBe(401);
+    local = true;
+    expect(env.novi.snapshot().pairRequests.map((r) => r.name)).toEqual(['Galaxy S24+']);
+    expect((await post(`${env.base}/api/pair/requests/${ask.id}`, { allow: true })).status).toBe(200);
+    local = false;
+    const done = await (await fetch(`${env.base}/api/pair/request/${ask.id}?secret=${ask.secret}`)).json();
+    expect(done.status).toBe('allowed');
+    expect((await fetch(`${env.base}/api/health`, { headers: { Authorization: `Bearer ${done.token}` } })).status).toBe(200);
+  });
+
+  it('the pairing panel gives the laptop a QR link with a one-time code', async () => {
+    const { base } = await start();
+    const body = await (await fetch(`${base}/api/pairing-code`)).json();
+    expect(body.qrUrl).toBe(`https://192.168.1.5:3001/#pair=${body.code}`);
+  });
+
+  it('a laptop-mic command returns what was heard and the reply (for conversation mode)', async () => {
+    const { novi } = await start();
+    expect(await novi.runVoiceCommand(Buffer.from('wav'))).toEqual({ text: 'heard 3 bytes of audio/wav', reply: 'echo: heard 3 bytes of audio/wav' });
+  });
 });
 

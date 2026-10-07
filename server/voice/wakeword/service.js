@@ -4,6 +4,7 @@ import path from 'node:path';
 import { createWakeWordDetector } from './detector.js';
 import { createWakeListener, normalizeVolume } from './listener.js';
 import { encodeWav } from '../../../src/lib/utterance.js';
+import { spokenText } from '../../narrator.js';
 
 const DIR = path.resolve('models/wakeword');
 
@@ -25,43 +26,107 @@ export async function startWakeWordService({ novi, env = process.env, logger = c
   }
 
   const { PvRecorder } = await import('@picovoice/pvrecorder-node');
-  const deviceIndex = pickMicIndex(PvRecorder.getAvailableDevices(), env.NOVI_WAKEWORD_MIC);
-  const recorder = new PvRecorder(1280, deviceIndex);
   let detector = await createWakeWordDetector({ melspectrogramPath: shared[0], embeddingPath: shared[1], modelPath });
   if (env.NOVI_WAKEWORD_DEBUG) detector = withDebugLog(detector, logger);
 
-  const listener = createWakeListener({
-    recorder,
-    detector,
-    // 0.35: the hey_novi model trained on synthetic voices scored the user's own "Hey Novi" 0.37–0.83 and
-    // ordinary commands <= 0.014 (2026-10-07). Override with NOVI_WAKEWORD_THRESHOLD.
-    threshold: Number(env.NOVI_WAKEWORD_THRESHOLD || 0.35),
-    onWake: (score) => {
-      logger.log(`[wake] heard the wake word (${score.toFixed(2)})`);
-      novi.broadcast({ type: 'wake' });
-    },
-    onCommand: (audio) => {
-      logger.log(`[wake] command recorded (${(audio.length / 16000).toFixed(1)} s)`);
-      novi.runVoiceCommand(Buffer.from(encodeWav(Float32Array.from(normalizeVolume(audio), (s) => s / 32768), 16000)))
-        .catch((err) => logger.warn(`[wake] command failed: ${err.message}`));
-    },
-    onNoCommand: () => {
-      logger.log('[wake] no command heard after the wake word');
-      novi.broadcast({ type: 'wake_timeout' });
-    },
-    onError: (err) => {
-      logger.warn(`⚠  Wake word stopped: ${err.message}. Falling back to the browser.`);
-      novi.setWakeWord('browser');
-    },
-  });
+  // 0.35: the hey_novi model trained on synthetic voices; override with NOVI_WAKEWORD_THRESHOLD.
+  // A level chosen in Settings → "Hey Novi" from the user's own clips wins over the default.
+  let level = Number(env.NOVI_WAKEWORD_THRESHOLD || novi.wakeThreshold?.() || 0.35);
+  let current = null; // { recorder, listener } — replaced on every (re)start
 
-  listener.start();
-  novi.setWakeWord('server');
-  logger.log(`  Wake word: always on (${path.basename(modelPath)}, mic: ${recorder.getSelectedDevice()})`);
+  // A fresh mic each start: follows whichever mic Windows uses now (earbuds in or out).
+  async function start({ onError }) {
+    const recorder = new PvRecorder(1280, pickMicIndex(PvRecorder.getAvailableDevices(), env.NOVI_WAKEWORD_MIC));
+    const listener = createWakeListener({
+      recorder,
+      detector,
+      threshold: level,
+      onWake: (score) => {
+        logger.log(`[wake] heard the wake word (${score.toFixed(2)})`);
+        novi.broadcast({ type: 'wake' });
+      },
+      onCommand: async (audio, { followUp } = {}) => {
+        logger.log(`[wake] ${followUp ? 'follow-up' : 'command'} recorded (${(audio.length / 16000).toFixed(1)} s)`);
+        try {
+          const result = await novi.runVoiceCommand(Buffer.from(encodeWav(Float32Array.from(normalizeVolume(audio), (s) => s / 32768), 16000)));
+          // Conversation mode: keep listening for the next sentence, no "Hey Novi" needed.
+          const next = result && conversationNext(result);
+          if (next && current?.listener === listener) {
+            listener.followUp(next);
+            novi.broadcast({ type: 'wake' });
+          }
+        } catch (err) {
+          logger.warn(`[wake] command failed: ${err.message}`);
+        }
+      },
+      onNoCommand: ({ followUp } = {}) => {
+        logger.log(followUp ? '[wake] conversation ended (quiet)' : '[wake] no command heard after the wake word');
+        novi.broadcast({ type: 'wake_timeout' });
+      },
+      onError: (err) => {
+        try { recorder.release(); } catch { /* already released */ }
+        onError(err);
+      },
+    });
+    current = { recorder, listener };
+    listener.start();
+    novi.setWakeWord('server');
+    // Settings → "Hey Novi": record practice clips through this mic and change the level live.
+    novi.setWakeTools?.({
+      capture: (ms) => current.listener.capture(ms),
+      setThreshold: (value) => { level = value; current.listener.setThreshold(value); },
+      threshold: level,
+    });
+    logger.log(`  Wake word: always on (${path.basename(modelPath)}, level ${level}, mic: ${recorder.getSelectedDevice()})`);
+  }
+
+  const runner = keepRestarting({ start, logger });
+  await runner.begin();
   return {
     stop() {
-      listener.stop();
-      try { recorder.release(); } catch { /* already released */ }
+      runner.stop();
+      current?.listener.stop();
+      try { current?.recorder.release(); } catch { /* already released */ }
+    },
+  };
+}
+
+// Replies that end a conversation; anything else keeps Novi listening for ~8 s after it speaks.
+const ENDS = /^(stop|bye|goodbye|good night|thanks|thank you|that's all|that is all|nothing|no thanks|okay bye|ok bye)\b/i;
+const SPEECH_START_MS = 1500; // making the voice + starting to play
+const MS_PER_CHAR = 70; // ~14 characters a second
+
+export function conversationNext({ text = '', reply = '' } = {}) {
+  if (!String(text).trim() || !String(reply).trim() || ENDS.test(String(text).trim())) return null;
+  return { deafMs: SPEECH_START_MS + spokenText(reply).length * MS_PER_CHAR, waitMs: 8000 };
+}
+
+// The laptop mic can fail (earbuds connecting, another app, a driver hiccup). Never give up:
+// start it again after a short wait, a little longer each time.
+export function keepRestarting({ start, delays = [1000, 2000, 5000, 10000, 30000], logger = console }) {
+  let stopped = false;
+  let failures = 0;
+  let timer = null;
+  const run = async () => {
+    if (stopped) return;
+    try {
+      await start({ onError });
+    } catch (err) {
+      onError(err);
+    }
+  };
+  function onError(err) {
+    if (stopped) return;
+    const wait = delays[Math.min(failures, delays.length - 1)];
+    failures += 1;
+    logger.warn(`⚠  Wake-word mic stopped (${err.message}). Starting it again in ${wait / 1000} s.`);
+    timer = setTimeout(run, wait);
+  }
+  return {
+    begin: run,
+    stop() {
+      stopped = true;
+      clearTimeout(timer);
     },
   };
 }

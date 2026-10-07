@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { describeEvent, summarize, Narrator, firstSentence, plainText } from '../../server/narrator.js';
+import { describeEvent, summarize, Narrator, firstSentence, plainText, spokenText } from '../../server/narrator.js';
 
 const use = (name, input) => ({ kind: 'tool_use', id: 'x', name, input });
 
@@ -74,5 +74,19 @@ describe('Narrator', () => {
     vi.advanceTimersByTime(8000);
     expect(spoken).toHaveLength(2);
     expect(fed).toEqual(['Reading a.js', 'Reading b.js', 'Editing a.js', 'Claude finished. Done.']);
+  });
+});
+
+describe('spokenText', () => {
+  it('speaks at most two sentences and never reads out links', () => {
+    const reply = "I've opened your GitHub profile on the laptop. The contribution graph is at the top. You can also open https://github.com/aaradhyadhikari on your phone. Let me know if you'd like anything else.";
+    expect(spokenText(reply)).toBe("I've opened your GitHub profile on the laptop. The contribution graph is at the top.");
+    expect(spokenText('See https://example.com/x?y=1 for details.')).toBe('See for details.');
+    expect(spokenText('Created **math.js**. Tests pass. Done.')).toBe('Created math.js. Tests pass.');
+  });
+  it('cuts a very long sentence at a word', () => {
+    const out = spokenText('word '.repeat(80).trim() + '.');
+    expect(out.length).toBeLessThanOrEqual(200);
+    expect(out.endsWith('…')).toBe(true);
   });
 });

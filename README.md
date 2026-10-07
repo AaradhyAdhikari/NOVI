@@ -195,7 +195,7 @@ Open `https://localhost:3001` on the laptop and accept the certificate warning (
 
 Every file edit and command asks for your approval (Allow / Deny cards, also spoken). Risky commands such as `git push` or recursive deletes are marked high risk and can only be approved on screen.
 
-**Phone:** on the same Wi-Fi, open Settings (gear icon) → *Pair a phone*, visit the URL shown on your phone, accept the certificate warning, and enter the 6-digit code.
+**Phone:** no codes to type. With Tailscale on the phone (same account as the laptop) it connects by itself. Otherwise open Settings → *Pair a phone* on the laptop and scan the QR code with the phone camera, or tap **Ask the laptop to let me in** on the phone and press **Allow** on the laptop.
 
 **Development:** `npm run dev` (UI with hot reload on http://localhost:5173) · `npm test`.
 
@@ -205,9 +205,11 @@ Use Novi from your phone away from home; the laptop stays home, on and plugged i
 
 1. Install [Tailscale](https://tailscale.com) (free) on the laptop and the phone, signed in to the same account.
 2. In the Tailscale admin console → DNS: turn on **MagicDNS** and **HTTPS certificates**.
-3. Restart Novi. It prints a `Phone: https://<laptop>.<tailnet>.ts.net:3001 (from anywhere, via Tailscale)` line — open that on the phone (no certificate warning) and pair as usual.
+3. Restart Novi. It prints a `Phone: https://<laptop>.<tailnet>.ts.net:3001 (from anywhere, via Tailscale)` line — open that on the phone (no certificate warning); a phone on your own Tailscale account connects by itself.
 4. On the laptop, Settings → Permissions → **Phone PIN**: set a 4–8 digit PIN. High-risk approvals from the phone need it (said aloud by default; "voice or typed" is a setting). 3 wrong tries lock phone approvals that need the PIN for 15 minutes. The spoken PIN goes through speech-to-text (Groq) like everything you say; Novi never stores or shows it.
 5. On the phone, Settings → Paired devices → **Set up fingerprint / face**. Deletes and payments approved from the phone need it; without it they wait until you're at the laptop.
+
+6. Install it as an app: Samsung/Chrome menu → **Add to Home screen** (iPhone: Share → Add to Home Screen, iOS 16.4+). Then in Novi on the phone, Settings → Paired devices → **Enable notifications**. When Novi isn't open on the phone you get a notification ("Task finished", "Novi needs your OK", "Reminder", "Your briefing is ready" — never private details); tap it and Novi says what you missed.
 
 Removing a phone in Settings cuts it off at once (its open page and its fingerprint/face setup too).
 

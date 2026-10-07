@@ -3,7 +3,7 @@
   "name": "Screen control",
   "description": "Look at the laptop screen, click, type and press keys in apps without an API (asks first; never on password/payment/CAPTCHA/system screens).",
   "categories": ["other"],
-  "contracts": { "tools": ["screen_look", "screen_focus", "screen_click", "screen_type", "screen_key"] },
+  "contracts": { "tools": ["screen_look", "screen_show", "screen_page", "screen_focus", "screen_click", "screen_type", "screen_key"] },
   "activation": { "onStartup": true },
   "configSchema": { "type": "object", "additionalProperties": false }
 }

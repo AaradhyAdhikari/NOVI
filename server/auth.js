@@ -55,11 +55,17 @@ export class Pairing {
     }
     this.failures = 0;
     this._rotate(); // codes are single use
+    return { ok: true, ...this.issue(name, 'qr') };
+  }
+
+  // A new paired device without a code: a phone on the owner's Tailscale account, or one the
+  // laptop allowed ("Ask the laptop"). via: 'qr' | 'tailscale' | 'laptop'.
+  issue(name = 'Device', via = 'qr') {
     const token = crypto.randomBytes(32).toString('hex');
-    const device = { id: crypto.randomUUID(), name: String(name).slice(0, 60), tokenHash: hash(token), pairedAt: new Date(this.now()).toISOString() };
+    const device = { id: crypto.randomUUID(), name: String(name).slice(0, 60), via, tokenHash: hash(token), pairedAt: new Date(this.now()).toISOString() };
     this.devices.push(device);
     this._save();
-    return { ok: true, token, deviceId: device.id };
+    return { token, deviceId: device.id };
   }
 
   verify(token) {
