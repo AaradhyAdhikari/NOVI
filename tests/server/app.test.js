@@ -188,6 +188,35 @@ describe('Novi server', () => {
     expect(novi.snapshot().transcript).toEqual([]);
   });
 
+  it('reports health: version, uptime, restarts, recent errors, last backup', async () => {
+    const backupsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'novi-backups-'));
+    fs.writeFileSync(path.join(backupsDir, 'novi-data-2026-10-07-0300.zip'), 'x');
+    const { base } = await start({
+      system: { version: 'abc1234', supervised: true, restarts: 2 },
+      logBuffer: { recent: () => [{ at: '2026-10-07T03:00:00.000Z', level: 'warn', text: 'Groq slow' }] },
+      backupsDir,
+    });
+    const h = await (await fetch(`${base}/api/health`)).json();
+    expect(h).toMatchObject({ version: 'abc1234', supervised: true, restarts: 2, wakeWord: 'browser' });
+    expect(h.uptimeSec).toBeGreaterThanOrEqual(0);
+    expect(h.errors).toEqual([{ at: '2026-10-07T03:00:00.000Z', level: 'warn', text: 'Groq slow' }]);
+    expect(h.lastBackup).toMatchObject({ file: 'novi-data-2026-10-07-0300.zip' });
+    expect(h.providers).toEqual([{ name: 'groq', healthy: true }]);
+  });
+
+  it('restarts only when running under the supervisor', async () => {
+    const exits = [];
+    const plain = await start({ exit: (c) => exits.push(c) });
+    const res = await fetch(`${plain.base}/api/restart`, { method: 'POST' });
+    expect(res.status).toBe(409);
+    expect(exits).toEqual([]);
+    server.close();
+    const supervised = await start({ exit: (c) => exits.push(c), system: { supervised: true } });
+    expect((await fetch(`${supervised.base}/api/restart`, { method: 'POST' })).status).toBe(200);
+    await new Promise((r) => setTimeout(r, 400));
+    expect(exits).toEqual([75]);
+  });
+
   it('serves the voice-detection model and runtime files to the browser', async () => {
     const { base } = await start();
     for (const file of ['vad.worklet.bundle.min.js', 'silero_vad_v5.onnx', 'ort-wasm-simd-threaded.wasm', 'ort-wasm-simd-threaded.mjs', 'ort-wasm-simd-threaded.jsep.wasm', 'ort-wasm-simd-threaded.jsep.mjs']) {

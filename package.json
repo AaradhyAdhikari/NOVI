@@ -7,7 +7,7 @@
     "dev": "concurrently -n server,web \"npm:server\" \"vite\"",
     "server": "node --env-file-if-exists=.env server/index.js",
     "build": "vite build",
-    "start": "vite build && node --env-file-if-exists=.env server/index.js",
+    "start": "vite build && node server/supervisor.js",
     "test": "vitest run"
   },
   "dependencies": {

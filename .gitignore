@@ -8,3 +8,4 @@ data/
 .tmp/
 .handoff/
 models/wakeword/hey_jarvis*.onnx
+backups/

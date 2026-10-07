@@ -171,6 +171,31 @@ export function createNovi(config, overrides = {}) {
       res.status(400).json({ error: err.message });
     }
   });
+  // Settings → System: is Novi healthy, and a restart button (only under the supervisor).
+  const system = { version: 'dev', supervised: false, restarts: 0, ...overrides.system };
+  const startedAt = Date.now();
+  const backupsDir = overrides.backupsDir || path.resolve('backups');
+  const lastBackup = () => {
+    if (!fs.existsSync(backupsDir)) return null;
+    const file = fs.readdirSync(backupsDir).filter((f) => /^novi-data-.*\.zip$/.test(f)).sort().at(-1);
+    return file ? { file, at: fs.statSync(path.join(backupsDir, file)).mtime.toISOString() } : null;
+  };
+  app.get('/api/health', (req, res) => res.json({
+    version: system.version,
+    uptimeSec: Math.round((Date.now() - startedAt) / 1000),
+    supervised: system.supervised,
+    restarts: system.restarts,
+    wakeWord,
+    providers: router.status(),
+    lastBackup: lastBackup(),
+    errors: overrides.logBuffer?.recent() || [],
+  }));
+  const exit = overrides.exit || ((code) => process.exit(code));
+  app.post('/api/restart', (req, res) => {
+    if (!system.supervised) return res.status(409).json({ error: 'Novi was started without the supervisor, so it cannot restart itself. Close it and double-click Start Novi.cmd.' });
+    res.json({ restarting: true });
+    setTimeout(() => exit(75), 300);
+  });
   app.post('/api/stt', express.raw({ type: () => true, limit: '10mb' }), async (req, res) => {
     try {
       const mimeType = String(req.headers['content-type'] || 'audio/webm').split(';')[0];

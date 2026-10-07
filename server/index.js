@@ -1,4 +1,5 @@
 import https from 'node:https';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { loadConfig } from './config.js';
 import { createNovi } from './app.js';
@@ -6,6 +7,13 @@ import { loadOrCreateCert, lanAddresses } from './certs.js';
 import { checkClaude } from './claude/check.js';
 import { startWakeWordService } from './voice/wakeword/service.js';
 import { createLocalSpeaker } from './voice/localSpeaker.js';
+import { createLogBuffer } from './logBuffer.js';
+
+const logBuffer = createLogBuffer();
+logBuffer.capture(console);
+let version = 'dev';
+try { version = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { encoding: 'utf8', windowsHide: true }).trim(); } catch { /* not a git checkout */ }
+const system = { version, supervised: process.env.NOVI_SUPERVISED === '1', restarts: Number(process.env.NOVI_RESTARTS || 0) };
 
 const config = loadConfig();
 if (!config.providers.length) console.warn('⚠  No AI provider keys found. Add GROQ_API_KEYS / GEMINI_API_KEYS to .env');
@@ -13,12 +21,19 @@ if (!config.providers.length) console.warn('⚠  No AI provider keys found. Add 
 const lanUrls = lanAddresses().map((ip) => `https://${ip}:${config.port}`);
 const localSpeaker = createLocalSpeaker();
 localSpeaker?.(''); // warm up the Windows voice now so the first reply isn't 2.5 s late
-const novi = createNovi(config, { lanUrls, localSpeaker });
+const novi = createNovi(config, { lanUrls, localSpeaker, logBuffer, system });
 await novi.plugins.loadDirectory(path.resolve('plugins'));
 await novi.plugins.startServices();
 const server = https.createServer(loadOrCreateCert(path.join(config.dataDir, 'certs')), novi.app);
-novi.attachWebSocket(server);
 
+// Another Novi already owns the port (e.g. the autostarted one): exit cleanly (code 0) so the
+// supervisor stops instead of restarting into the same error forever.
+server.on('error', (err) => {
+  if (err.code !== 'EADDRINUSE') throw err;
+  console.error(`Novi is already running on port ${config.port} (https://localhost:${config.port}). This copy will close.`);
+  process.exit(0);
+});
+novi.attachWebSocket(server); // after the handler above: the WebSocket server re-emits listen errors
 server.listen(config.port, '0.0.0.0', () => {
   console.log(`\nNovi is running`);
   console.log(`  Laptop: https://localhost:${config.port}`);

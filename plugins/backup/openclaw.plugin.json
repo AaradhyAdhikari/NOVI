@@ -1,0 +1,13 @@
+{
+  "id": "backup",
+  "name": "Backups",
+  "description": "Zips Novi's data folder once a day (keeps 14) into backups/, which OneDrive syncs.",
+  "categories": ["other"],
+  "contracts": { "tools": ["backup_now", "backup_status"] },
+  "activation": { "onStartup": true },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": { "dir": { "type": "string", "description": "Where backups go (NOVI_PLUGIN_BACKUP_DIR); default: backups/ in the project" } }
+  }
+}
