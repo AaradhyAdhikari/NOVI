@@ -11,7 +11,9 @@ const config = loadConfig();
 if (!config.providers.length) console.warn('⚠  No AI provider keys found. Add GROQ_API_KEYS / GEMINI_API_KEYS to .env');
 
 const lanUrls = lanAddresses().map((ip) => `https://${ip}:${config.port}`);
-const novi = createNovi(config, { lanUrls, localSpeaker: createLocalSpeaker() });
+const localSpeaker = createLocalSpeaker();
+localSpeaker?.(''); // warm up the Windows voice now so the first reply isn't 2.5 s late
+const novi = createNovi(config, { lanUrls, localSpeaker });
 await novi.plugins.loadDirectory(path.resolve('plugins'));
 await novi.plugins.startServices();
 const server = https.createServer(loadOrCreateCert(path.join(config.dataDir, 'certs')), novi.app);
