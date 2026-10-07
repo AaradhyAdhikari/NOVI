@@ -156,3 +156,37 @@ describe('wrapRegistryAsPlugin', () => {
     expect(await h.get('pick').gate({ account: 'x' })).toEqual({ approval: { title: 'Pick', detail: '', tier: 'medium' } });
   });
 });
+
+describe('prompt and turn hooks (OpenClaw before_prompt_build / agent_end)', () => {
+  const host = () => new PluginHost({ runtime: {}, env: {}, logger: { warn() {} } });
+
+  it('collects system guidance and per-turn context from every plugin', async () => {
+    const h = host();
+    h.register({ id: 'a', name: 'A', register(api) { api.on('before_prompt_build', ({ prompt }) => ({ appendSystemContext: 'Use memory tools.', prependContext: `Facts about: ${prompt}`, sensitive: true })); } });
+    h.register({ id: 'b', name: 'B', register(api) { api.on('before_prompt_build', () => ({ prependSystemContext: 'Be kind.' })); api.on('before_prompt_build', () => undefined); } });
+    const ctx = await h.promptContext({ prompt: 'mom', messages: [] });
+    expect(ctx.system).toBe('Use memory tools.\nBe kind.');
+    expect(ctx.context).toBe('Facts about: mom');
+    expect(ctx.sensitive).toBe(true);
+  });
+
+  it('a failing prompt hook is skipped, not fatal', async () => {
+    const h = host();
+    h.register({ id: 'a', name: 'A', register(api) { api.on('before_prompt_build', () => { throw new Error('boom'); }); } });
+    expect(await h.promptContext({ prompt: 'x', messages: [] })).toEqual({ system: '', context: '', sensitive: false });
+  });
+
+  it('tells plugins about each finished turn', async () => {
+    const h = host();
+    const seen = [];
+    h.register({ id: 'a', name: 'A', register(api) { api.on('agent_end', (e) => { seen.push(e); }); api.on('agent_end', () => { throw new Error('ignored'); }); } });
+    await h.agentEnd({ messages: [{ role: 'user', content: 'hi' }], success: true });
+    expect(seen).toEqual([{ messages: [{ role: 'user', content: 'hi' }], success: true }]);
+  });
+
+  it('prompt hooks do not run as tool gates', async () => {
+    const h = host();
+    h.register({ id: 'a', name: 'A', register(api) { api.registerTool({ name: 't', execute: async () => ({}) }); api.on('before_prompt_build', () => ({ prependContext: 'x' })); } });
+    expect(await h.get('t').gate({})).toEqual({});
+  });
+});

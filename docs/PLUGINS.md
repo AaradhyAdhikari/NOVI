@@ -119,3 +119,18 @@ await host.get('clock_announce').gate({});  // shows the approval Novi would ask
 | `api.on('before_tool_call')` → `requireApproval` / `block` | identical hook and result shape |
 | `api.runtime.*` | provided by the Novi→OpenClaw adapter |
 | `details.sensitive` | adapter maps to OpenClaw model routing |
+
+## Prompt and turn hooks (`before_prompt_build`, `agent_end`)
+
+Same names and shapes as OpenClaw:
+
+```js
+api.on('before_prompt_build', ({ prompt, messages }) => ({
+  appendSystemContext: 'Static guidance for the model.',   // or prependSystemContext
+  prependContext: 'Per-turn context, e.g. relevant memories.', // or appendContext
+  sensitive: true, // Novi extension: the context is private, keep this turn on a private provider
+}));
+api.on('agent_end', ({ messages, success }) => { /* [{ role: 'user', ... }, { role: 'assistant', ... }] */ });
+```
+
+Novi only sends the model the tools a request needs (`server/brain/toolSelect.js`): name your tools `<group>_<verb>` and, if users say other words for them, add those to `WORDS` there.

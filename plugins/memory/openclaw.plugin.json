@@ -1,0 +1,9 @@
+{
+  "id": "memory",
+  "name": "Long-term memory",
+  "description": "Remembers facts about the user, people and preferences across days, and keeps a searchable log of past conversations.",
+  "categories": ["other"],
+  "contracts": { "tools": ["memory_remember", "memory_recall", "memory_forget", "memory_list", "conversation_history"] },
+  "activation": { "onStartup": true },
+  "configSchema": { "type": "object", "additionalProperties": false }
+}

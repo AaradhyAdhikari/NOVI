@@ -5,7 +5,9 @@ import { pathToFileURL } from 'node:url';
 import { definePluginEntry, SEVERITY_TIER } from './sdk.js';
 
 const RANK = { low: 0, medium: 1, high: 2 };
-const SUPPORTED_HOOKS = new Set(['before_tool_call']);
+// OpenClaw hook names. before_prompt_build results may also carry `sensitive: true` (Novi extension:
+// the added context is private, so the turn stays on a private AI provider).
+const SUPPORTED_HOOKS = new Set(['before_tool_call', 'before_prompt_build', 'agent_end']);
 
 // OpenClaw tool result → the object Novi feeds back to the model.
 export function mapResult(result) {
@@ -43,7 +45,7 @@ export class PluginHost {
         registerService: (service) => { services.push(service); },
         on: (event, handler, opts = {}) => {
           if (!SUPPORTED_HOOKS.has(event)) throw new Error(`unsupported hook "${event}"`);
-          hooks.push({ handler, allTools: Boolean(opts.allTools) });
+          hooks.push({ event, handler, allTools: Boolean(opts.allTools) });
         },
       };
       entry.register(api);
@@ -129,6 +131,7 @@ export class PluginHost {
     let approval = null;
     for (const plugin of this.plugins) {
       for (const hook of plugin.hooks) {
+        if (hook.event !== 'before_tool_call') continue;
         if (!hook.allTools && plugin.id !== tool.pluginId) continue;
         let result;
         try {
@@ -148,6 +151,39 @@ export class PluginHost {
       }
     }
     return approval && approval.tier !== 'low' ? { approval } : {};
+  }
+
+  // before_prompt_build: plugins add guidance (system) and per-turn context to the prompt.
+  async promptContext(event) {
+    const system = [];
+    const context = [];
+    let sensitive = false;
+    for (const { plugin, hook } of this._hooks('before_prompt_build')) {
+      let result;
+      try {
+        result = await hook.handler(event);
+      } catch (err) {
+        this.logger.warn?.(`Plugin "${plugin.id}" prompt hook failed: ${err.message}`);
+        continue;
+      }
+      if (!result) continue;
+      system.push(result.prependSystemContext, result.appendSystemContext);
+      context.push(result.prependContext, result.appendContext);
+      if (result.sensitive && (result.prependContext || result.appendContext)) sensitive = true;
+    }
+    const join = (parts) => parts.filter(Boolean).join('\n');
+    return { system: join(system), context: join(context), sensitive };
+  }
+
+  // agent_end: plugins hear about each finished exchange (e.g. to keep a conversation log).
+  async agentEnd(event) {
+    for (const { plugin, hook } of this._hooks('agent_end')) {
+      try { await hook.handler(event); } catch (err) { this.logger.warn?.(`Plugin "${plugin.id}" agent_end hook failed: ${err.message}`); }
+    }
+  }
+
+  _hooks(event) {
+    return this.plugins.flatMap((plugin) => plugin.hooks.filter((h) => h.event === event).map((hook) => ({ plugin, hook })));
   }
 
   _configFor(id) {

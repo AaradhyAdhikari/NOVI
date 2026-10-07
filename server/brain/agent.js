@@ -1,4 +1,5 @@
 import { AllProvidersUnavailableError } from './router.js';
+import { selectTools } from './toolSelect.js';
 import { UserFacingError } from '../errors.js';
 import { firstSentence } from '../narrator.js';
 
@@ -46,7 +47,8 @@ export function describeStatus(s) {
 }
 
 export class Agent {
-  constructor({ router, tools, approvals, memory, tasks, accounts = null, privateProviders = ['groq'] }) {
+  constructor({ router, tools, approvals, memory, tasks, accounts = null, privateProviders = ['groq'], sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
+    this.sleep = sleep;
     this.accounts = accounts;
     this.privateProviders = privateProviders;
     this.router = router;
@@ -64,19 +66,33 @@ export class Agent {
       if (quickReply) return this._remember(text, quickReply);
     }
 
+    // Plugins (e.g. long-term memory) add guidance and context for this turn.
+    const extra = (await this.tools.promptContext?.({ prompt: text, messages: this.history })) || {};
+    const system = [systemPrompt({ projects: this.memory.listProjects(), task: this.tasks.status(), accounts: this._accountsForPrompt() }), extra.system, extra.context].filter(Boolean).join('\n');
     const messages = [
-      { role: 'system', content: systemPrompt({ projects: this.memory.listProjects(), task: this.tasks.status(), accounts: this._accountsForPrompt() }) },
+      { role: 'system', content: system },
       ...this.history,
       { role: 'user', content: text },
     ];
     const notes = [];
-    let provider;
+    // Personal context (memories) only goes to providers the user trusts with private data.
+    let provider = extra.sensitive ? this.privateProviders[0] : undefined;
+    let waited = false;
+    // Only the tools this request needs (keeps each call small enough for free rate limits).
+    const offered = selectTools(this.tools.schemas(), { text, history: this.history, taskActive: Boolean(this.tasks.status().active) });
     for (let round = 0; round < MAX_ROUNDS; round++) {
       let res;
       try {
-        res = await this.router.chat({ messages, tools: this.tools.schemas(), purpose: 'fast', only: provider });
+        res = await this.router.chat({ messages, tools: offered, purpose: 'fast', only: provider });
       } catch (err) {
         if (!(err instanceof AllProvidersUnavailableError)) throw err;
+        // A private turn can't fall back to another provider; a short rate-limit is worth waiting out.
+        if (extra.sensitive && !waited && err.retryInMs <= 20_000) {
+          waited = true;
+          await this.sleep(err.retryInMs);
+          round -= 1;
+          continue;
+        }
         const fallback = notes.length ? notes.join(' ') : `My AI providers are busy right now. Try again in about ${Math.ceil(err.retryInMs / 1000)} seconds.`;
         return this._remember(text, fallback);
       }
@@ -176,6 +192,7 @@ export class Agent {
   _remember(text, replyText) {
     this.history.push({ role: 'user', content: text }, { role: 'assistant', content: replyText });
     if (this.history.length > MAX_HISTORY) this.history.splice(0, this.history.length - MAX_HISTORY);
+    Promise.resolve(this.tools.agentEnd?.({ messages: [{ role: 'user', content: text }, { role: 'assistant', content: replyText }], success: true })).catch(() => {});
     return replyText;
   }
 }

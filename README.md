@@ -229,6 +229,10 @@ Then: "any GitHub notifications?", "list my repos", "open issues on NOVI", "read
 
 **Later — Claude Code:** set `NOVI_CODER=claude` in `.env` to hand coding tasks to [Claude Code](https://claude.com/claude-code) instead of Novi Coder (requires the `claude` CLI logged in; uses your Claude plan).
 
+### Long-term memory
+
+Tell Novi things once and it remembers them across days: *"my mom's birthday is 12 March"*, *"Rohan lives in Mumbai"*, *"I prefer short answers"*. Ask later: *"when is mom's birthday?"*, *"what did I ask you yesterday?"*. *"What do you remember about me?"* lists it; *"forget my dentist"* asks you first. Stored privately in `data/long-term-memory/` (included in backups); turns that use memories stay on Groq (your private provider).
+
 ### Always on, self-healing, backed up
 
 - **Start at sign-in:** double-click **Install Autostart.cmd** once. Novi then starts hidden every time you sign in to Windows (no admin needed). **Remove Autostart.cmd** undoes it.

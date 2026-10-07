@@ -179,3 +179,62 @@ describe('describeStatus', () => {
       .toBe('Claude finished the task on portfolio. Added login.');
   });
 });
+
+describe('plugin context in the prompt (long-term memory)', () => {
+  function withContext(ctx, steps) {
+    const router = scriptedRouter(steps);
+    const ended = [];
+    const tools = new ToolRegistry();
+    tools.promptContext = async ({ prompt }) => ({ ...ctx, context: ctx.context ? `${ctx.context} [${prompt}]` : '' });
+    tools.agentEnd = async (e) => { ended.push(e); };
+    const agent = new Agent({ router, tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) }, privateProviders: ['groq'] });
+    return { agent, router, ended };
+  }
+
+  it('adds plugin guidance and context to the system prompt', async () => {
+    const { agent, router } = withContext({ system: 'Use memory_remember for lasting facts.', context: "Things you remember: Mom's birthday is 12 March.", sensitive: false }, [reply('12 March.')]);
+    await agent.handle("When is Mom's birthday?");
+    const system = router.calls[0].messages[0].content;
+    expect(system).toContain('Use memory_remember for lasting facts.');
+    expect(system).toContain("Mom's birthday is 12 March. [When is Mom's birthday?]");
+    expect(router.calls[0].only).toBeUndefined();
+  });
+
+  it('keeps the turn on the private provider when the context is personal', async () => {
+    const { agent, router } = withContext({ system: '', context: 'Things you remember: x', sensitive: true }, [reply('ok')]);
+    await agent.handle('hi');
+    expect(router.calls[0].only).toBe('groq');
+  });
+
+  it('reports each finished exchange to plugins', async () => {
+    const { agent, ended } = withContext({ system: '', context: '', sensitive: false }, [reply('Hello!')]);
+    await agent.handle('hi');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(ended).toEqual([{ messages: [{ role: 'user', content: 'hi' }, { role: 'assistant', content: 'Hello!' }], success: true }]);
+  });
+});
+
+describe('private turns wait briefly for the private provider', () => {
+  function privateAgent(steps, sleep) {
+    const router = scriptedRouter(steps);
+    const tools = new ToolRegistry();
+    tools.promptContext = async () => ({ system: '', context: 'Things you remember: x', sensitive: true });
+    const agent = new Agent({ router, tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) }, privateProviders: ['groq'], sleep });
+    return { agent, router };
+  }
+
+  it('waits for a short rate-limit and tries again instead of saying "busy"', async () => {
+    const waits = [];
+    const { agent, router } = privateAgent([new AllProvidersUnavailableError(9000), reply('12 March.')], async (ms) => { waits.push(ms); });
+    expect(await agent.handle("When is mom's birthday?")).toBe('12 March.');
+    expect(waits).toEqual([9000]);
+    expect(router.calls.map((c) => c.only)).toEqual(['groq', 'groq']);
+  });
+
+  it('does not wait for long outages', async () => {
+    const waits = [];
+    const { agent } = privateAgent([new AllProvidersUnavailableError(60_000)], async (ms) => { waits.push(ms); });
+    expect(await agent.handle('hi')).toMatch(/busy/);
+    expect(waits).toEqual([]);
+  });
+});
