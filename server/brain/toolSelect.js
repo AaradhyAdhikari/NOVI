@@ -62,8 +62,8 @@ export function selectTools(schemas, { text, history = [], taskActive = false } 
 }
 
 // Short questions that need only the always-on basics (time, small talk, open an app, recall a memory)
-// go to the quick lane: a small fast model (Groq llama-3.1-8b-instant), falling back to bigger ones.
+// go to the quick lane: a small fast model (Groq gpt-oss-20b, low reasoning), falling back to bigger ones.
 export function isQuickTurn(text, offered, { taskActive = false } = {}) {
-  const words = String(text || '').trim().split(/s+/).filter(Boolean).length;
+  const words = String(text || '').trim().split(/\s+/).filter(Boolean).length;
   return !taskActive && words > 0 && words <= 12 && offered.every((s) => ALWAYS.has(s.function.name));
 }

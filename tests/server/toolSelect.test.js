@@ -85,3 +85,11 @@ describe('selectTools: calendar and tasks words', () => {
     expect(names('mark the dbms task done')).toContain('tasks_complete');
   });
 });
+
+describe('isQuickTurn', () => {
+  it('counts words by spaces (13 words is not quick, even without the letter s)', async () => {
+    const { isQuickTurn } = await import('../../server/brain/toolSelect.js');
+    expect(isQuickTurn('tell me a long joke about a cat and a dog and a cow', [])).toBe(false);
+    expect(isQuickTurn('tell me a joke', [])).toBe(true);
+  });
+});
