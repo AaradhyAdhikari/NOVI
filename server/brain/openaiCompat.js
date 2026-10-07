@@ -25,7 +25,8 @@ export function parseRetryAfterMs(headers, message) {
 export function classifyHttpError(status, body, headers) {
   const message = errorMessage(body);
   if (status === 429) return new ProviderError('rate_limit', message, { status, retryAfterMs: parseRetryAfterMs(headers, message) });
-  if (status === 401 || status === 403) return new ProviderError('auth', message, { status });
+  // 402 = free credit used up / card required (e.g. SambaNova): switch that key off like a bad key.
+  if (status === 401 || status === 402 || status === 403) return new ProviderError('auth', message, { status });
   if (status === 404) return new ProviderError('model_unavailable', message, { status });
   if (status >= 500) return new ProviderError('unavailable', message, { status });
   return new ProviderError('bad_request', message, { status });

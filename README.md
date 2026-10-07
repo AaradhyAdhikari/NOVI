@@ -262,7 +262,7 @@ From the laptop or your phone: *"open Novi in Cursor"*, *"open playground in VS 
 
 ### Faster replies and more free AI capacity
 
-Short, simple questions ("what time is it", small talk, quick maths) go to Groq's small model with low reasoning: about half a second. Anything that needs a tool still uses the big model. Optional extra backup: a free **SambaNova** key (cloud.sambanova.ai → API Keys) as `SAMBANOVA_API_KEYS=...` in .env, used when Groq and Gemini are busy (never for private things like email or memories).
+Short, simple questions ("what time is it", small talk, quick maths) go to Groq's small model with low reasoning: about half a second. Anything that needs a tool still uses the big model. Novi can also use **SambaNova** (`SAMBANOVA_API_KEYS`) as a backup, but as of Oct 2026 its free accounts need a payment method after a tiny trial, so it isn't free in practice.
 
 ### Natural voice
 

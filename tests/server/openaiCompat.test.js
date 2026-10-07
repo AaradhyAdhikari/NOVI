@@ -76,3 +76,10 @@ describe('reasoning effort', () => {
     expect(bodies.map((b) => b.reasoning_effort)).toEqual(['low', undefined, undefined]);
   });
 });
+
+describe('payment required', () => {
+  it('treats 402 (free credit used up, card needed) like a disabled key, not a retryable error', async () => {
+    const { classifyHttpError } = await import('../../server/brain/openaiCompat.js');
+    expect(classifyHttpError(402, { error: { message: 'A payment method is required.' } }, new Headers()).kind).toBe('auth');
+  });
+});

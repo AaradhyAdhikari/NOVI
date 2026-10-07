@@ -19,9 +19,10 @@ const PROVIDERS = {
   // Free backup (200k tokens/day per model). Not a private provider: personal turns stay on Groq.
   sambanova: {
     baseURL: 'https://api.sambanova.ai/v1',
-    fast: ['Meta-Llama-3.3-70B-Instruct', 'Llama-4-Maverick-17B-128E-Instruct'],
-    long: ['Meta-Llama-3.3-70B-Instruct', 'Llama-4-Maverick-17B-128E-Instruct'],
-    quick: ['Meta-Llama-3.1-8B-Instruct', 'Meta-Llama-3.3-70B-Instruct'],
+    // On a free account only gemma-4-31B-it answers; the others need a payment method (402), checked 2026-10-07.
+    fast: ['gemma-4-31B-it'],
+    long: ['gemma-4-31B-it'],
+    quick: ['gemma-4-31B-it'],
   },
   cerebras: { baseURL: 'https://api.cerebras.ai/v1', fast: [], long: [] },
   openrouter: { baseURL: 'https://openrouter.ai/api/v1', fast: [], long: [] },

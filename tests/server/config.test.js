@@ -44,7 +44,8 @@ describe('loadConfig', () => {
     const c = loadConfig({ ...base, SAMBANOVA_API_KEYS: 's1' });
     const sn = c.providers.find((p) => p.name === 'sambanova');
     expect(sn.baseURL).toBe('https://api.sambanova.ai/v1');
-    expect(sn.models.fast.length).toBeGreaterThan(0);
+    // Only gemma-4-31B-it works on a free SambaNova account (others answer 402 'payment method required', 2026-10-07).
+    expect(sn.models).toEqual({ fast: ['gemma-4-31B-it'], long: ['gemma-4-31B-it'], quick: ['gemma-4-31B-it'] });
     expect(c.order.fast).toEqual(['groq', 'gemini', 'sambanova']);
   });
 
