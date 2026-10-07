@@ -57,4 +57,18 @@ describe('transcribe', () => {
   it('fails clearly without keys', async () => {
     await expect(transcribe({ audio: Buffer.from('a'), keys: [] })).rejects.toThrow(/No Groq key/);
   });
+
+  it("can use another model and vocabulary hint (for the benchmark), with today's as defaults", async () => {
+    const forms = [];
+    const fetchImpl = async (u, i) => { forms.push(i.body); return new Response('{"text":"x","language":"english"}'); };
+    await transcribe({ audio: Buffer.from('a'), keys: ['k'], fetchImpl });
+    await transcribe({ audio: Buffer.from('a'), keys: ['k'], fetchImpl, model: 'whisper-large-v3', prompt: 'Hey Novi. LeetCode.' });
+    await transcribe({ audio: Buffer.from('a'), keys: ['k'], fetchImpl, prompt: '' });
+    expect(forms[0].get('model')).toBe('whisper-large-v3-turbo');
+    expect(forms[0].get('prompt')).toMatch(/Novi Coder/);
+    expect(forms[1].get('model')).toBe('whisper-large-v3');
+    expect(forms[1].get('prompt')).toBe('Hey Novi. LeetCode.');
+    expect(forms[2].get('prompt')).toBeNull();
+  });
 });
+
