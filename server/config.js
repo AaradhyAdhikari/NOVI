@@ -66,5 +66,7 @@ export function loadConfig(env = process.env) {
     googleClientId: (env.GOOGLE_CLIENT_ID || '').trim(),
     googleClientSecret: (env.GOOGLE_CLIENT_SECRET || '').trim(),
     privateProviders: splitList(env.NOVI_PRIVATE_PROVIDERS || 'groq'),
+    // Speech-to-text only (not a brain provider): Sarvam for Hindi / Marathi and as the backup.
+    speechKeys: { sarvam: splitList(env.SARVAM_API_KEYS || env.SARVAM_API_KEY) },
   };
 }

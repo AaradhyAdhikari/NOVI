@@ -19,6 +19,7 @@ import { Pairing, isLocalAddress } from './auth.js';
 import { createSpeechEngine } from './voice/speechEngine.js';
 import { createGroqWhisperStt } from './voice/providers/groqWhisper.js';
 import { createGeminiStt } from './voice/providers/geminiStt.js';
+import { createSarvamStt } from './voice/providers/sarvamStt.js';
 import { TEST_PHRASES, createSampleStore } from './voice/samples.js';
 import { plainText, spokenText } from './narrator.js';
 import { AccountRegistry } from './accounts/registry.js';
@@ -123,11 +124,14 @@ export function createNovi(config, overrides = {}) {
   const tailscaleIdentity = overrides.tailscaleIdentity || createTailscaleIdentity();
   const pairRequests = new PairRequests({ issue: (name) => pairing.issue(name, 'laptop') });
   const providerKeys = (name) => config.providers.find((p) => p.name === name)?.keys || [];
-  // Groq Whisper first, Gemini as backup when Groq is down or out of quota.
-  const speech = createSpeechEngine({ stt: [createGroqWhisperStt({ keys: providerKeys('groq') }), createGeminiStt({ keys: providerKeys('gemini') })] });
+  // Groq Whisper first (free, good English). Hindi / Marathi clips go on to Sarvam, which is
+  // also the backup when Groq is down; Gemini last (it timed out often in the 2026-10-07 benchmark).
+  const sarvam = createSarvamStt({ keys: config.speechKeys?.sarvam || [] });
+  const speech = createSpeechEngine({ stt: [createGroqWhisperStt({ keys: providerKeys('groq') }), sarvam, createGeminiStt({ keys: providerKeys('gemini') })], indic: sarvam });
   const stt = overrides.transcribe || (async (audio, mimeType) => {
     const result = await speech.transcribe({ audio, mimeType });
     if (result.fallbackFrom.length) console.warn(`[voice] ${result.fallbackFrom.join(', ')} failed; used ${result.provider}`);
+    if (result.refinedFrom) console.log(`[voice] Hindi/Marathi: used ${result.provider} instead of ${result.refinedFrom}`);
     return result.text;
   });
   const lanUrls = overrides.lanUrls || [];

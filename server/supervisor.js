@@ -7,6 +7,15 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 export const RESTART_CODE = 75;
+
+// Everything goes to the daily log file; a copy goes to the console only when there is one.
+// On Windows, writing to a pipe nobody reads blocks forever, which froze Novi (2026-10-08).
+export function createOutput({ stdout, log }) {
+  return (text) => {
+    if (stdout.isTTY) stdout.write(text);
+    log.write(text);
+  };
+}
 const BACKOFF_MS = [1000, 2000, 5000, 10_000, 30_000];
 const HEALTHY_MS = 60_000;
 const LOOP_WINDOW_MS = 120_000;
@@ -79,7 +88,7 @@ function openLog(dir) {
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const log = openLog(path.join(root, 'data', 'logs'));
-  const write = (text) => { process.stdout.write(text); log.write(text); };
+  const write = createOutput({ stdout: process.stdout, log });
   const supervisor = createSupervisor({
     logger: { log: (line) => write(`${new Date().toISOString()} ${line}\n`) },
     spawnChild: (restarts) => {

@@ -70,5 +70,11 @@ describe('transcribe', () => {
     expect(forms[1].get('prompt')).toBe('Hey Novi. LeetCode.');
     expect(forms[2].get('prompt')).toBeNull();
   });
+
+  it('detailed: reports the language Whisper first guessed, even after retrying as English', async () => {
+    let n = 0;
+    const fetchImpl = async () => new Response(JSON.stringify(++n === 1 ? { text: 'Uda Punaat', language: 'icelandic' } : { text: 'Uda Punaat Haman', language: 'english' }));
+    expect(await transcribe({ audio: Buffer.from('a'), keys: ['k'], fetchImpl, detailed: true })).toEqual({ text: 'Uda Punaat Haman', language: 'icelandic' });
+  });
 });
 

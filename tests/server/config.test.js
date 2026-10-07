@@ -72,4 +72,11 @@ describe('loadConfig', () => {
     expect(loadConfig({ ...base, NOVI_CODER: 'claude' }).coder).toBe('claude');
     expect(loadConfig({ ...base, NOVI_CODER: 'whatever' }).coder).toBe('free');
   });
+
+  it('reads Sarvam speech-to-text keys (one key or a list)', () => {
+    expect(loadConfig({ SARVAM_API_KEY: 'one' }).speechKeys.sarvam).toEqual(['one']);
+    expect(loadConfig({ SARVAM_API_KEYS: 'a, b' }).speechKeys.sarvam).toEqual(['a', 'b']);
+    expect(loadConfig({}).speechKeys.sarvam).toEqual([]);
+  });
 });
+

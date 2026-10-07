@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
-import { createSupervisor, RESTART_CODE } from '../../server/supervisor.js';
+import { createSupervisor, RESTART_CODE, createOutput } from '../../server/supervisor.js';
 
 let children;
 const spawnChild = (restarts) => {
@@ -85,3 +85,17 @@ describe('supervisor', () => {
     expect(children).toHaveLength(1);
   });
 });
+
+describe('supervisor output', () => {
+  it('always writes the log file, but copies to the console only when there is a real console', () => {
+    const logged = [];
+    const shown = [];
+    const log = { write: (t) => logged.push(t) };
+    createOutput({ stdout: { isTTY: true, write: (t) => shown.push(t) }, log })('a');
+    // A pipe nobody reads (e.g. started from another tool) would block Novi forever on Windows.
+    createOutput({ stdout: { isTTY: false, write: () => { throw new Error('must not write to a pipe'); } }, log })('b');
+    expect(logged).toEqual(['a', 'b']);
+    expect(shown).toEqual(['a']);
+  });
+});
+

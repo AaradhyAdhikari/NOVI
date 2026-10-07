@@ -8,11 +8,14 @@ export const DEFAULT_MODEL = 'whisper-large-v3-turbo';
 export const DEFAULT_PROMPT = 'Hey Novi. Novi, Novi Coder, Claude, Groq, Gemini, GitHub, LeetCode, YouTube, Gmail.';
 
 // model / prompt: overridable for the speech benchmark (tools/stt-benchmark.mjs); '' = no hint.
-export async function transcribe({ audio, mimeType = 'audio/webm', language, keys, fetchImpl = fetch, model = DEFAULT_MODEL, prompt = DEFAULT_PROMPT }) {
+export async function transcribe({ audio, mimeType = 'audio/webm', language, keys, fetchImpl = fetch, model = DEFAULT_MODEL, prompt = DEFAULT_PROMPT, detailed = false }) {
+  // detailed: { text, language } (the language Whisper heard) instead of just the text.
+  const done = (r) => (detailed ? r : r.text);
   if (!keys?.length) throw new Error('No Groq key configured for speech-to-text');
   const first = await request({ audio, mimeType, language, keys, fetchImpl, model, prompt });
-  if (language || !first.language || EXPECTED_LANGUAGES.has(String(first.language).toLowerCase())) return first.text;
-  return (await request({ audio, mimeType, language: 'en', keys, fetchImpl, model, prompt })).text;
+  if (language || !first.language || EXPECTED_LANGUAGES.has(String(first.language).toLowerCase())) return done(first);
+  // detailed keeps Whisper's first guess: an unexpected language is often Marathi (sent on to Sarvam).
+  return done({ ...(await request({ audio, mimeType, language: 'en', keys, fetchImpl, model, prompt })), language: first.language });
 }
 
 async function request({ audio, mimeType, language, keys, fetchImpl, model, prompt }) {
