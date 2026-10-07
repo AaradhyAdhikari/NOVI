@@ -157,7 +157,7 @@ Novi never blindly executes. Actions are tiered:
 - [x] Multi-AI orchestration across free providers (Groq ⇄ Gemini with automatic fallback)
 - [x] Phone → laptop control on home Wi-Fi (pairing code)
 - [x] Coding-agent supervision by voice (Novi Coder; Claude Code adapter ready, off by default)
-- [ ] Remote phone → laptop control from anywhere
+- [x] Remote phone → laptop control from anywhere (Tailscale, voice PIN, fingerprint/face for deletes)
 - [x] Account sign-in: Gmail (multiple accounts, approval before sending)
 - [x] GitHub plugin (notifications, repos, issues/PRs; comments and new issues with approval)
 - [x] Reminders & timers plugin
@@ -198,6 +198,18 @@ Every file edit and command asks for your approval (Allow / Deny cards, also spo
 **Phone:** on the same Wi-Fi, open Settings (gear icon) → *Pair a phone*, visit the URL shown on your phone, accept the certificate warning, and enter the 6-digit code.
 
 **Development:** `npm run dev` (UI with hot reload on http://localhost:5173) · `npm test`.
+
+### From anywhere (Tailscale)
+
+Use Novi from your phone away from home; the laptop stays home, on and plugged in (Novi keeps Windows from idle-sleeping while it runs; closing the lid can still sleep it).
+
+1. Install [Tailscale](https://tailscale.com) (free) on the laptop and the phone, signed in to the same account.
+2. In the Tailscale admin console → DNS: turn on **MagicDNS** and **HTTPS certificates**.
+3. Restart Novi. It prints a `Phone: https://<laptop>.<tailnet>.ts.net:3001 (from anywhere, via Tailscale)` line — open that on the phone (no certificate warning) and pair as usual.
+4. On the laptop, Settings → Permissions → **Phone PIN**: set a 4–8 digit PIN. High-risk approvals from the phone need it (said aloud by default; "voice or typed" is a setting). 3 wrong tries lock phone approvals that need the PIN for 15 minutes. The spoken PIN goes through speech-to-text (Groq) like everything you say; Novi never stores or shows it.
+5. On the phone, Settings → Paired devices → **Set up fingerprint / face**. Deletes and payments approved from the phone need it; without it they wait until you're at the laptop.
+
+Removing a phone in Settings cuts it off at once (its open page and its fingerprint/face setup too).
 
 ### Gmail (optional)
 

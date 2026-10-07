@@ -81,3 +81,48 @@ describe('ApprovalQueue', () => {
     expect(q.pending().map((x) => x.title)).toEqual(['b']);
   });
 });
+
+describe('ApprovalQueue remote trust', () => {
+  const phone = { deviceId: 'd1' };
+  const trust = { check: (approval, from, proof) => (from === 'local' || approval.tier !== 'high' || proof?.pin === 'ok' ? { ok: true } : { ok: false, need: 'pin' }) };
+
+  it('a remote allow without proof is refused and the approval stays pending', async () => {
+    const q = new ApprovalQueue({ trust });
+    const needs = [];
+    q.on('needs_proof', (e) => needs.push(e));
+    q.request({ title: 'x', tier: 'high', source: 't' });
+    const [a] = q.pending();
+    expect(q.resolve(a.id, true, 'screen', null, { from: phone })).toBe(false);
+    expect(q.pending()).toHaveLength(1);
+    expect(needs).toEqual([{ id: a.id, need: 'pin', from: phone }]);
+  });
+
+  it('a remote allow with proof goes through', async () => {
+    const q = new ApprovalQueue({ trust });
+    const answer = q.request({ title: 'x', tier: 'high', source: 't' });
+    expect(q.resolve(q.pending()[0].id, true, 'screen', null, { from: phone, proof: { pin: 'ok' } })).toBe(true);
+    await expect(answer).resolves.toBe(true);
+  });
+
+  it('a remote deny is always accepted', async () => {
+    const q = new ApprovalQueue({ trust });
+    const answer = q.request({ title: 'x', tier: 'high', source: 't' });
+    expect(q.resolve(q.pending()[0].id, false, 'screen', null, { from: phone })).toBe(true);
+    await expect(answer).resolves.toBe(false);
+  });
+
+  it('local allows are unchanged', async () => {
+    const q = new ApprovalQueue({ trust });
+    const answer = q.request({ title: 'x', tier: 'high', source: 't' });
+    q.resolve(q.pending()[0].id, true, 'screen');
+    await expect(answer).resolves.toBe(true);
+  });
+
+  it('keeps the kind and never offers a delete to a voice "yes"', () => {
+    const q = new ApprovalQueue();
+    q.request({ title: 'forget', tier: 'medium', source: 't', kind: 'delete' });
+    expect(q.pending()[0].kind).toBe('delete');
+    expect(q.latest({ excludeTier: 'high' })).toBeNull();
+  });
+});
+

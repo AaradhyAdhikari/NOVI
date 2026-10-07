@@ -61,10 +61,11 @@ export class Agent {
     this.history = [];
   }
 
-  async handle(text) {
+  // from: 'local' (the laptop) or { deviceId } — approvals answered by voice check it (server/remoteTrust.js).
+  async handle(text, { from = 'local' } = {}) {
     const quick = quickCommand(text);
     if (quick) {
-      const quickReply = await this._quick(quick);
+      const quickReply = await this._quick(quick, from);
       if (quickReply) return this._remember(text, quickReply);
     }
 
@@ -119,37 +120,41 @@ export class Agent {
     return this._remember(text, notes.join(' ') || 'I got stuck working that out. Could you rephrase?');
   }
 
-  async _quick(kind) {
+  async _quick(kind, from = 'local') {
     if (kind === 'stop') return (await this.tasks.stop()) ? 'Okay, I stopped the coding task.' : 'Nothing is running right now.';
     if (kind === 'status') return describeStatus(this.tasks.status());
     if (kind.startsWith('choose:')) {
       const choice = kind.slice('choose:'.length);
-      const open = this.approvals.pending().filter((a) => a.tier !== 'high' && a.choices);
+      const open = this.approvals.pending().filter((a) => a.tier !== 'high' && !a.kind && a.choices);
       const withChoice = open.filter((a) => a.choices.some((c) => c.id === choice)).at(-1);
       const label = choice === 'claude' ? 'Claude Code' : 'Novi Coder';
       if (withChoice) {
-        this.approvals.resolve(withChoice.id, true, 'voice', choice);
+        this.approvals.resolve(withChoice.id, true, 'voice', choice, { from });
         return `Okay, using ${label}.`;
       }
       // Picking the option Novi already proposed is just a yes.
       if (open.length) {
-        this.approvals.resolve(open.at(-1).id, true, 'voice');
+        this.approvals.resolve(open.at(-1).id, true, 'voice', null, { from });
         return `Okay, using ${label}.`;
       }
       return null;
     }
     const item = this.approvals.latest({ excludeTier: 'high' });
-    if (!item) return this.approvals.pending().length ? 'That one is high risk, so please confirm it on screen.' : null;
+    if (!item) {
+      const pending = this.approvals.pending();
+      if (!pending.length) return null;
+      return pending.some((a) => a.kind) ? 'That one deletes or pays for something, so please confirm it on screen.' : 'That one is high risk, so please confirm it on screen.';
+    }
     if (kind === 'approve-always') {
       if (!item.grant) {
-        this.approvals.resolve(item.id, true, 'voice');
+        this.approvals.resolve(item.id, true, 'voice', null, { from });
         return "Approved. I can't remember that kind of action, so I'll ask each time.";
       }
-      this.approvals.resolve(item.id, true, 'voice', null, { always: true });
+      this.approvals.resolve(item.id, true, 'voice', null, { always: true, from });
       return `Approved. I'll always allow ${item.grant.label} from now on.`;
     }
     const allow = kind === 'approve';
-    this.approvals.resolve(item.id, allow, 'voice');
+    this.approvals.resolve(item.id, allow, 'voice', null, { from });
     return allow ? 'Approved.' : 'Okay, denied.';
   }
 
@@ -175,7 +180,7 @@ export class Agent {
         const decision = await this.approvals.decide({
           title, detail: detail || '', tier, source: 'novi', prompt,
           choices: choices?.map(({ id, label }) => ({ id, label })),
-          category, grantable,
+          category, grantable, ...(gate.approval.kind ? { kind: gate.approval.kind } : {}),
         });
         if (!decision.allow) return { output: { error: 'The user declined this action.' } };
         const picked = decision.choice && choices?.find((c) => c.id === decision.choice);

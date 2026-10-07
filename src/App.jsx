@@ -75,7 +75,7 @@ export default function App() {
           <TaskPanel task={state.task} feed={state.feed} onStop={() => send({ type: 'stop' })} onAllowEdits={(allow) => send({ type: 'allow_edits', allow })} />
         </section>
       </main>
-      <ApprovalCards approvals={state.approvals} onAnswer={(id, allow, choice, opts = {}) => send({ type: 'approval', id, allow, ...(choice ? { choice } : {}), ...(opts.always ? { always: true } : {}) })} />
+      <ApprovalCards api={novi.api} approvals={state.approvals} onAnswer={(id, allow, choice, opts = {}) => send({ type: 'approval', id, allow, ...(choice ? { choice } : {}), ...(opts.always ? { always: true } : {}), ...(opts.proof || {}) })} />
       <TalkButton onText={sendText} api={novi.api} onRecording={(on) => handsFree.current?.enabled && handsFree.current.pause(on)} handsFreeOn={handsFreeOn || serverWake} />
       <SettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} projects={state.projects} devices={state.devices} accounts={state.accounts} googleConfigured={state.googleConfigured} api={novi.api} isLocal={novi.isLocal} />
     </div>

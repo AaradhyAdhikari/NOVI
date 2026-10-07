@@ -29,6 +29,7 @@ export function useNovi({ onSpeak }) {
         case 'feed': setState((s) => ({ ...s, feed: [...s.feed, { text: msg.text, taskId: msg.taskId, at: Date.now() }].slice(-200) })); break;
         case 'task': setState((s) => ({ ...s, task: msg.task })); break;
         case 'approval_added': setState((s) => ({ ...s, approvals: [...s.approvals.filter((a) => a.id !== msg.approval.id), msg.approval] })); break;
+        case 'approval_needs_proof': setState((s) => ({ ...s, approvals: s.approvals.map((a) => (a.id === msg.id ? { ...a, need: msg.need } : a)) })); break;
         case 'approval_resolved': setState((s) => ({ ...s, approvals: s.approvals.filter((a) => a.id !== msg.id) })); break;
         case 'thinking': setState((s) => ({ ...s, thinking: msg.on, wakeHeardAt: msg.on ? 0 : s.wakeHeardAt })); break;
         case 'speak': speakRef.current?.(msg.text); break;

@@ -150,6 +150,8 @@ export class PluginHost {
               ...(req.prompt ? { prompt: req.prompt } : {}), ...(req.choices?.length ? { choices: req.choices } : {}),
               // Novi extension for "always allow" (server/grants.js): the plugin may name the category or forbid grants.
               ...(req.category ? { category: req.category } : {}), ...(req.grantable !== undefined ? { grantable: Boolean(req.grantable) } : {}),
+              // Novi extension: deletes and payments need a fingerprint/face confirmation from a phone.
+              ...(req.kind === 'delete' || req.kind === 'payment' ? { kind: req.kind } : {}),
             };
           }
         }

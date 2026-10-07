@@ -29,6 +29,7 @@ async function start(overrides = {}) {
   novi.attachWebSocket(server);
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const base = `http://127.0.0.1:${server.address().port}`;
+  start.pairing = novi.pairing;
   return { novi, base, dataDir, ws: base.replace('http', 'ws') + '/ws' };
 }
 
@@ -331,4 +332,180 @@ describe('Novi server', () => {
     await c.waitFor((m) => m.type === 'approval_resolved' && m.by === 'screen');
     c.ws.close();
   });
+  it('treats a Tailscale (non-loopback) address as remote: pairing required', async () => {
+    const { base } = await start({ isLocalAddress: () => false });
+    expect((await fetch(`${base}/api/health`)).status).toBe(401);
+  });
+
+  it('remote socket answers carry the device id', async () => {
+    const approvals = new ApprovalQueue();
+    const seen = [];
+    const resolve = approvals.resolve.bind(approvals);
+    approvals.resolve = (...args) => { seen.push(args[4]); return resolve(...args); };
+    const { base, ws } = await start({ approvals, isLocalAddress: () => false });
+    const pairRes = await fetch(`${base}/api/pair`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: start.pairing.currentCode().code, name: 'S24+' }) });
+    const { token, deviceId } = await pairRes.json();
+    const c = connect(ws);
+    await c.opened;
+    c.ws.send(JSON.stringify({ type: 'hello', token }));
+    await c.waitFor((m) => m.type === 'snapshot');
+    const answer = approvals.request({ title: 'x', tier: 'medium', source: 'test' });
+    const added = await c.waitFor((m) => m.type === 'approval_added');
+    c.ws.send(JSON.stringify({ type: 'approval', id: added.approval.id, allow: true }));
+    await expect(answer).resolves.toBe(true);
+    expect(seen.at(-1).from).toEqual({ deviceId });
+    c.ws.close();
+  });
+
+  it("a revoked device's open socket can no longer act", async () => {
+    const approvals = new ApprovalQueue();
+    const { base, ws } = await start({ approvals, isLocalAddress: () => false });
+    const { token, deviceId } = await (await fetch(`${base}/api/pair`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: start.pairing.currentCode().code }) })).json();
+    const c = connect(ws);
+    await c.opened;
+    c.ws.send(JSON.stringify({ type: 'hello', token }));
+    await c.waitFor((m) => m.type === 'snapshot');
+    approvals.request({ title: 'x', tier: 'medium', source: 'test' });
+    const added = await c.waitFor((m) => m.type === 'approval_added');
+    start.pairing.revoke(deviceId);
+    const closed = new Promise((r) => c.ws.on('close', (codeNum) => r(codeNum)));
+    c.ws.send(JSON.stringify({ type: 'approval', id: added.approval.id, allow: true }));
+    expect(await closed).toBe(4001);
+    expect(approvals.pending().map((a) => a.id)).toContain(added.approval.id);
+  });
+
+  it('a phone allowing a high-risk approval without its PIN is asked for it, and it stays pending', async () => {
+    const { base, ws, novi } = await start({ isLocalAddress: () => false });
+    const { token } = await (await fetch(`${base}/api/pair`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: start.pairing.currentCode().code }) })).json();
+    const c = connect(ws);
+    await c.opened;
+    c.ws.send(JSON.stringify({ type: 'hello', token }));
+    await c.waitFor((m) => m.type === 'snapshot');
+    novi.approvals.request({ title: 'rm -rf build', tier: 'high', source: 'test' });
+    const added = await c.waitFor((m) => m.type === 'approval_added');
+    c.ws.send(JSON.stringify({ type: 'approval', id: added.approval.id, allow: true }));
+    const need = await c.waitFor((m) => m.type === 'approval_needs_proof');
+    expect(need).toMatchObject({ id: added.approval.id, need: 'pin' });
+    expect(novi.approvals.pending()).toHaveLength(1);
+    c.ws.close();
+  });
+
+  async function pairedPhone({ base, ws }) {
+    const { token, deviceId } = await (await fetch(`${base}/api/pair`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: start.pairing.currentCode().code }) })).json();
+    const c = connect(ws);
+    await c.opened;
+    c.ws.send(JSON.stringify({ type: 'hello', token }));
+    await c.waitFor((m) => m.type === 'snapshot');
+    return { c, token, deviceId };
+  }
+
+  it('a phone allows a high-risk approval with its spoken PIN, which never shows up anywhere', async () => {
+    const env = await start({ isLocalAddress: () => false });
+    env.novi.remotePin.set('4829');
+    const { c } = await pairedPhone(env);
+    const answer = env.novi.approvals.request({ title: 'rm -rf build', tier: 'high', source: 'test' });
+    const added = await c.waitFor((m) => m.type === 'approval_added');
+    c.ws.send(JSON.stringify({ type: 'approval', id: added.approval.id, allow: true, pinSpoken: 'four eight two nine' }));
+    await expect(answer).resolves.toBe(true);
+    expect(JSON.stringify(env.novi.snapshot())).not.toMatch(/4829|four eight/);
+    c.ws.close();
+  });
+
+  it('refuses a typed PIN while PIN input is voice only', async () => {
+    const env = await start({ isLocalAddress: () => false });
+    env.novi.remotePin.set('4829');
+    const { c } = await pairedPhone(env);
+    env.novi.approvals.request({ title: 'rm -rf build', tier: 'high', source: 'test' });
+    const added = await c.waitFor((m) => m.type === 'approval_added');
+    c.ws.send(JSON.stringify({ type: 'approval', id: added.approval.id, allow: true, pinTyped: '4829' }));
+    await c.waitFor((m) => m.type === 'approval_needs_proof');
+    expect(env.novi.approvals.pending()).toHaveLength(1);
+    c.ws.close();
+  });
+
+  it('says so when 3 wrong PINs lock remote high-risk approvals', async () => {
+    const env = await start({ isLocalAddress: () => false });
+    env.novi.remotePin.set('4829');
+    const { c } = await pairedPhone(env);
+    env.novi.approvals.request({ title: 'rm -rf build', tier: 'high', source: 'test' });
+    const added = await c.waitFor((m) => m.type === 'approval_added');
+    for (const wrong of ['1111', '2222', '3333']) c.ws.send(JSON.stringify({ type: 'approval', id: added.approval.id, allow: true, pinSpoken: wrong }));
+    await c.waitFor((m) => m.type === 'speak' && /wrong PIN 3 times/i.test(m.text));
+    c.ws.close();
+  });
+
+  it('only the laptop can set the PIN', async () => {
+    const env = await start({ isLocalAddress: () => false });
+    const { c, token } = await pairedPhone(env);
+    const res = await fetch(`${env.base}/api/remote-pin`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ pin: '1234' }) });
+    expect(res.status).toBe(403);
+    c.ws.close();
+  });
+
+  it('the laptop sets the PIN and the PIN input setting', async () => {
+    const { base, novi } = await start();
+    expect((await fetch(`${base}/api/remote-pin`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin: '12' }) })).status).toBe(400);
+    expect((await fetch(`${base}/api/remote-pin`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin: '482913' }) })).status).toBe(200);
+    await fetch(`${base}/api/remote-pin/settings`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pinInput: 'voice-or-typed' }) });
+    expect(await (await fetch(`${base}/api/remote-pin`)).json()).toMatchObject({ set: true, pinInput: 'voice-or-typed' });
+    expect(novi.remotePin.check('482913').ok).toBe(true);
+  });
+
+  function fakePasskeys(devices = []) {
+    const removed = [];
+    return {
+      removed,
+      has: (id) => devices.includes(id),
+      registrationOptions: async () => ({ challenge: 'r' }),
+      verifyRegistration: async (id) => { devices.push(id); return true; },
+      authOptions: async (id, approvalId) => ({ challenge: `a-${approvalId}` }),
+      verifyAuth: async (id, approvalId, response) => response?.ok === true && devices.includes(id),
+      removeDevice: (id) => removed.push(id),
+    };
+  }
+
+  it('a phone confirms a delete with its fingerprint/face passkey', async () => {
+    const passkeys = fakePasskeys();
+    const env = await start({ isLocalAddress: () => false, passkeys });
+    const { c, deviceId, token } = await pairedPhone(env);
+    passkeys.verifyRegistration(deviceId);
+    const answer = env.novi.approvals.request({ title: 'Forget a memory', tier: 'medium', source: 'test', kind: 'delete' });
+    const added = await c.waitFor((m) => m.type === 'approval_added');
+    c.ws.send(JSON.stringify({ type: 'approval', id: added.approval.id, allow: true }));
+    expect(await c.waitFor((m) => m.type === 'approval_needs_proof')).toMatchObject({ need: 'passkey' });
+    const opts = await fetch(`${env.base}/api/passkeys/auth/options`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ approvalId: added.approval.id }) });
+    expect((await opts.json()).challenge).toBe(`a-${added.approval.id}`);
+    c.ws.send(JSON.stringify({ type: 'approval', id: added.approval.id, allow: true, passkey: { ok: true } }));
+    await expect(answer).resolves.toBe(true);
+    c.ws.close();
+  });
+
+  it('a phone without a passkey is told a delete needs the laptop, and a bad signature is refused', async () => {
+    const passkeys = fakePasskeys();
+    const env = await start({ isLocalAddress: () => false, passkeys });
+    const { c } = await pairedPhone(env);
+    env.novi.approvals.request({ title: 'Forget a memory', tier: 'medium', source: 'test', kind: 'delete' });
+    const added = await c.waitFor((m) => m.type === 'approval_added');
+    c.ws.send(JSON.stringify({ type: 'approval', id: added.approval.id, allow: true, passkey: { ok: true } }));
+    expect(await c.waitFor((m) => m.type === 'approval_needs_proof')).toMatchObject({ need: 'laptop' });
+    expect(env.novi.approvals.pending()).toHaveLength(1);
+    c.ws.close();
+  });
+
+  it('removing a phone also removes its passkeys', async () => {
+    const passkeys = fakePasskeys();
+    const { base, novi } = await start({ passkeys });
+    const { deviceId } = novi.pairing.pair(novi.pairing.currentCode().code, 'S24+');
+    await fetch(`${base}/api/devices/${deviceId}`, { method: 'DELETE' });
+    expect(passkeys.removed).toEqual([deviceId]);
+  });
+
+  it('passkey setup needs the Tailscale address', async () => {
+    const env = await start({ isLocalAddress: () => false });
+    const { c, token } = await pairedPhone(env);
+    const res = await fetch(`${env.base}/api/passkeys/register/options`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+    expect(res.status).toBe(409);
+    c.ws.close();
+  });
 });
+

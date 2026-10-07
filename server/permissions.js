@@ -44,25 +44,28 @@ export function classifyClaudeTool(toolName, input = {}, projectPath) {
 
 export class ApprovalQueue extends EventEmitter {
   // grants: PermissionGrants (server/grants.js) — "always allow" by category.
-  constructor({ timeoutMs = 5 * 60_000, grants = null } = {}) {
+  // trust: remote trust policy (server/remoteTrust.js) — what a phone must prove to allow.
+  constructor({ timeoutMs = 5 * 60_000, grants = null, trust = null } = {}) {
     super();
     this.timeoutMs = timeoutMs;
     this.grants = grants;
+    this.trust = trust;
     this.items = new Map();
   }
 
   // Resolves to { allow, choice } (plus auto: true when a grant allowed it without asking).
   // `prompt` is what Novi says aloud; `choices` are extra options (e.g. { id: 'claude', label: 'Use Claude' })
   // the user can pick by voice or button. `category` + `grantable` come from classifyApproval().
-  decide({ title, detail = '', tier, source, prompt, choices, category, grantable = false }) {
-    const canGrant = Boolean(this.grants && grantable && category && tier === 'medium');
+  // kind: 'delete' | 'payment' — never grantable, and from a phone needs a passkey.
+  decide({ title, detail = '', tier, source, prompt, choices, category, grantable = false, kind }) {
+    const canGrant = Boolean(this.grants && grantable && category && tier === 'medium' && !kind);
     if (canGrant && this.grants.has(category)) {
       this.grants.record({ category, title });
       this.emit('auto_allowed', { category, title });
       return Promise.resolve({ allow: true, choice: null, auto: true });
     }
     const approval = {
-      id: crypto.randomUUID(), title, detail, tier, source, createdAt: Date.now(),
+      id: crypto.randomUUID(), title, detail, tier, source, createdAt: Date.now(), ...(kind ? { kind } : {}),
       ...(prompt ? { prompt } : {}), ...(choices?.length ? { choices } : {}),
       ...(canGrant ? { grant: { category, label: labelFor(category) } } : {}),
     };
@@ -78,9 +81,19 @@ export class ApprovalQueue extends EventEmitter {
   }
 
   // { always: true } (button "Always allow …" or voice "yes, always") also stores the grant.
-  resolve(id, allow, by = 'user', choice = null, { always = false } = {}) {
+  // from: 'local' or { deviceId } — who answered (checked against remote trust rules from Task 3 on).
+  // An allow from a phone without the proof it needs is refused: returns false, the approval stays
+  // pending and 'needs_proof' tells that phone what to give (PIN, passkey, or "at the laptop").
+  resolve(id, allow, by = 'user', choice = null, { always = false, from = 'local', proof = null } = {}) {
     const item = this.items.get(id);
     if (!item) return false;
+    if (allow && this.trust) {
+      const verdict = this.trust.check(item.approval, from, proof);
+      if (!verdict.ok) {
+        this.emit('needs_proof', { id, need: verdict.need, from });
+        return false;
+      }
+    }
     clearTimeout(item.timer);
     this.items.delete(id);
     if (allow && always && item.approval.grant && this.grants) this.grants.grant(item.approval.grant.category, by);
@@ -95,7 +108,8 @@ export class ApprovalQueue extends EventEmitter {
   }
 
   latest({ excludeTier } = {}) {
-    const list = this.pending().filter((a) => a.tier !== excludeTier);
+    // Deletes and payments are never answered by a plain spoken "yes".
+    const list = this.pending().filter((a) => a.tier !== excludeTier && !a.kind);
     return list[list.length - 1] || null;
   }
 

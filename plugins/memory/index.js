@@ -77,7 +77,7 @@ export function createMemoryPlugin({ now = () => new Date() } = {}) {
         if (toolName !== 'memory_forget') return undefined;
         const fact = findOne(params.query);
         if (!fact) return undefined;
-        return { requireApproval: { title: 'Forget a memory', description: fact.text, severity: 'warning' } };
+        return { requireApproval: { title: 'Forget a memory', description: fact.text, severity: 'warning', kind: 'delete' } };
       });
 
       api.registerTool({

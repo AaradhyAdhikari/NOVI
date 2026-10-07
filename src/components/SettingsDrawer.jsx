@@ -3,6 +3,7 @@ import { X, Trash2, Pencil } from 'lucide-react';
 import VoiceTest from './VoiceTest.jsx';
 import SystemPanel from './SystemPanel.jsx';
 import PermissionsPanel from './PermissionsPanel.jsx';
+import PasskeySetup from './PasskeySetup.jsx';
 
 export default function SettingsDrawer({ open, onClose, projects, devices, accounts = [], googleConfigured, api, isLocal }) {
   const [pairing, setPairing] = useState(null);
@@ -92,6 +93,7 @@ export default function SettingsDrawer({ open, onClose, projects, devices, accou
 
         <section>
           <h3>Paired devices</h3>
+          {!isLocal && <PasskeySetup api={api} />}
           {devices.length === 0 && <p className="muted">No phones paired.</p>}
           <ul className="list">
             {devices.map((d) => (
@@ -105,7 +107,7 @@ export default function SettingsDrawer({ open, onClose, projects, devices, accou
 
         <section>
           <h3>Permissions</h3>
-          <PermissionsPanel api={api} />
+          <PermissionsPanel api={api} isLocal={isLocal} />
         </section>
 
         <section>

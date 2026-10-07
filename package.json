@@ -13,6 +13,8 @@
   "dependencies": {
     "@picovoice/pvrecorder-node": "^1.2.9",
     "@ricky0123/vad-web": "^0.0.31",
+    "@simplewebauthn/browser": "^14.0.0",
+    "@simplewebauthn/server": "^14.0.3",
     "cors": "^2.8.5",
     "express": "^4.21.2",
     "lucide-react": "^0.475.0",

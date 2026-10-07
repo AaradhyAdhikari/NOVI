@@ -31,6 +31,9 @@ import { ToolRegistry } from './tools/registry.js';
 import { PluginHost } from './plugins/host.js';
 import { wrapRegistryAsPlugin } from './plugins/builtin.js';
 import { openUrl } from './laptop/opener.js';
+import { createRemoteTrust } from './remoteTrust.js';
+import { RemotePin, parseSpokenPin } from './remotePin.js';
+import { Passkeys } from './passkeys.js';
 
 export function createNovi(config, overrides = {}) {
   const memory = overrides.memory || new Memory(path.join(config.dataDir, 'memory.json'));
@@ -40,7 +43,18 @@ export function createNovi(config, overrides = {}) {
   const gmail = new GmailClient({ getToken: (a) => auth.accessToken(a), invalidate: (a) => auth.invalidate(a.id) });
   // "Always allow" grants by category (Settings → Permissions).
   const grants = overrides.grants || new PermissionGrants(path.join(config.dataDir, 'permissions.json'));
-  const approvals = overrides.approvals || new ApprovalQueue({ grants });
+  // What a phone must prove to allow (voice PIN / passkey); the verifiers are filled in below.
+  const proofs = {};
+  const trust = createRemoteTrust({ pin: (...a) => proofs.pin?.(...a), passkey: (...a) => proofs.passkey?.(...a), hasPasskey: (...a) => proofs.hasPasskey?.(...a) });
+  const remotePin = overrides.remotePin || new RemotePin({ file: path.join(config.dataDir, 'remote-pin.json') });
+  proofs.pin = (proof) => remotePin.check(proof.pin).ok;
+  // Fingerprint / face (passkeys) need the Tailscale name: WebAuthn doesn't work on bare IPs.
+  const tsName = overrides.tsName || null;
+  const passkeys = overrides.passkeys || (tsName ? new Passkeys({ file: path.join(config.dataDir, 'passkeys.json'), rpId: tsName, origin: `https://${tsName}:${config.port || 3001}` }) : null);
+  proofs.hasPasskey = (from) => Boolean(passkeys?.has(from.deviceId));
+  proofs.passkey = (proof, from, approval) => proof.passkey?.verified === true && proof.passkey.approvalId === approval.id && proof.passkey.deviceId === from.deviceId;
+  const approvals = overrides.approvals || new ApprovalQueue({ grants, trust });
+  if (!approvals.trust) approvals.trust = trust;
   const router = overrides.router || new Router({ providers: config.providers, order: config.order });
   // Default coder: Novi Coder (free). Claude Code only when configured, or when the user says "use Claude instead".
   const defaultCoder = config.coder === 'claude' ? 'claude' : 'novi-coder';
@@ -163,11 +177,26 @@ export function createNovi(config, overrides = {}) {
     broadcast({ type: 'speak', text: approval.tier === 'high' ? `High risk: ${approval.title}. Please confirm on screen.` : approval.prompt || `${approval.title}. Should I allow it?` });
   });
   approvals.on('resolved', (r) => broadcast({ type: 'approval_resolved', ...r }));
+  // Only the phone that tried hears what is missing.
+  const NEED_TEXT = { pin: 'Say your PIN to confirm.', passkey: 'Confirm with your fingerprint or face.', laptop: 'This one needs you at the laptop.' };
+  remotePin.on('locked', () => {
+    broadcast({ type: 'feed', text: 'Wrong PIN 3 times: approvals from phones that need the PIN are locked for 15 minutes.' });
+    broadcast({ type: 'speak', text: 'Wrong PIN 3 times. Phone approvals that need the PIN are locked for 15 minutes.' });
+  });
+  approvals.on('needs_proof', ({ id, need, from }) => {
+    for (const ws of clients) {
+      if (ws.deviceId !== from?.deviceId) continue;
+      send(ws, { type: 'approval_needs_proof', id, need });
+      send(ws, { type: 'speak', text: NEED_TEXT[need] });
+    }
+  });
   // Allowed by a grant without asking: a quiet line in the activity feed, not spoken.
   approvals.on('auto_allowed', ({ title }) => broadcast({ type: 'feed', text: `Auto-allowed: ${title}` }));
 
   const bearer = (req) => (req.headers.authorization || '').replace(/^Bearer\s+/i, '') || null;
-  const isLocal = (req) => isLocalAddress(req.socket.remoteAddress);
+  // Loopback = the laptop itself. Everything else (LAN, Tailscale 100.x) must be a paired device.
+  const localAddress = overrides.isLocalAddress || isLocalAddress;
+  const isLocal = (req) => localAddress(req.socket.remoteAddress);
 
   const app = express();
   app.use('/api', (req, res, next) => (originAllowed(req) ? next() : res.status(403).json({ error: 'Cross-site request blocked' })));
@@ -176,7 +205,14 @@ export function createNovi(config, overrides = {}) {
     const result = pairing.pair(req.body?.code, req.body?.name);
     res.status(result.ok ? 200 : 401).json(result);
   });
-  app.use('/api', (req, res, next) => (isLocal(req) || pairing.verify(bearer(req)) ? next() : res.status(401).json({ error: 'Not paired' })));
+  // req.from: who is asking — 'local' (the laptop) or { deviceId } (a paired phone).
+  app.use('/api', (req, res, next) => {
+    if (isLocal(req)) { req.from = 'local'; return next(); }
+    const device = pairing.verify(bearer(req));
+    if (!device) return res.status(401).json({ error: 'Not paired' });
+    req.from = { deviceId: device.id };
+    next();
+  });
   app.get('/api/pairing-code', (req, res) => {
     if (!isLocal(req)) return res.status(403).json({ error: 'The pairing code is only shown on the laptop.' });
     res.json({ ...pairing.currentCode(), urls: lanUrls });
@@ -193,6 +229,38 @@ export function createNovi(config, overrides = {}) {
     }
   });
   // Settings → Permissions: "always allow" grants and what they allowed.
+  // Voice PIN for high-risk approvals from a phone: set and changed at the laptop only.
+  app.get('/api/remote-pin', (req, res) => res.json({ set: remotePin.isSet(), ...remotePin.getSettings(), lockedUntil: remotePin.lockedUntil || 0 }));
+  app.post('/api/remote-pin', (req, res) => {
+    if (!isLocal(req)) return res.status(403).json({ error: 'The PIN can only be set on the laptop.' });
+    try { remotePin.set(String(req.body?.pin ?? '')); res.json({ set: true }); } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  app.put('/api/remote-pin/settings', (req, res) => {
+    if (!isLocal(req)) return res.status(403).json({ error: 'This can only be changed on the laptop.' });
+    try { remotePin.setSettings({ pinInput: req.body?.pinInput }); res.json(remotePin.getSettings()); } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  // Passkeys: a paired phone sets up its fingerprint / face, then signs one challenge per approval.
+  const phoneOnly = (req, res) => {
+    if (!passkeys) { res.status(409).json({ error: 'Fingerprint / face needs Novi opened through its Tailscale address.' }); return null; }
+    if (req.from === 'local') { res.status(400).json({ error: 'Set this up from your phone.' }); return null; }
+    return req.from.deviceId;
+  };
+  app.post('/api/passkeys/register/options', async (req, res) => {
+    const deviceId = phoneOnly(req, res);
+    if (deviceId) res.json(await passkeys.registrationOptions(deviceId));
+  });
+  app.post('/api/passkeys/register/verify', express.json({ limit: '64kb' }), async (req, res) => {
+    const deviceId = phoneOnly(req, res);
+    if (!deviceId) return;
+    const ok = await passkeys.verifyRegistration(deviceId, req.body);
+    res.status(ok ? 200 : 400).json(ok ? { registered: true } : { error: "Couldn't confirm the fingerprint / face. Try again." });
+  });
+  app.get('/api/passkeys', (req, res) => res.json({ available: Boolean(passkeys), registered: req.from !== 'local' && Boolean(passkeys?.has(req.from.deviceId)) }));
+  app.post('/api/passkeys/auth/options', async (req, res) => {
+    const deviceId = phoneOnly(req, res);
+    if (!deviceId) return;
+    try { res.json(await passkeys.authOptions(deviceId, String(req.body?.approvalId || ''))); } catch (err) { res.status(400).json({ error: err.message }); }
+  });
   app.get('/api/permissions', (req, res) => res.json({ grants: grants.list(), audit: grants.audit().slice(0, 20) }));
   app.delete('/api/permissions/:category', (req, res) => res.json({ revoked: grants.revoke(req.params.category) }));
 
@@ -288,6 +356,7 @@ export function createNovi(config, overrides = {}) {
     broadcast(snapshot());
   });
   app.delete('/api/devices/:id', (req, res) => {
+    passkeys?.removeDevice(req.params.id);
     res.json({ revoked: pairing.revoke(req.params.id) });
     broadcast(snapshot());
   });
@@ -318,13 +387,29 @@ export function createNovi(config, overrides = {}) {
     app.get(/^\/(?!api|ws).*/, (req, res) => res.sendFile(path.join(dist, 'index.html')));
   }
 
-  async function handleMessage(msg) {
+  // Proof a phone sent with its "allow": a spoken PIN (or typed, if Settings allow it).
+  // The PIN is only checked here — never shown, logged, or passed to the brain.
+  async function approvalProof(msg, from) {
+    const proof = {};
+    const typedOk = remotePin.getSettings().pinInput === 'voice-or-typed';
+    const pin = typeof msg.pinSpoken === 'string' ? parseSpokenPin(msg.pinSpoken) : typedOk && typeof msg.pinTyped === 'string' ? parseSpokenPin(msg.pinTyped) : null;
+    if (pin) proof.pin = pin;
+    else if (typeof msg.pinSpoken === 'string' || (typedOk && typeof msg.pinTyped === 'string')) proof.pin = '';
+    // The signature is checked here; the trust rules only ever see this server-made marker.
+    if (msg.passkey && typeof msg.passkey === 'object' && from !== 'local' && passkeys
+      && await passkeys.verifyAuth(from.deviceId, msg.id, msg.passkey)) {
+      proof.passkey = { verified: true, approvalId: msg.id, deviceId: from.deviceId };
+    }
+    return proof;
+  }
+
+  async function handleMessage(msg, from = 'local') {
     if (msg.type === 'user_message' && typeof msg.text === 'string' && msg.text.trim()) {
       const text = msg.text.trim().slice(0, 4000);
       say('user', text);
       broadcast({ type: 'thinking', on: true });
       try {
-        const reply = await agent.handle(text);
+        const reply = await agent.handle(text, { from });
         say('novi', reply);
         broadcast({ type: 'speak', text: plainText(reply) });
       } catch (err) {
@@ -334,7 +419,7 @@ export function createNovi(config, overrides = {}) {
         broadcast(snapshot());
       }
     } else if (msg.type === 'approval') {
-      approvals.resolve(msg.id, Boolean(msg.allow), 'screen', typeof msg.choice === 'string' ? msg.choice : null, { always: msg.always === true });
+      approvals.resolve(msg.id, Boolean(msg.allow), 'screen', typeof msg.choice === 'string' ? msg.choice : null, { always: msg.always === true, from, proof: await approvalProof(msg, from) });
     } else if (msg.type === 'allow_edits') {
       tasks.setAllowEdits(Boolean(msg.allow));
     } else if (msg.type === 'stop') {
@@ -349,17 +434,24 @@ export function createNovi(config, overrides = {}) {
         ws.close(4003, 'Cross-site connection blocked');
         return;
       }
-      let authed = isLocalAddress(req.socket.remoteAddress);
+      const local = localAddress(req.socket.remoteAddress);
+      let authed = local;
+      let token = null;
       const admit = () => { clients.add(ws); send(ws, snapshot()); };
       if (authed) admit();
       ws.on('message', async (data) => {
         let msg;
         try { msg = JSON.parse(data); } catch { return; }
         if (!authed) {
-          if (msg.type === 'hello' && pairing.verify(msg.token)) { authed = true; admit(); } else ws.close(4001, 'Not paired');
+          const paired = msg.type === 'hello' && pairing.verify(msg.token);
+          if (paired) { authed = true; token = msg.token; ws.deviceId = paired.id; admit(); } else ws.close(4001, 'Not paired');
           return;
         }
-        if (msg.type !== 'hello') await handleMessage(msg);
+        if (msg.type === 'hello') return;
+        // A phone removed in Settings loses its open connection on its next message.
+        const device = local ? null : pairing.verify(token);
+        if (!local && !device) { clients.delete(ws); ws.close(4001, 'Not paired'); return; }
+        await handleMessage(msg, local ? 'local' : { deviceId: device.id });
       });
       ws.on('close', () => clients.delete(ws));
     });
@@ -374,5 +466,5 @@ export function createNovi(config, overrides = {}) {
   }
   const setWakeWord = (mode) => { wakeWord = mode; broadcast(snapshot()); };
 
-  return { app, attachWebSocket, snapshot, runVoiceCommand, setWakeWord, memory, accounts, approvals, tasks, router, agent, tools, plugins, pairing, broadcast };
+  return { app, attachWebSocket, remotePin, snapshot, runVoiceCommand, setWakeWord, memory, accounts, approvals, tasks, router, agent, tools, plugins, pairing, broadcast };
 }

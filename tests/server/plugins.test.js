@@ -70,6 +70,15 @@ describe('PluginHost', () => {
     }
   });
 
+  it('carries a delete/payment kind onto the approval, ignoring unknown kinds', async () => {
+    for (const [kind, expected] of [['delete', 'delete'], ['payment', 'payment'], ['party', undefined]]) {
+      const h = host();
+      h.register(echo({ hooks: (api) => api.on('before_tool_call', () => ({ requireApproval: { title: 'Forget?', severity: 'warning', kind } })) }));
+      const gate = await h.get('echo_say').gate({});
+      expect(gate.approval.kind).toBe(expected);
+    }
+  });
+
   it('passes block results through, with optional details', async () => {
     const h = host();
     h.register(echo({ hooks: (api) => api.on('before_tool_call', () => ({ block: true, blockReason: 'Which account?', details: { ask: ['a'] } })) }));

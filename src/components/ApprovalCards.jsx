@@ -1,6 +1,15 @@
 import { ShieldAlert, ShieldQuestion } from 'lucide-react';
+import PinCapture from './PinCapture.jsx';
+import { confirmWithPasskey } from '../lib/passkey.js';
 
-export default function ApprovalCards({ approvals, onAnswer }) {
+// Shown on a phone when an allow needs more proof (server/remoteTrust.js).
+const NEED_TEXT = {
+  pin: 'Say your PIN to confirm.',
+  passkey: 'Confirm with your fingerprint or face.',
+  laptop: 'This one needs you at the laptop.',
+};
+
+export default function ApprovalCards({ approvals, onAnswer, api }) {
   if (!approvals.length) return null;
   return (
     <div className="approvals" role="region" aria-label="Approvals needed">
@@ -12,6 +21,13 @@ export default function ApprovalCards({ approvals, onAnswer }) {
           </div>
           {a.detail && <p className="detail">{a.detail}</p>}
           {a.tier === 'high' && <p className="warn">High risk — this needs your explicit confirmation.</p>}
+          {a.need && <p className="warn">{NEED_TEXT[a.need]}</p>}
+          {a.need === 'pin' && <PinCapture api={api} onPin={(pin) => onAnswer(a.id, true, null, { proof: pin })} />}
+          {a.need === 'passkey' && (
+            <button className="btn danger" onClick={async () => {
+              try { onAnswer(a.id, true, null, { proof: { passkey: await confirmWithPasskey(api, a.id) } }); } catch { /* cancelled: stays pending */ }
+            }}>Confirm with fingerprint / face</button>
+          )}
           <div className="approval-actions">
             <button className="btn" onClick={() => onAnswer(a.id, false)}>Deny</button>
             {(a.choices || []).map((c) => (

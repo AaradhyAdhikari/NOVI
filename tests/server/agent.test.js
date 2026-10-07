@@ -261,4 +261,25 @@ describe('quick lane for simple questions', () => {
     await agent.handle('explain how binary search works step by step with an example and its time complexity in detail please');
     expect(router.calls.map((c) => c.purpose)).toEqual(['fast', 'fast']);
   });
+
+  it('voice approvals pass the answering device through', async () => {
+    const approvals = new ApprovalQueue();
+    const seen = [];
+    const resolve = approvals.resolve.bind(approvals);
+    approvals.resolve = (...args) => { seen.push(args[4]); return resolve(...args); };
+    const agent = new Agent({ router: { status: () => [] }, tools: { list: () => [], schemas: () => [] }, approvals, memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
+    const answer = approvals.request({ title: 'x', tier: 'medium', source: 'test' });
+    await agent.handle('yes', { from: { deviceId: 'd1' } });
+    await expect(answer).resolves.toBe(true);
+    expect(seen[0].from).toEqual({ deviceId: 'd1' });
+  });
+
+  it('never approves a delete on a spoken "yes" and says why', async () => {
+    const approvals = new ApprovalQueue();
+    const agent = new Agent({ router: { status: () => [] }, tools: { list: () => [], schemas: () => [] }, approvals, memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
+    approvals.request({ title: 'Forget a memory', tier: 'medium', source: 'test', kind: 'delete' });
+    expect(await agent.handle('yes')).toMatch(/deletes or pays/);
+    expect(approvals.pending()).toHaveLength(1);
+  });
 });
+

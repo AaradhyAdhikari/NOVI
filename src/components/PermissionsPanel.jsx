@@ -3,7 +3,54 @@ import { Trash2 } from 'lucide-react';
 
 // Settings → Permissions: kinds of action Novi may do without asking ("Always allow"), with undo,
 // and the last things it allowed that way. Sending, deleting and high-risk actions always ask.
-export default function PermissionsPanel({ api }) {
+// Voice PIN for high-risk approvals from a phone. Set and changed only at the laptop.
+function RemotePinSettings({ api, isLocal }) {
+  const [state, setState] = useState(null);
+  const [pin, setPin] = useState('');
+  const [message, setMessage] = useState(null);
+  const load = () => api('/api/remote-pin').then((r) => r.json()).then(setState).catch(() => {});
+  useEffect(() => { load(); }, [api]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function save(e) {
+    e.preventDefault();
+    const res = await api('/api/remote-pin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin }) });
+    const body = await res.json().catch(() => ({}));
+    setMessage(res.ok ? 'PIN saved.' : body.error || 'Could not save the PIN.');
+    setPin('');
+    load();
+  }
+
+  async function setInput(pinInput) {
+    await api('/api/remote-pin/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pinInput }) });
+    load();
+  }
+
+  if (!state) return null;
+  return (
+    <div>
+      <h4>Phone PIN</h4>
+      <p className="muted">High-risk approvals from your phone need this PIN. Deletes and payments need your fingerprint or face instead. {state.set ? 'A PIN is set.' : 'No PIN yet, so high-risk approvals only work at the laptop.'}</p>
+      {isLocal ? (
+        <>
+          <form onSubmit={save} className="row">
+            <input type="password" inputMode="numeric" autoComplete="new-password" maxLength={8} value={pin} onChange={(e) => setPin(e.target.value)} placeholder="4–8 digits" aria-label="New PIN" />
+            <button className="btn" type="submit" disabled={!pin}>{state.set ? 'Change PIN' : 'Set PIN'}</button>
+          </form>
+          <label className="row">
+            PIN input
+            <select value={state.pinInput} onChange={(e) => setInput(e.target.value)}>
+              <option value="voice">Voice only</option>
+              <option value="voice-or-typed">Voice or typed</option>
+            </select>
+          </label>
+        </>
+      ) : <p className="muted">Set or change the PIN on the laptop.</p>}
+      {message && <p className="muted">{message}</p>}
+    </div>
+  );
+}
+
+export default function PermissionsPanel({ api, isLocal }) {
   const [data, setData] = useState({ grants: [], audit: [] });
   const load = () => api('/api/permissions').then((r) => r.json()).then(setData).catch(() => {});
 
@@ -39,6 +86,7 @@ export default function PermissionsPanel({ api }) {
           </ul>
         </details>
       )}
+      <RemotePinSettings api={api} isLocal={isLocal} />
     </div>
   );
 }
