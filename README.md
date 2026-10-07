@@ -229,6 +229,10 @@ Then: "any GitHub notifications?", "list my repos", "open issues on NOVI", "read
 
 **Later — Claude Code:** set `NOVI_CODER=claude` in `.env` to hand coding tasks to [Claude Code](https://claude.com/claude-code) instead of Novi Coder (requires the `claude` CLI logged in; uses your Claude plan).
 
+### Open a project in your editor
+
+From the laptop or your phone: *"open Novi in Cursor"*, *"open playground in VS Code"*, *"open Novi in Claude Code"*. Works with VS Code, Cursor, Antigravity, Kiro and Claude Code (opens Windows Terminal in the project folder with Claude Code started). Novi first needs to know the project: *"remember my Novi project at C:\Projects\Novi"* (use the real folder). Optional default editor in `.env`: `NOVI_PLUGIN_IDE_DEFAULT_EDITOR=cursor`.
+
 ### Voice (speech-to-text)
 
 Novi turns your voice into text with Groq's hosted Whisper (fast, about 1 second) using the `GROQ_API_KEYS` already in `.env`.

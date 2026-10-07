@@ -1,0 +1,13 @@
+{
+  "id": "ide",
+  "name": "Open projects in an editor",
+  "description": "Opens a remembered project in VS Code, Cursor, Antigravity, Kiro or Claude Code.",
+  "categories": ["other"],
+  "contracts": { "tools": ["open_project"] },
+  "activation": { "onStartup": true },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": { "default_editor": { "type": "string", "description": "Editor used when none is named (NOVI_PLUGIN_IDE_DEFAULT_EDITOR), e.g. vscode, cursor, antigravity, kiro, claude-code" } }
+  }
+}
