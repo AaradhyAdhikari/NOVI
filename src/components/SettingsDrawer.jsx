@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { X, Trash2, Pencil } from 'lucide-react';
+import VoiceTest from './VoiceTest.jsx';
 
 export default function SettingsDrawer({ open, onClose, projects, devices, accounts = [], googleConfigured, api, isLocal }) {
   const [pairing, setPairing] = useState(null);
@@ -98,6 +99,12 @@ export default function SettingsDrawer({ open, onClose, projects, devices, accou
               </li>
             ))}
           </ul>
+        </section>
+
+        <section>
+          <h3>Voice test</h3>
+          <p className="muted">Read each sentence once so Novi can learn which speech engine understands you best. Recordings stay on this laptop.</p>
+          <VoiceTest api={api} />
         </section>
       </aside>
     </div>

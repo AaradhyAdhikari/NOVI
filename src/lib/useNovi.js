@@ -30,8 +30,11 @@ export function useNovi({ onSpeak }) {
         case 'task': setState((s) => ({ ...s, task: msg.task })); break;
         case 'approval_added': setState((s) => ({ ...s, approvals: [...s.approvals.filter((a) => a.id !== msg.approval.id), msg.approval] })); break;
         case 'approval_resolved': setState((s) => ({ ...s, approvals: s.approvals.filter((a) => a.id !== msg.id) })); break;
-        case 'thinking': setState((s) => ({ ...s, thinking: msg.on })); break;
+        case 'thinking': setState((s) => ({ ...s, thinking: msg.on, wakeHeardAt: msg.on ? 0 : s.wakeHeardAt })); break;
         case 'speak': speakRef.current?.(msg.text); break;
+        // The laptop microphone heard "Hey Novi" (server wake word): show it's listening.
+        case 'wake': setState((s) => ({ ...s, wakeHeardAt: Date.now() })); break;
+        case 'wake_timeout': setState((s) => ({ ...s, wakeHeardAt: 0 })); break;
         default: break;
       }
     };

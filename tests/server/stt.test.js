@@ -20,6 +20,33 @@ describe('transcribe', () => {
     expect(body.get('file').name).toBe('speech.mp4');
   });
 
+  it('uses .wav for voice-detected 16 kHz recordings', async () => {
+    let body;
+    await transcribe({ audio: Buffer.from('a'), mimeType: 'audio/wav', keys: ['k'], fetchImpl: async (u, i) => { body = i.body; return new Response('{"text":"x"}'); } });
+    expect(body.get('file').name).toBe('speech.wav');
+  });
+
+  it('retries as English when Whisper guesses a language Novi does not use', async () => {
+    const bodies = [];
+    const fetchImpl = async (u, i) => {
+      bodies.push(i.body);
+      return bodies.length === 1
+        ? new Response(JSON.stringify({ text: 'Ваш да ведър им пъне.', language: 'bulgarian' }))
+        : new Response(JSON.stringify({ text: "What's the weather in Pune?", language: 'english' }));
+    };
+    expect(await transcribe({ audio: Buffer.from('a'), keys: ['k'], fetchImpl })).toBe("What's the weather in Pune?");
+    expect(bodies).toHaveLength(2);
+    expect(bodies[0].get('language')).toBeNull();
+    expect(bodies[1].get('language')).toBe('en');
+  });
+
+  it('keeps Hindi and Marathi as heard', async () => {
+    let calls = 0;
+    const fetchImpl = async () => { calls += 1; return new Response(JSON.stringify({ text: 'नोवी, अभी कितने बजे हैं?', language: 'hindi' })); };
+    expect(await transcribe({ audio: Buffer.from('a'), keys: ['k'], fetchImpl })).toBe('नोवी, अभी कितने बजे हैं?');
+    expect(calls).toBe(1);
+  });
+
   it('tries the next key on 429', async () => {
     const used = [];
     const fetchImpl = async (u, i) => { used.push(i.headers.Authorization); return used.length === 1 ? new Response('{}', { status: 429 }) : new Response('{"text":"ok"}'); };

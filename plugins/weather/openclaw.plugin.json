@@ -1,0 +1,13 @@
+{
+  "id": "weather",
+  "name": "Weather",
+  "description": "Current weather and forecasts from Open-Meteo (free, no key).",
+  "categories": ["other"],
+  "contracts": { "tools": ["weather_get"] },
+  "activation": { "onStartup": true },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": { "place": { "type": "string", "description": "Home city used when none is named (NOVI_PLUGIN_WEATHER_PLACE)" } }
+  }
+}

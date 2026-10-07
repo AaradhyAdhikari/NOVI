@@ -4,9 +4,11 @@ import { WakeListener, expectsAnswer } from './wake.js';
 import { speechEvents } from './voice.js';
 
 const Recognition = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
-export const handsFreeSupported = Boolean(Recognition);
+// Brave ships the API but its recognizer never works (always a 'network' error).
+const isBrave = typeof navigator !== 'undefined' && Boolean(navigator.brave);
+export const handsFreeSupported = Boolean(Recognition) && !isBrave;
 
-function chime() {
+export function chime() {
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     const osc = ctx.createOscillator();
@@ -22,7 +24,10 @@ function chime() {
 }
 
 export class HandsFree {
-  constructor({ onCommand, onState, followUpMs = 8000 }) {
+  constructor({ onCommand, onState, followUpMs = 8000, Recognition: Rec = Recognition }) {
+    this.Recognition = Rec;
+    this.watchdog = null;
+    this.restartTimer = null;
     this.onCommand = onCommand;
     this.onState = onState;
     this.listener = new WakeListener({ followUpMs });
@@ -46,8 +51,10 @@ export class HandsFree {
   }
 
   start() {
-    if (!Recognition || this.enabled) return;
+    if (!this.Recognition || this.enabled) return;
     this.enabled = true;
+    // Chrome's recognizer can die silently (failed restart, mic busy): revive it.
+    this.watchdog = setInterval(() => { if (!this.rec && !this.restartTimer) this.listen(); }, 5000);
     speechEvents.addEventListener('start', this.onSpeechStart);
     speechEvents.addEventListener('end', this.onSpeechEnd);
     speechEvents.addEventListener('spoken', this.onSpoken);
@@ -56,6 +63,9 @@ export class HandsFree {
 
   stop() {
     this.enabled = false;
+    clearInterval(this.watchdog);
+    clearTimeout(this.restartTimer);
+    this.restartTimer = null;
     speechEvents.removeEventListener('start', this.onSpeechStart);
     speechEvents.removeEventListener('end', this.onSpeechEnd);
     speechEvents.removeEventListener('spoken', this.onSpoken);
@@ -78,7 +88,7 @@ export class HandsFree {
 
   listen() {
     if (!this.enabled || this.paused || this.rec) return;
-    const rec = new Recognition();
+    const rec = new this.Recognition();
     rec.continuous = true;
     rec.interimResults = false;
     // English recognition (Indian English by default when the browser isn't set to English);
@@ -109,6 +119,7 @@ export class HandsFree {
     };
     rec.onerror = (e) => {
       console.debug('[hands-free] error:', e.error);
+      if (e.error === 'network') this.backoff = true;
       if (e.error !== 'no-speech' && e.error !== 'aborted') {
         this.lastError = e.error;
         this.emitState();
@@ -122,10 +133,15 @@ export class HandsFree {
     rec.onend = () => {
       this.running = false;
       if (this.rec === rec) this.rec = null;
-      if (this.enabled && !this.paused) setTimeout(() => this.listen(), 300);
+      if (!this.enabled || this.paused) return;
+      // After a network error Chrome would fail again at once: wait a little.
+      const delay = this.backoff ? 2500 : 300;
+      this.backoff = false;
+      clearTimeout(this.restartTimer);
+      this.restartTimer = setTimeout(() => { this.restartTimer = null; this.listen(); }, delay);
     };
     this.rec = rec;
-    try { rec.start(); } catch { this.rec = null; }
+    try { rec.start(); } catch { this.rec = null; } // the watchdog retries
     this.emitState();
   }
 

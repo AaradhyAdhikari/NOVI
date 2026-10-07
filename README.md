@@ -223,11 +223,21 @@ Then: "any GitHub notifications?", "list my repos", "open issues on NOVI", "read
 
 ### Hands-free
 
-Click the **ear** icon (Chrome) and say **"Hey Novi, …"**. After Novi asks something ("Shall I start?"), just answer "yes", "no" or "use Claude instead" — no wake word needed for about 8 seconds.
+"Hey Novi" is always listening while Novi is open in Chrome or Edge (Brave, Opera and Comet are not supported): just say **"Hey Novi, …"**. The first time, allow the microphone. After Novi asks something ("Shall I start?"), just answer "yes", "no" or "use Claude instead" — no wake word needed for about 8 seconds.
 
 **Windows tip:** if PowerShell says running scripts is disabled, use `npm.cmd start` or double-click **Start Novi.cmd**.
 
 **Later — Claude Code:** set `NOVI_CODER=claude` in `.env` to hand coding tasks to [Claude Code](https://claude.com/claude-code) instead of Novi Coder (requires the `claude` CLI logged in; uses your Claude plan).
+
+### Voice (speech-to-text)
+
+Novi turns your voice into text with Groq's hosted Whisper (fast, about 1 second) using the `GROQ_API_KEYS` already in `.env`.
+
+If Groq fails or runs out of free quota, Novi automatically falls back to Gemini (slower, about 5 seconds) using `GEMINI_API_KEYS`. No extra setup is needed.
+
+Novi speaks replies with the browser's built-in voice.
+
+**Coming later:** BHASHINI (free, Government of India) for better Hindi and Marathi, which will need `BHASHINI_USER_ID` and `BHASHINI_API_KEY` in `.env`; optional Google Cloud text-to-speech.
 
 ## Adding features
 

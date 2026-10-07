@@ -29,7 +29,7 @@ async function start(overrides = {}) {
   novi.attachWebSocket(server);
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const base = `http://127.0.0.1:${server.address().port}`;
-  return { novi, base, ws: base.replace('http', 'ws') + '/ws' };
+  return { novi, base, dataDir, ws: base.replace('http', 'ws') + '/ws' };
 }
 
 function connect(url) {
@@ -146,6 +146,55 @@ describe('Novi server', () => {
     const { base } = await start();
     const res = await fetch(`${base}/api/stt`, { method: 'POST', headers: { 'Content-Type': 'audio/webm;codecs=opus' }, body: Buffer.from('abcd') });
     expect(await res.json()).toEqual({ text: 'heard 4 bytes of audio/webm' });
+  });
+
+  it('records voice test samples into data/voice-samples', async () => {
+    const { base, dataDir } = await start();
+    const before = await (await fetch(`${base}/api/voice-samples`)).json();
+    expect(before.phrases.length).toBeGreaterThan(10);
+    expect(before.recorded).toEqual([]);
+    const id = before.phrases[0].id;
+    const res = await fetch(`${base}/api/voice-samples/${id}`, { method: 'POST', headers: { 'Content-Type': 'audio/wav' }, body: Buffer.from('RIFF') });
+    expect(res.status).toBe(200);
+    const { file } = await res.json();
+    expect(fs.existsSync(path.join(dataDir, 'voice-samples', file))).toBe(true);
+    expect((await (await fetch(`${base}/api/voice-samples`)).json()).recorded).toEqual([id]);
+    const bad = await fetch(`${base}/api/voice-samples/nope`, { method: 'POST', headers: { 'Content-Type': 'audio/wav' }, body: Buffer.from('RIFF') });
+    expect(bad.status).toBe(400);
+  });
+
+  it('runs a command heard by the always-on laptop microphone', async () => {
+    const { novi } = await start();
+    novi.setWakeWord('server');
+    await novi.runVoiceCommand(Buffer.from('RIFFabcd'));
+    const snap = novi.snapshot();
+    expect(snap.wakeWord).toBe('server');
+    expect(snap.transcript.map((t) => [t.role, t.text])).toEqual([
+      ['user', 'heard 8 bytes of audio/wav'],
+      ['novi', 'echo: heard 8 bytes of audio/wav'],
+    ]);
+  });
+
+  it('speaks through the laptop speakers when no Novi page is open', async () => {
+    const spoken = [];
+    const { novi } = await start({ localSpeaker: (text) => spoken.push(text) });
+    await novi.runVoiceCommand(Buffer.from('RIFF'));
+    expect(spoken).toEqual(['echo: heard 4 bytes of audio/wav']);
+  });
+
+  it('ignores a voice command that came out empty', async () => {
+    const { novi } = await start({ transcribe: async () => '  ' });
+    await novi.runVoiceCommand(Buffer.from('RIFF'));
+    expect(novi.snapshot().transcript).toEqual([]);
+  });
+
+  it('serves the voice-detection model and runtime files to the browser', async () => {
+    const { base } = await start();
+    for (const file of ['vad.worklet.bundle.min.js', 'silero_vad_v5.onnx', 'ort-wasm-simd-threaded.wasm', 'ort-wasm-simd-threaded.mjs', 'ort-wasm-simd-threaded.jsep.wasm', 'ort-wasm-simd-threaded.jsep.mjs']) {
+      const res = await fetch(`${base}/vad/${file}`);
+      expect(res.status, file).toBe(200);
+    }
+    for (const bad of ['package.json', '..%2Fpackage.json', '..%5C..%5C.env']) expect((await fetch(`${base}/vad/${bad}`)).status, bad).toBe(404);
   });
 
   it('rejects WebSocket connections from other websites (cross-site WebSocket hijacking)', async () => {

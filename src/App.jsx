@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNovi } from './lib/useNovi.js';
 import { speak, stopSpeaking } from './lib/voice.js';
-import { HandsFree, handsFreeSupported } from './lib/handsFree.js';
+import { HandsFree, handsFreeSupported, chime } from './lib/handsFree.js';
 import { getItem, setItem } from './lib/storage.js';
 import StatusBar from './components/StatusBar.jsx';
 import Transcript from './components/Transcript.jsx';
@@ -16,12 +16,15 @@ import SettingsDrawer from './components/SettingsDrawer.jsx';
 export default function App() {
   const [muted, setMuted] = useState(() => getItem('novi.muted') === '1');
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [handsFreeOn, setHandsFreeOn] = useState(() => handsFreeSupported && getItem('novi.handsfree') === '1');
   const [handsFreeState, setHandsFreeState] = useState({ enabled: false });
   const mutedRef = useRef(muted);
   mutedRef.current = muted;
   const novi = useNovi({ onSpeak: (text) => speak(text, { muted: mutedRef.current }) });
   const { state, send } = novi;
+  // Voice-first: "Hey Novi" is always listening (no on/off switch). When the server has a
+  // wake-word model it listens on the laptop mic (even with this page closed) and the browser stays quiet.
+  const serverWake = state.wakeWord === 'server';
+  const handsFreeOn = handsFreeSupported && !serverWake;
   const sendText = (text) => send({ type: 'user_message', text });
   const sendRef = useRef(sendText);
   sendRef.current = sendText;
@@ -39,6 +42,8 @@ export default function App() {
     else handsFree.current.stop();
   }, [handsFreeOn, novi.needsPairing]);
 
+  useEffect(() => { if (state.wakeHeardAt) chime(); }, [state.wakeHeardAt]);
+
   if (novi.needsPairing) return <PairScreen onPair={novi.pair} />;
 
   const toggleMute = () => {
@@ -46,11 +51,6 @@ export default function App() {
     setMuted(next);
     setItem('novi.muted', next ? '1' : '0');
     if (next) stopSpeaking();
-  };
-  const toggleHandsFree = () => {
-    const next = !handsFreeOn;
-    setHandsFreeOn(next);
-    setItem('novi.handsfree', next ? '1' : '0');
   };
 
   return (
@@ -61,8 +61,7 @@ export default function App() {
         muted={muted}
         onToggleMute={toggleMute}
         onOpenSettings={() => setSettingsOpen(true)}
-        handsFree={{ supported: handsFreeSupported, on: handsFreeOn, ...handsFreeState }}
-        onToggleHandsFree={toggleHandsFree}
+        handsFree={serverWake ? { supported: true, on: true, server: true, running: true, awaiting: Boolean(state.wakeHeardAt) && !state.thinking } : { supported: handsFreeSupported, on: handsFreeOn, ...handsFreeState }}
       />
       <main className="layout">
         <section className="panel conversation">
@@ -74,7 +73,7 @@ export default function App() {
         </section>
       </main>
       <ApprovalCards approvals={state.approvals} onAnswer={(id, allow, choice) => send({ type: 'approval', id, allow, ...(choice ? { choice } : {}) })} />
-      <TalkButton onText={sendText} api={novi.api} onRecording={(on) => handsFree.current?.enabled && handsFree.current.pause(on)} handsFreeOn={handsFreeOn} />
+      <TalkButton onText={sendText} api={novi.api} onRecording={(on) => handsFree.current?.enabled && handsFree.current.pause(on)} handsFreeOn={handsFreeOn || serverWake} />
       <SettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} projects={state.projects} devices={state.devices} accounts={state.accounts} googleConfigured={state.googleConfigured} api={novi.api} isLocal={novi.isLocal} />
     </div>
   );

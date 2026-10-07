@@ -6,3 +6,5 @@ data/
 .superpowers/
 .vite/
 .tmp/
+.handoff/
+models/wakeword/hey_jarvis*.onnx
