@@ -17,8 +17,14 @@ export default function ApprovalCards({ approvals, onAnswer }) {
             {(a.choices || []).map((c) => (
               <button key={c.id} className="btn" onClick={() => onAnswer(a.id, true, c.id)}>{c.label}</button>
             ))}
+            {a.grant && (
+              <button className="btn" title="Novi won't ask again for this kind of action. Undo in Settings → Permissions." onClick={() => onAnswer(a.id, true, null, { always: true })}>
+                Always allow {a.grant.label}
+              </button>
+            )}
             <button className={`btn ${a.tier === 'high' ? 'danger' : 'primary'}`} onClick={() => onAnswer(a.id, true)}>{a.tier === 'high' ? 'Yes, do it' : 'Allow'}</button>
           </div>
+          {a.grant && <p className="muted">Or say “yes, always”.</p>}
         </div>
       ))}
     </div>

@@ -217,6 +217,22 @@ describe('Novi server', () => {
     expect(exits).toEqual([75]);
   });
 
+  it('lists and revokes permission grants, and "always" from a card stores one', async () => {
+    const { base, novi } = await start();
+    const pending = novi.approvals.decide({ title: 'Open Spotify', tier: 'medium', source: 'novi', category: 'apps', grantable: true });
+    const card = novi.approvals.pending()[0];
+    const ws = new WebSocket(`${base.replace('http', 'ws')}/ws`);
+    await new Promise((r) => ws.on('open', r));
+    ws.send(JSON.stringify({ type: 'approval', id: card.id, allow: true, always: true }));
+    expect((await pending).allow).toBe(true);
+    ws.close();
+    const list = await (await fetch(`${base}/api/permissions`)).json();
+    expect(list.grants.map((g) => g.category)).toEqual(['apps']);
+    expect(Array.isArray(list.audit)).toBe(true);
+    expect((await fetch(`${base}/api/permissions/apps`, { method: 'DELETE' })).status).toBe(200);
+    expect((await (await fetch(`${base}/api/permissions`)).json()).grants).toEqual([]);
+  });
+
   it('serves the voice-detection model and runtime files to the browser', async () => {
     const { base } = await start();
     for (const file of ['vad.worklet.bundle.min.js', 'silero_vad_v5.onnx', 'ort-wasm-simd-threaded.wasm', 'ort-wasm-simd-threaded.mjs', 'ort-wasm-simd-threaded.jsep.wasm', 'ort-wasm-simd-threaded.jsep.mjs']) {

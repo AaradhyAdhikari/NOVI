@@ -1,5 +1,6 @@
 import { AllProvidersUnavailableError } from './router.js';
 import { selectTools } from './toolSelect.js';
+import { classifyApproval } from '../grants.js';
 import { UserFacingError } from '../errors.js';
 import { firstSentence } from '../narrator.js';
 
@@ -28,6 +29,7 @@ export function quickCommand(text) {
   if (/^(stop|cancel|abort|stop it|stop claude|stop the task)$/.test(t)) return 'stop';
   const choice = CHOICE_RE.exec(t);
   if (choice) return choice[1].startsWith('claude') ? 'choose:claude' : 'choose:novi-coder';
+  if (/^(?:(?:yes|yeah|ok|okay)[, ]+)?(?:always allow|allow always|always)(?:[, ]+(?:allow )?(?:it|this|that))?(?:[, ]+please)?$/.test(t)) return 'approve-always';
   if (/^(yes|yeah|yep|yup|sure|allow|allow it|approve|go ahead|do it|ok|okay|start|start it)(?:[, ]+(?:please|start|go ahead|do it))?$/.test(t)) return 'approve';
   if (/^(no|nope|nah|deny|don't|do not|reject)(?:[, ]+(?:thanks|thank you))?$/.test(t)) return 'deny';
   if (/^(what('s| is) (claude|the coder|novi coder|it) doing|status|what('s| is) the progress)$/.test(t)) return 'status';
@@ -136,6 +138,14 @@ export class Agent {
     }
     const item = this.approvals.latest({ excludeTier: 'high' });
     if (!item) return this.approvals.pending().length ? 'That one is high risk, so please confirm it on screen.' : null;
+    if (kind === 'approve-always') {
+      if (!item.grant) {
+        this.approvals.resolve(item.id, true, 'voice');
+        return "Approved. I can't remember that kind of action, so I'll ask each time.";
+      }
+      this.approvals.resolve(item.id, true, 'voice', null, { always: true });
+      return `Approved. I'll always allow ${item.grant.label} from now on.`;
+    }
     const allow = kind === 'approve';
     this.approvals.resolve(item.id, allow, 'voice');
     return allow ? 'Approved.' : 'Okay, denied.';
@@ -158,9 +168,12 @@ export class Agent {
       if (gate.block) return { output: { error: gate.blockReason, ...(gate.details || {}) }, note: gate.blockReason };
       if (gate.approval) {
         const { title, detail, tier, prompt, choices } = gate.approval;
+        // Which kind of action this is, and whether "always allow" may apply (never for sends/deletes/high risk).
+        const { category, grantable } = classifyApproval({ toolName: tool.name, pluginId: tool.pluginId, tier, choices, category: gate.approval.category, grantable: gate.approval.grantable });
         const decision = await this.approvals.decide({
           title, detail: detail || '', tier, source: 'novi', prompt,
           choices: choices?.map(({ id, label }) => ({ id, label })),
+          category, grantable,
         });
         if (!decision.allow) return { output: { error: 'The user declined this action.' } };
         const picked = decision.choice && choices?.find((c) => c.id === decision.choice);

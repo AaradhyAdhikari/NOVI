@@ -229,6 +229,14 @@ Then: "any GitHub notifications?", "list my repos", "open issues on NOVI", "read
 
 **Later — Claude Code:** set `NOVI_CODER=claude` in `.env` to hand coding tasks to [Claude Code](https://claude.com/claude-code) instead of Novi Coder (requires the `claude` CLI logged in; uses your Claude plan).
 
+### Permissions you grant once
+
+Approval cards for safe, repeatable kinds of action (opening apps, the coder editing files or running ordinary commands in a project, screen control, announcements) have an **Always allow …** button — or say *"yes, always"*. Novi then stops asking for that kind of action. **Settings → Permissions** lists what's always allowed (with undo) and what was allowed without asking. Sending, posting, deleting, payments and high-risk actions always ask, whatever you allowed.
+
+### Screen control
+
+For apps without an API: *"what's on my screen?"*, *"switch to WhatsApp, click the search box and type Rohan"*, *"press enter"*. Novi takes a screenshot and asks Gemini's free vision model where things are (you agreed screenshots may go to Gemini), then clicks / types / presses a key. Every click, typing and key press asks first (or use *Always allow screen control*), names the app it's for, and only happens if that app is the active window. It never acts on password, sign-in, payment, bank, OTP, CAPTCHA, Windows Security, Settings or UAC screens.
+
 ### Long-term memory
 
 Tell Novi things once and it remembers them across days: *"my mom's birthday is 12 March"*, *"Rohan lives in Mumbai"*, *"I prefer short answers"*. Ask later: *"when is mom's birthday?"*, *"what did I ask you yesterday?"*. *"What do you remember about me?"* lists it; *"forget my dentist"* asks you first. Stored privately in `data/long-term-memory/` (included in backups); turns that use memories stay on Groq (your private provider).

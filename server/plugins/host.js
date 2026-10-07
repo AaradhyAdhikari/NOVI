@@ -145,7 +145,12 @@ export class PluginHost {
           const req = result.requireApproval;
           const tier = SEVERITY_TIER[req.severity || 'warning'] || 'medium';
           if (!approval || RANK[tier] > RANK[approval.tier]) {
-            approval = { title: req.title, detail: req.description || '', tier, ...(req.prompt ? { prompt: req.prompt } : {}), ...(req.choices?.length ? { choices: req.choices } : {}) };
+            approval = {
+              title: req.title, detail: req.description || '', tier,
+              ...(req.prompt ? { prompt: req.prompt } : {}), ...(req.choices?.length ? { choices: req.choices } : {}),
+              // Novi extension for "always allow" (server/grants.js): the plugin may name the category or forbid grants.
+              ...(req.category ? { category: req.category } : {}), ...(req.grantable !== undefined ? { grantable: Boolean(req.grantable) } : {}),
+            };
           }
         }
       }

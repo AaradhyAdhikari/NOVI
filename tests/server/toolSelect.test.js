@@ -63,3 +63,13 @@ describe('selectTools: send the model only the tools a request needs', () => {
     expect(names("What's the weather in Pune?").length).toBeLessThanOrEqual(10);
   });
 });
+
+describe('selectTools: screen control words', () => {
+  const t = (name) => ({ type: 'function', function: { name, description: '', parameters: { type: 'object', properties: {} } } });
+  const tools = [t('screen_look'), t('screen_click'), t('screen_type'), t('screen_key'), t('weather_get')];
+  it('offers the screen tools for "click", "type", "what is on my screen"', () => {
+    for (const text of ['click the send button in whatsapp', 'type hello in notepad', "what's on my screen?"]) {
+      expect(selectTools(tools, { text }).map((x) => x.function.name), text).toEqual(expect.arrayContaining(['screen_look', 'screen_click', 'screen_type', 'screen_key']));
+    }
+  });
+});

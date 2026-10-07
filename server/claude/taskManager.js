@@ -150,7 +150,9 @@ export class TaskManager extends EventEmitter {
     const tier = classifyClaudeTool(toolName, input, task.path);
     if (tier === 'low') return { allow: true };
     if (tier === 'medium' && task.allowEdits && EDIT_TOOLS.has(toolName)) return { allow: true };
-    const allow = await this.approvals.request({ title: permissionTitle(toolName, input, task.agentName || this.agentName), detail: description || '', tier, source: 'claude' });
+    // "Always allow" categories: edits inside the project and ordinary commands (high-risk ones never).
+    const category = EDIT_TOOLS.has(toolName) ? 'files' : /^(Bash|PowerShell)$/.test(toolName) ? 'commands' : null;
+    const allow = await this.approvals.request({ title: permissionTitle(toolName, input, task.agentName || this.agentName), detail: description || '', tier, source: 'claude', category, grantable: Boolean(category) && tier === 'medium' });
     return allow ? { allow: true } : { allow: false, message: 'The user denied this action. Do not retry it; continue without it or explain what you need.' };
   }
 

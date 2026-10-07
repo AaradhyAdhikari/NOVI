@@ -4,6 +4,8 @@ import path from 'node:path';
 import { WebSocketServer } from 'ws';
 import { Memory } from './memory.js';
 import { ApprovalQueue } from './permissions.js';
+import { PermissionGrants } from './grants.js';
+import { createGeminiVision } from './brain/vision.js';
 import { Router } from './brain/router.js';
 import { Agent } from './brain/agent.js';
 import { TaskManager } from './claude/taskManager.js';
@@ -34,7 +36,9 @@ export function createNovi(config, overrides = {}) {
   const secrets = new SecretStore({ file: path.join(config.dataDir, 'secrets.json'), cipher: overrides.cipher || defaultCipher(config.dataDir) });
   const auth = overrides.auth || new GoogleAuth({ clientId: config.googleClientId, clientSecret: config.googleClientSecret, accounts, secrets });
   const gmail = new GmailClient({ getToken: (a) => auth.accessToken(a), invalidate: (a) => auth.invalidate(a.id) });
-  const approvals = overrides.approvals || new ApprovalQueue();
+  // "Always allow" grants by category (Settings → Permissions).
+  const grants = overrides.grants || new PermissionGrants(path.join(config.dataDir, 'permissions.json'));
+  const approvals = overrides.approvals || new ApprovalQueue({ grants });
   const router = overrides.router || new Router({ providers: config.providers, order: config.order });
   // Default coder: Novi Coder (free). Claude Code only when configured, or when the user says "use Claude instead".
   const defaultCoder = config.coder === 'claude' ? 'claude' : 'novi-coder';
@@ -55,6 +59,8 @@ export function createNovi(config, overrides = {}) {
       resolveAccount: (provider, requested, opts) => resolveAccount(accounts, provider, requested, opts),
       askNote,
       speak: (text) => broadcast({ type: 'speak', text: plainText(text) }),
+      // Image understanding (screen control): Gemini vision; the user agreed screenshots may go to Gemini.
+      vision: overrides.vision || createGeminiVision({ keys: config.providers.find((p) => p.name === 'gemini')?.keys || [] }),
       // Chat entry + spoken (e.g. a reminder going off), and a folder for plugin data files.
       say: (text) => {
         say('novi', text);
@@ -144,6 +150,8 @@ export function createNovi(config, overrides = {}) {
     broadcast({ type: 'speak', text: approval.tier === 'high' ? `High risk: ${approval.title}. Please confirm on screen.` : approval.prompt || `${approval.title}. Should I allow it?` });
   });
   approvals.on('resolved', (r) => broadcast({ type: 'approval_resolved', ...r }));
+  // Allowed by a grant without asking: a quiet line in the activity feed, not spoken.
+  approvals.on('auto_allowed', ({ title }) => broadcast({ type: 'feed', text: `Auto-allowed: ${title}` }));
 
   const bearer = (req) => (req.headers.authorization || '').replace(/^Bearer\s+/i, '') || null;
   const isLocal = (req) => isLocalAddress(req.socket.remoteAddress);
@@ -171,6 +179,10 @@ export function createNovi(config, overrides = {}) {
       res.status(400).json({ error: err.message });
     }
   });
+  // Settings → Permissions: "always allow" grants and what they allowed.
+  app.get('/api/permissions', (req, res) => res.json({ grants: grants.list(), audit: grants.audit().slice(0, 20) }));
+  app.delete('/api/permissions/:category', (req, res) => res.json({ revoked: grants.revoke(req.params.category) }));
+
   // Settings → System: is Novi healthy, and a restart button (only under the supervisor).
   const system = { version: 'dev', supervised: false, restarts: 0, ...overrides.system };
   const startedAt = Date.now();
@@ -295,7 +307,7 @@ export function createNovi(config, overrides = {}) {
         broadcast(snapshot());
       }
     } else if (msg.type === 'approval') {
-      approvals.resolve(msg.id, Boolean(msg.allow), 'screen', typeof msg.choice === 'string' ? msg.choice : null);
+      approvals.resolve(msg.id, Boolean(msg.allow), 'screen', typeof msg.choice === 'string' ? msg.choice : null, { always: msg.always === true });
     } else if (msg.type === 'allow_edits') {
       tasks.setAllowEdits(Boolean(msg.allow));
     } else if (msg.type === 'stop') {

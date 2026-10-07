@@ -24,6 +24,7 @@ const WORDS = {
   backup: 'backup backups',
   clock: 'announce announcement',
   accounts: 'account accounts',
+  screen: 'screen click type press key button window whatsapp notepad look see showing tab',
 };
 const WORD_GROUP = new Map(Object.entries(WORDS).flatMap(([g, words]) => words.split(' ').map((w) => [w, g])));
 // Words in tool names too generic to pick a group on their own.
