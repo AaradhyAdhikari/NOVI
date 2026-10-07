@@ -65,3 +65,14 @@ describe('parseRetryAfterMs', () => {
     expect(parseRetryAfterMs(new Headers(), 'try again in 250ms')).toBe(250);
   });
 });
+
+describe('reasoning effort', () => {
+  it('sends reasoning_effort only to gpt-oss models when asked', async () => {
+    const bodies = [];
+    const fetchImpl = async (url, init) => { bodies.push(JSON.parse(init.body)); return new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'ok' } }] }), { status: 200 }); };
+    await chatCompletion({ ...args, model: 'openai/gpt-oss-20b', reasoningEffort: 'low', fetchImpl });
+    await chatCompletion({ ...args, model: 'gemini-flash-latest', reasoningEffort: 'low', fetchImpl });
+    await chatCompletion({ ...args, model: 'openai/gpt-oss-120b', fetchImpl });
+    expect(bodies.map((b) => b.reasoning_effort)).toEqual(['low', undefined, undefined]);
+  });
+});

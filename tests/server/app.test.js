@@ -233,6 +233,31 @@ describe('Novi server', () => {
     expect((await (await fetch(`${base}/api/permissions`)).json()).grants).toEqual([]);
   });
 
+  it('lets plugins call other plugins read-only tools, never ones that need approval', async () => {
+    const { novi } = await start();
+    novi.plugins.register({ id: 'demo', name: 'Demo', register(api) {
+      api.registerTool({ name: 'demo_read', execute: async (_id, p) => ({ content: [{ type: 'text', text: `read ${p.x}` }], details: { ok: true } }) });
+      api.registerTool({ name: 'demo_send', execute: async () => ({ content: [{ type: 'text', text: 'sent' }] }) });
+      api.on('before_tool_call', ({ toolName }) => (toolName === 'demo_send' ? { requireApproval: { title: 'Send', severity: 'warning' } } : undefined));
+    } });
+    const call = novi.plugins.runtime.callTool;
+    expect(await call('demo_read', { x: 1 })).toEqual({ ok: true, text: 'read 1' });
+    await expect(call('demo_send', {})).rejects.toThrow(/needs approval/);
+    await expect(call('nope', {})).rejects.toThrow(/Unknown tool/);
+  });
+
+  it('turns text into natural speech (MP3) for the browser, or says why not', async () => {
+    const ok = await start({ tts: async (text) => Buffer.from(`MP3:${text}`) });
+    const res = await fetch(`${ok.base}/api/tts`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: 'Good morning' }) });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('audio/mpeg');
+    expect(Buffer.from(await res.arrayBuffer()).toString()).toBe('MP3:Good morning');
+    server.close();
+    const bad = await start({ tts: async () => { throw new Error('blocked'); } });
+    const r2 = await fetch(`${bad.base}/api/tts`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: 'hi' }) });
+    expect(r2.status).toBe(502);
+  });
+
   it('serves the voice-detection model and runtime files to the browser', async () => {
     const { base } = await start();
     for (const file of ['vad.worklet.bundle.min.js', 'silero_vad_v5.onnx', 'ort-wasm-simd-threaded.wasm', 'ort-wasm-simd-threaded.mjs', 'ort-wasm-simd-threaded.jsep.wasm', 'ort-wasm-simd-threaded.jsep.mjs']) {

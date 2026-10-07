@@ -7,6 +7,7 @@ import { loadOrCreateCert, lanAddresses } from './certs.js';
 import { checkClaude } from './claude/check.js';
 import { startWakeWordService } from './voice/wakeword/service.js';
 import { createLocalSpeaker } from './voice/localSpeaker.js';
+import { createEdgeTts, DEFAULT_VOICES } from './voice/edgeTts.js';
 import { createLogBuffer } from './logBuffer.js';
 
 const logBuffer = createLogBuffer();
@@ -19,7 +20,9 @@ const config = loadConfig();
 if (!config.providers.length) console.warn('⚠  No AI provider keys found. Add GROQ_API_KEYS / GEMINI_API_KEYS to .env');
 
 const lanUrls = lanAddresses().map((ip) => `https://${ip}:${config.port}`);
-const localSpeaker = createLocalSpeaker();
+// Laptop speakers: natural Edge voices, falling back to the built-in Windows voice.
+const edgeVoices = { en: process.env.NOVI_TTS_VOICE_EN || DEFAULT_VOICES.en, hi: process.env.NOVI_TTS_VOICE_HI || DEFAULT_VOICES.hi, mr: process.env.NOVI_TTS_VOICE_MR || DEFAULT_VOICES.mr };
+const localSpeaker = createLocalSpeaker({ synth: createEdgeTts({ voices: edgeVoices }) });
 localSpeaker?.(''); // warm up the Windows voice now so the first reply isn't 2.5 s late
 const novi = createNovi(config, { lanUrls, localSpeaker, logBuffer, system });
 await novi.plugins.loadDirectory(path.resolve('plugins'));

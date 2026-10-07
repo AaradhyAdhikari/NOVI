@@ -1,5 +1,5 @@
 import { AllProvidersUnavailableError } from './router.js';
-import { selectTools } from './toolSelect.js';
+import { selectTools, isQuickTurn } from './toolSelect.js';
 import { classifyApproval } from '../grants.js';
 import { UserFacingError } from '../errors.js';
 import { firstSentence } from '../narrator.js';
@@ -81,11 +81,13 @@ export class Agent {
     let provider = extra.sensitive ? this.privateProviders[0] : undefined;
     let waited = false;
     // Only the tools this request needs (keeps each call small enough for free rate limits).
-    const offered = selectTools(this.tools.schemas(), { text, history: this.history, taskActive: Boolean(this.tasks.status().active) });
+    const taskActive = Boolean(this.tasks.status().active);
+    const offered = selectTools(this.tools.schemas(), { text, history: this.history, taskActive });
+    const purpose = isQuickTurn(text, offered, { taskActive }) ? 'quick' : 'fast';
     for (let round = 0; round < MAX_ROUNDS; round++) {
       let res;
       try {
-        res = await this.router.chat({ messages, tools: offered, purpose: 'fast', only: provider });
+        res = await this.router.chat({ messages, tools: offered, purpose, only: provider });
       } catch (err) {
         if (!(err instanceof AllProvidersUnavailableError)) throw err;
         // A private turn can't fall back to another provider; a short rate-limit is worth waiting out.

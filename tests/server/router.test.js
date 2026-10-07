@@ -89,3 +89,14 @@ describe('Router', () => {
     expect(err.retryInMs).toBe(5_000);
   });
 });
+
+describe('quick lane', () => {
+  it('asks gpt-oss models for low reasoning on quick turns only', async () => {
+    const seen = [];
+    const providers = [{ name: 'groq', baseURL: 'g', keys: ['k'], models: { fast: ['openai/gpt-oss-120b'], quick: ['openai/gpt-oss-20b'] } }];
+    const router = new Router({ providers, order: { fast: ['groq'], quick: ['groq'] }, call: async (req) => { seen.push(req); return { role: 'assistant', content: 'ok' }; } });
+    await router.chat({ messages: [], purpose: 'quick' });
+    await router.chat({ messages: [], purpose: 'fast' });
+    expect(seen.map((r) => [r.model, r.reasoningEffort])).toEqual([['openai/gpt-oss-20b', 'low'], ['openai/gpt-oss-120b', undefined]]);
+  });
+});

@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { GoogleAuth, buildAuthUrl, startLoopback, GMAIL_SCOPES, emailFromIdToken } from '../../server/google/oauth.js';
+import { GoogleAuth, buildAuthUrl, startLoopback, GMAIL_SCOPES, emailFromIdToken , GOOGLE_SCOPES } from '../../server/google/oauth.js';
 import { AccountRegistry } from '../../server/accounts/registry.js';
 import { UserFacingError } from '../../server/errors.js';
 
@@ -54,9 +54,13 @@ describe('buildAuthUrl', () => {
     const u = new URL(buildAuthUrl({ clientId: 'cid', redirectUri: 'http://127.0.0.1:1/callback', state: 'st', challenge: 'ch' }));
     expect(u.origin + u.pathname).toBe('https://accounts.google.com/o/oauth2/v2/auth');
     expect(Object.fromEntries(u.searchParams)).toEqual({
-      client_id: 'cid', redirect_uri: 'http://127.0.0.1:1/callback', response_type: 'code', scope: GMAIL_SCOPES.join(' '),
+      client_id: 'cid', redirect_uri: 'http://127.0.0.1:1/callback', response_type: 'code', scope: GOOGLE_SCOPES.join(' '),
       code_challenge: 'ch', code_challenge_method: 'S256', state: 'st', access_type: 'offline', prompt: 'consent',
     });
+  });
+
+  it('also asks for Calendar and Tasks (one Google sign-in for everything)', () => {
+    expect(GOOGLE_SCOPES).toEqual(expect.arrayContaining([...GMAIL_SCOPES, 'https://www.googleapis.com/auth/calendar.events', 'https://www.googleapis.com/auth/tasks']));
   });
 
   it('reads the email from an ID token', () => {

@@ -1,6 +1,6 @@
 // Sends the model only the tools a request needs. All ~40 tool schemas cost ~3,900 tokens per
 // call — more than Groq's free per-minute budget allows for a tool turn (two calls).
-const ALWAYS = new Set(['memory_remember', 'memory_recall', 'open_app', 'open_website', 'clock_now']);
+export const ALWAYS = new Set(['memory_remember', 'memory_recall', 'open_app', 'open_website', 'clock_now']);
 
 // Tools that belong together (a match on one brings the whole group).
 const GROUP = {
@@ -25,6 +25,9 @@ const WORDS = {
   clock: 'announce announcement',
   accounts: 'account accounts',
   screen: 'screen click type press key button window whatsapp notepad look see showing tab',
+  briefing: 'briefing brief morning agenda summary day',
+  calendar: 'calendar meeting meetings event events schedule free busy appointment lecture class classes plans',
+  tasks: 'task tasks todo todos to-do list lists done complete finished',
 };
 const WORD_GROUP = new Map(Object.entries(WORDS).flatMap(([g, words]) => words.split(' ').map((w) => [w, g])));
 // Words in tool names too generic to pick a group on their own.
@@ -56,4 +59,11 @@ export function selectTools(schemas, { text, history = [], taskActive = false } 
   for (const g of groupsFor(history.slice(-2).map((m) => m.content).join(' '), nameWords)) groups.add(g);
   if (taskActive) groups.add('code');
   return schemas.filter((s) => ALWAYS.has(s.function.name) || groups.has(groupOf(s.function.name)));
+}
+
+// Short questions that need only the always-on basics (time, small talk, open an app, recall a memory)
+// go to the quick lane: a small fast model (Groq llama-3.1-8b-instant), falling back to bigger ones.
+export function isQuickTurn(text, offered, { taskActive = false } = {}) {
+  const words = String(text || '').trim().split(/s+/).filter(Boolean).length;
+  return !taskActive && words > 0 && words <= 12 && offered.every((s) => ALWAYS.has(s.function.name));
 }

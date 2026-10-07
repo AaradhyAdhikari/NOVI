@@ -16,6 +16,7 @@
     "cors": "^2.8.5",
     "express": "^4.21.2",
     "lucide-react": "^0.475.0",
+    "msedge-tts": "^2.0.9",
     "onnxruntime-node": "^1.30.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

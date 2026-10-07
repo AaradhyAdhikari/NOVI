@@ -13,6 +13,8 @@ export const CATEGORY_LABELS = {
   projects: 'remembering projects',
   announce: 'announcements',
   'github-read': 'marking GitHub notifications read',
+  calendar: 'adding calendar events',
+  tasks: 'changing your to-do list',
 };
 
 const TOOL_CATEGORY = {

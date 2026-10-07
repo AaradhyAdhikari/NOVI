@@ -33,7 +33,9 @@ export async function startWakeWordService({ novi, env = process.env, logger = c
   const listener = createWakeListener({
     recorder,
     detector,
-    threshold: Number(env.NOVI_WAKEWORD_THRESHOLD || 0.5),
+    // 0.35: the hey_novi model trained on synthetic voices scored the user's own "Hey Novi" 0.37–0.83 and
+    // ordinary commands <= 0.014 (2026-10-07). Override with NOVI_WAKEWORD_THRESHOLD.
+    threshold: Number(env.NOVI_WAKEWORD_THRESHOLD || 0.35),
     onWake: (score) => {
       logger.log(`[wake] heard the wake word (${score.toFixed(2)})`);
       novi.broadcast({ type: 'wake' });

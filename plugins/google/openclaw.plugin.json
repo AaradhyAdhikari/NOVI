@@ -1,0 +1,9 @@
+{
+  "id": "google",
+  "name": "Google Calendar and Tasks",
+  "description": "Your calendar and to-do list on the Google account connected for Gmail. Adding or completing asks first.",
+  "categories": ["other"],
+  "contracts": { "tools": ["calendar_events", "calendar_free", "calendar_add", "tasks_list", "tasks_add", "tasks_complete"] },
+  "activation": { "onStartup": true },
+  "configSchema": { "type": "object", "additionalProperties": false }
+}

@@ -15,6 +15,13 @@ export const GMAIL_SCOPES = [
   'email',
 ];
 
+// One Google sign-in for everything Novi uses: Gmail plus Calendar events and Tasks (plugins/google).
+export const GOOGLE_SCOPES = [
+  ...GMAIL_SCOPES,
+  'https://www.googleapis.com/auth/calendar.events',
+  'https://www.googleapis.com/auth/tasks',
+];
+
 const b64url = (buf) => Buffer.from(buf).toString('base64url');
 
 export function pkcePair() {
@@ -22,7 +29,7 @@ export function pkcePair() {
   return { verifier, challenge: b64url(crypto.createHash('sha256').update(verifier).digest()) };
 }
 
-export function buildAuthUrl({ clientId, redirectUri, state, challenge, scopes = GMAIL_SCOPES }) {
+export function buildAuthUrl({ clientId, redirectUri, state, challenge, scopes = GOOGLE_SCOPES }) {
   const url = new URL(AUTH_URL);
   const params = {
     client_id: clientId, redirect_uri: redirectUri, response_type: 'code', scope: scopes.join(' '),

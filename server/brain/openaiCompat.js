@@ -31,8 +31,10 @@ export function classifyHttpError(status, body, headers) {
   return new ProviderError('bad_request', message, { status });
 }
 
-export async function chatCompletion({ baseURL, key, model, messages, tools, fetchImpl = fetch, timeoutMs = 30_000 }) {
+export async function chatCompletion({ baseURL, key, model, messages, tools, reasoningEffort, fetchImpl = fetch, timeoutMs = 30_000 }) {
   const body = { model, messages };
+  // gpt-oss models think before answering; "low" makes simple replies much faster.
+  if (reasoningEffort && /gpt-oss/.test(model)) body.reasoning_effort = reasoningEffort;
   if (tools?.length) body.tools = tools;
   let response;
   try {

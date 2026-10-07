@@ -37,7 +37,7 @@ export class Router {
         for (let i = 0; i < p.keys.length; i++) {
           if (this._cooling(p, i, model)) continue;
           try {
-            const message = await this.call({ baseURL: p.baseURL, key: p.keys[i], model, messages, tools });
+            const message = await this.call({ baseURL: p.baseURL, key: p.keys[i], model, messages, tools, reasoningEffort: purpose === 'quick' ? 'low' : undefined });
             p.failures = 0;
             p.lastModel = model;
             return { message, provider: name, model };

@@ -15,6 +15,9 @@ Goal: Novi can see the laptop screen and click / type / press keys in apps that 
 | `screen_type` | type text into whatever has focus | **yes**, `screen` (grantable) |
 | `screen_key` | press Enter / Tab / Esc / arrows / Ctrl+C/V/S/A/Z / Alt+Tab … (allow-list) | **yes**, `screen` (grantable) |
 
+## Right app only
+- `screen_click`, `screen_type` and `screen_key` must name the `app` they are for, and act only if that app is the active window (otherwise Novi says which window is active and does nothing). Added after a live test where vision "found" a box in a window that wasn't open and the text went into the Claude app instead. `screen_focus` (no approval) brings a named app to the front first. Vision is told not to guess.
+
 ## Never
 - Act when the foreground window or the target looks like a **password / sign-in / payment / bank / card / CVV / OTP / CAPTCHA / Windows Security / Settings / UAC** screen → blocked with an explanation (and Vision is also asked to flag such targets). No grant overrides this.
 - Keys that could be destructive or system-level (Win+R, Alt+F4, Ctrl+Alt+Del, Delete) are not on the allow-list.

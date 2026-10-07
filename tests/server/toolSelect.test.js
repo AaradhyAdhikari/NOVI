@@ -73,3 +73,15 @@ describe('selectTools: screen control words', () => {
     }
   });
 });
+
+describe('selectTools: calendar and tasks words', () => {
+  const t = (name) => ({ type: 'function', function: { name, description: '', parameters: { type: 'object', properties: {} } } });
+  const tools = [t('calendar_events'), t('calendar_free'), t('calendar_add'), t('tasks_list'), t('tasks_add'), t('tasks_complete'), t('weather_get')];
+  const names = (text) => selectTools(tools, { text }).map((x) => x.function.name);
+  it('offers calendar tools for meetings and free time, tasks tools for to-dos', () => {
+    expect(names("what's on my calendar tomorrow")).toEqual(expect.arrayContaining(['calendar_events', 'calendar_add']));
+    expect(names('am I free at 5')).toContain('calendar_free');
+    expect(names('add submit assignment to my to-do list')).toContain('tasks_add');
+    expect(names('mark the dbms task done')).toContain('tasks_complete');
+  });
+});

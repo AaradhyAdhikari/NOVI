@@ -238,3 +238,27 @@ describe('private turns wait briefly for the private provider', () => {
     expect(waits).toEqual([]);
   });
 });
+
+describe('quick lane for simple questions', () => {
+  const t = (name) => ({ type: 'function', function: { name, description: '', parameters: { type: 'object', properties: {} } } });
+  function quickSetup() {
+    const router = scriptedRouter([reply('ok'), reply('ok'), reply('ok')]);
+    const tools = { schemas: () => [t('clock_now'), t('open_app'), t('memory_recall'), t('weather_get'), t('gmail_search')], get: () => null };
+    const agent = new Agent({ router, tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
+    return { agent, router };
+  }
+
+  it('sends short, simple questions to the quick lane', async () => {
+    const { agent, router } = quickSetup();
+    await agent.handle('what time is it?');
+    await agent.handle('tell me a joke');
+    expect(router.calls.map((c) => c.purpose)).toEqual(['quick', 'quick']);
+  });
+
+  it('keeps the big model for anything that needs a real tool or a long answer', async () => {
+    const { agent, router } = quickSetup();
+    await agent.handle("what's the weather in Pune tomorrow?");
+    await agent.handle('explain how binary search works step by step with an example and its time complexity in detail please');
+    expect(router.calls.map((c) => c.purpose)).toEqual(['fast', 'fast']);
+  });
+});

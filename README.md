@@ -229,6 +229,14 @@ Then: "any GitHub notifications?", "list my repos", "open issues on NOVI", "read
 
 **Later — Claude Code:** set `NOVI_CODER=claude` in `.env` to hand coding tasks to [Claude Code](https://claude.com/claude-code) instead of Novi Coder (requires the `claude` CLI logged in; uses your Claude plan).
 
+### Morning briefing
+
+*"Good morning"*, *"brief me"*, *"what's my day like?"* — one short spoken summary: weather in your home city, today's calendar, tasks due, unread mail, GitHub notifications, today's reminders and birthdays you told Novi. *"Brief me every morning at 7:30"* makes it automatic (spoken in the browser, or on the laptop speakers if no page is open); *"stop the morning briefing"* turns it off. Each part appears once it's set up (home city: `NOVI_PLUGIN_WEATHER_PLACE=Pune` in .env; Calendar/Tasks: see below).
+
+### Google Calendar and Tasks
+
+*"What's on tomorrow?"*, *"am I free Friday at 5?"*, *"add a meeting with Rohan Friday 4 pm"*, *"what's on my to-do list?"*, *"add 'submit DBMS assignment' due Monday"*, *"mark the DBMS task done"*. Adding or completing asks first (or *Always allow*). One-time setup: in Google Cloud Console (the project with Novi's GOOGLE_CLIENT_ID) enable **Google Calendar API** and **Google Tasks API**, then in Novi's Settings click **Connect Gmail** again with the same account and allow Calendar and Tasks.
+
 ### Permissions you grant once
 
 Approval cards for safe, repeatable kinds of action (opening apps, the coder editing files or running ordinary commands in a project, screen control, announcements) have an **Always allow …** button — or say *"yes, always"*. Novi then stops asking for that kind of action. **Settings → Permissions** lists what's always allowed (with undo) and what was allowed without asking. Sending, posting, deleting, payments and high-risk actions always ask, whatever you allowed.
@@ -251,6 +259,14 @@ Tell Novi things once and it remembers them across days: *"my mom's birthday is 
 ### Open a project in your editor
 
 From the laptop or your phone: *"open Novi in Cursor"*, *"open playground in VS Code"*, *"open Novi in Claude Code"*. Works with VS Code, Cursor, Antigravity, Kiro and Claude Code (opens Windows Terminal in the project folder with Claude Code started). Novi first needs to know the project: *"remember my Novi project at C:\Projects\Novi"* (use the real folder). Optional default editor in `.env`: `NOVI_PLUGIN_IDE_DEFAULT_EDITOR=cursor`.
+
+### Faster replies and more free AI capacity
+
+Short, simple questions ("what time is it", small talk, quick maths) go to Groq's small model with low reasoning: about half a second. Anything that needs a tool still uses the big model. Optional extra backup: a free **SambaNova** key (cloud.sambanova.ai → API Keys) as `SAMBANOVA_API_KEYS=...` in .env, used when Groq and Gemini are busy (never for private things like email or memories).
+
+### Natural voice
+
+Novi answers with Microsoft Edge's free neural voices (no key): Indian English (Neerja), Hindi (Swara) and Marathi (Aarohi), picked automatically from the language of the reply, in the browser and on the laptop speakers. Change them in .env: `NOVI_TTS_VOICE_EN=en-IN-PrabhatNeural`, `NOVI_TTS_VOICE_HI=hi-IN-MadhurNeural`, `NOVI_TTS_VOICE_MR=mr-IN-ManoharNeural`. If the service is unreachable, Novi falls back to the browser / Windows voice.
 
 ### Voice (speech-to-text)
 

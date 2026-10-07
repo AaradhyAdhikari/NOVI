@@ -30,8 +30,22 @@ describe('loadConfig', () => {
   });
 
   it('orders providers: groq first for both (measured latency), env overrides', () => {
-    expect(loadConfig(base).order).toEqual({ fast: ['groq', 'gemini'], long: ['groq', 'gemini'] });
+    expect(loadConfig(base).order).toEqual({ fast: ['groq', 'gemini'], long: ['groq', 'gemini'], quick: ['groq', 'gemini'] });
     expect(loadConfig({ ...base, NOVI_FAST_ORDER: 'gemini' }).order.fast).toEqual(['gemini', 'groq']);
+  });
+
+  it('has a quick lane on Groq (small model first) and a third Groq model as fallback', () => {
+    // llama-3.1-8b-instant was retired by Groq (checked 2026-10-07); gpt-oss-20b with low reasoning is the quick model.
+    expect(loadConfig(base).providers[0].models.quick).toEqual(['openai/gpt-oss-20b', 'openai/gpt-oss-120b', 'qwen/qwen3.8-27b']);
+    expect(loadConfig(base).providers[0].models.fast).toEqual(['openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'qwen/qwen3.8-27b']);
+  });
+
+  it('adds SambaNova as a backup after Gemini when its key is set', () => {
+    const c = loadConfig({ ...base, SAMBANOVA_API_KEYS: 's1' });
+    const sn = c.providers.find((p) => p.name === 'sambanova');
+    expect(sn.baseURL).toBe('https://api.sambanova.ai/v1');
+    expect(sn.models.fast.length).toBeGreaterThan(0);
+    expect(c.order.fast).toEqual(['groq', 'gemini', 'sambanova']);
   });
 
   it('uses CLAUDE_PATH when set, else falls back to "claude"', () => {

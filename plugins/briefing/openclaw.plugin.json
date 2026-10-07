@@ -1,0 +1,9 @@
+{
+  "id": "briefing",
+  "name": "Morning briefing",
+  "description": "A short spoken summary of your day (weather, calendar, tasks, mail, GitHub, reminders, birthdays), on request or every day at a set time.",
+  "categories": ["other"],
+  "contracts": { "tools": ["briefing_get", "briefing_schedule"] },
+  "activation": { "onStartup": true },
+  "configSchema": { "type": "object", "additionalProperties": false }
+}

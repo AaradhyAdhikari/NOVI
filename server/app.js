@@ -6,6 +6,8 @@ import { Memory } from './memory.js';
 import { ApprovalQueue } from './permissions.js';
 import { PermissionGrants } from './grants.js';
 import { createGeminiVision } from './brain/vision.js';
+import { createGoogleApi } from './google/api.js';
+import { createEdgeTts, DEFAULT_VOICES } from './voice/edgeTts.js';
 import { Router } from './brain/router.js';
 import { Agent } from './brain/agent.js';
 import { TaskManager } from './claude/taskManager.js';
@@ -60,6 +62,17 @@ export function createNovi(config, overrides = {}) {
       askNote,
       speak: (text) => broadcast({ type: 'speak', text: plainText(text) }),
       // Image understanding (screen control): Gemini vision; the user agreed screenshots may go to Gemini.
+      // A plugin may use another plugin's read-only tools (e.g. the briefing reads weather and calendar).
+      // Anything that would need approval (sends, changes, deletes) is refused here.
+      callTool: async (name, params = {}) => {
+        const tool = plugins.get(name);
+        if (!tool) throw new Error(`Unknown tool ${name}`);
+        const gate = await tool.gate(params);
+        if (gate.block || gate.approval) throw new Error(`${name} needs approval, so a plugin can't run it`);
+        return tool.run(params);
+      },
+      // Signed-in Google API calls for plugins (Calendar, Tasks) on the account connected for Gmail.
+      google: overrides.google || createGoogleApi({ auth, accounts }),
       vision: overrides.vision || createGeminiVision({ keys: config.providers.find((p) => p.name === 'gemini')?.keys || [] }),
       // Chat entry + spoken (e.g. a reminder going off), and a folder for plugin data files.
       say: (text) => {
@@ -207,6 +220,20 @@ export function createNovi(config, overrides = {}) {
     if (!system.supervised) return res.status(409).json({ error: 'Novi was started without the supervisor, so it cannot restart itself. Close it and double-click Start Novi.cmd.' });
     res.json({ restarting: true });
     setTimeout(() => exit(75), 300);
+  });
+  // Natural voices for spoken replies (Edge neural voices); the browser falls back to its own voice on error.
+  const tts = overrides.tts || createEdgeTts({ voices: {
+    en: process.env.NOVI_TTS_VOICE_EN || DEFAULT_VOICES.en,
+    hi: process.env.NOVI_TTS_VOICE_HI || DEFAULT_VOICES.hi,
+    mr: process.env.NOVI_TTS_VOICE_MR || DEFAULT_VOICES.mr,
+  } });
+  app.post('/api/tts', express.json({ limit: '64kb' }), async (req, res) => {
+    try {
+      const audio = await tts(String(req.body?.text || ''));
+      res.type('audio/mpeg').send(audio);
+    } catch (err) {
+      res.status(502).json({ error: err.message });
+    }
   });
   app.post('/api/stt', express.raw({ type: () => true, limit: '10mb' }), async (req, res) => {
     try {

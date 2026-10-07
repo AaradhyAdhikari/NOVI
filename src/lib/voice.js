@@ -2,28 +2,69 @@
 export const speechEvents = new EventTarget();
 const emit = (type, text) => speechEvents.dispatchEvent(new CustomEvent(type, { detail: { text } }));
 
-export function speak(text, { muted } = {}) {
+// Replies are spoken one after another. Natural Edge voices come from Novi's server (/api/tts, MP3);
+// if that fails (offline, blocked), the browser's own voice says it instead.
+let queue = Promise.resolve();
+let generation = 0; // bumped by stopSpeaking() to drop anything queued
+let current = null;
+
+export function speak(text, { muted, api } = {}) {
   if (!text) return;
-  if (muted || !('speechSynthesis' in window)) {
+  if (muted) {
     emit('spoken', text);
     return;
   }
-  const utterance = new SpeechSynthesisUtterance(text);
-  utterance.rate = 1.05;
-  utterance.onstart = () => emit('start', text);
-  let finished = false;
-  const done = () => {
-    if (finished) return;
-    finished = true;
+  const gen = generation;
+  queue = queue.then(() => (gen === generation ? say(text, api, gen) : null)).catch(() => {});
+}
+
+async function say(text, api, gen) {
+  emit('start', text);
+  try {
+    if (!api) throw new Error('no server');
+    await playNatural(text, api, gen);
+  } catch {
+    if (gen === generation) await speakWithBrowser(text);
+  } finally {
     emit('end', text);
     emit('spoken', text);
-  };
-  utterance.onend = done;
-  utterance.onerror = done;
-  window.speechSynthesis.speak(utterance);
+  }
+}
+
+async function playNatural(text, api, gen) {
+  const res = await api('/api/tts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+  if (!res.ok) throw new Error(`tts ${res.status}`);
+  const url = URL.createObjectURL(await res.blob());
+  try {
+    if (gen !== generation) return;
+    const audio = new Audio(url);
+    current = audio;
+    await new Promise((resolve, reject) => {
+      audio.onended = resolve;
+      audio.onerror = reject;
+      audio.onpause = resolve; // stopSpeaking()
+      audio.play().catch(reject);
+    });
+  } finally {
+    current = null;
+    URL.revokeObjectURL(url);
+  }
+}
+
+function speakWithBrowser(text) {
+  if (!('speechSynthesis' in window)) return Promise.resolve();
+  return new Promise((resolve) => {
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 1.05;
+    utterance.onend = resolve;
+    utterance.onerror = resolve;
+    window.speechSynthesis.speak(utterance);
+  });
 }
 
 export function stopSpeaking() {
+  generation += 1;
+  current?.pause();
   window.speechSynthesis?.cancel();
 }
 

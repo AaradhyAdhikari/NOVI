@@ -19,7 +19,10 @@ export default function App() {
   const [handsFreeState, setHandsFreeState] = useState({ enabled: false });
   const mutedRef = useRef(muted);
   mutedRef.current = muted;
-  const novi = useNovi({ onSpeak: (text) => speak(text, { muted: mutedRef.current }) });
+  const apiRef = useRef(null);
+  // Natural Edge voices from the server (/api/tts); speak() falls back to the browser's voice.
+  const novi = useNovi({ onSpeak: (text) => speak(text, { muted: mutedRef.current, api: apiRef.current }) });
+  apiRef.current = novi.api;
   const { state, send } = novi;
   // Voice-first: "Hey Novi" is always listening (no on/off switch). When the server has a
   // wake-word model it listens on the laptop mic (even with this page closed) and the browser stays quiet.

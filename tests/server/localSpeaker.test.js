@@ -70,6 +70,25 @@ describe('laptop speaker (Windows voice)', () => {
     expect(spawned[1].child.lines).toEqual(['two']);
   });
 
+  it('plays natural Edge speech when available, the Windows voice otherwise', async () => {
+    const { run, spawned } = fakeVoice();
+    const fs = await import('node:fs');
+    const os = await import('node:os');
+    const path = await import('node:path');
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'novi-say-'));
+    let fail = false;
+    const synth = async (text) => { if (fail) throw new Error('offline'); return Buffer.from(`MP3:${text}`); };
+    const speak = createLocalSpeaker({ platform: 'win32', run, synth, tmpDir });
+    await speak('Good morning');
+    fail = true;
+    await speak('Fallback please');
+    const [first, second] = spawned[0].child.lines;
+    expect(first).toMatch(/^PLAY:.*\.mp3$/);
+    expect(fs.existsSync(first.slice(5))).toBe(false); // temp file removed after playing
+    expect(second).toBe('Fallback please');
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
   it('is unavailable off Windows', () => {
     expect(createLocalSpeaker({ platform: 'linux' })).toBeNull();
   });
