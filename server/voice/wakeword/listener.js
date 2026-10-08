@@ -31,6 +31,12 @@ export function createWakeListener({
   noSpeechMs = 4000, // nobody spoke after the wake word
   maxCommandMs = 8000,
   cooldownMs = 1500, // ignore the tail of the same wake word
+  // Only the owner: (audio) → true (their voice) / false (someone else) / null (check off: anyone
+  // wakes Novi, nobody can interrupt it). Errors let the audio through (never deaf).
+  checkSpeaker = null,
+  interruptThreshold = null, // while Novi talks; null = threshold + 0.15 (its own voice can score)
+  onInterrupt = () => {},
+  onRejected = () => {},
 }) {
   let running = false;
   let clock = 0;
@@ -39,6 +45,19 @@ export function createWakeListener({
   let command = null; // { frames, heard, quietMs, elapsedMs } while recording a command
   let capturing = null; // { left, frames, best, resolve } while recording a practice clip
   let deafUntil = 0; // conversation mode: ignore the mic while Novi itself is speaking
+  let speaking = false; // Novi is talking on the laptop right now
+  const recent = []; // the last 1.5 s of mic audio, for the voice check on "Hey Novi"
+  const RECENT_FRAMES = 19;
+  const verdict = async (audio) => {
+    if (!checkSpeaker) return null;
+    try {
+      const v = await checkSpeaker(audio);
+      return v == null ? null : Boolean(v);
+    } catch {
+      return null;
+    }
+  };
+  const safeCheck = async (audio) => (await verdict(audio)) !== false;
   const join = (frames) => {
     const audio = new Int16Array(frames.reduce((n, f) => n + f.length, 0));
     let at = 0;
@@ -46,12 +65,15 @@ export function createWakeListener({
     return audio;
   };
 
-  function finish() {
+  async function finish() {
     const { frames, heard, followUp = false } = command;
     command = null;
     cooldownUntil = clock + cooldownMs;
     if (!heard) return onNoCommand({ followUp });
-    onCommand(join(frames), { followUp });
+    const audio = join(frames);
+    // A follow-up has no "Hey Novi" to check, so check the sentence itself.
+    if (followUp && !(await safeCheck(audio))) return onNoCommand({ followUp });
+    onCommand(audio, { followUp });
   }
 
   async function step(frame) {
@@ -69,13 +91,32 @@ export function createWakeListener({
       }
       return;
     }
-    if (clock <= deafUntil) return;
+    recent.push(frame);
+    if (recent.length > RECENT_FRAMES) recent.shift();
+    if (speaking || clock <= deafUntil) {
+      // Novi is talking: a strong "Hey Novi" in the owner's voice stops it.
+      const best = Math.max(0, ...scores);
+      const level = interruptThreshold ?? threshold + 0.15;
+      if (best >= level && clock >= cooldownUntil && (await verdict(join(recent))) === true) {
+        speaking = false;
+        deafUntil = 0;
+        cooldownUntil = clock + cooldownMs;
+        onInterrupt();
+        command = { frames: [], heard: false, quietMs: 0, elapsedMs: 0, waitMs: 8000, followUp: true };
+      }
+      return;
+    }
     if (!command) {
       const level = rms(frame);
       // Slow average (starting from silence) that a short loud sound can't drag up much.
       noise = noise * 0.9 + Math.min(level, noise * 2 + 50) * 0.1;
       const best = Math.max(0, ...scores);
       if (best >= threshold && clock >= cooldownUntil) {
+        if (!(await safeCheck(join(recent)))) {
+          cooldownUntil = clock + cooldownMs;
+          onRejected({ score: best });
+          return;
+        }
         command = { frames: [], heard: false, quietMs: 0, elapsedMs: 0 };
         onWake(best);
       }
@@ -89,7 +130,7 @@ export function createWakeListener({
       command.quietMs += FRAME_MS;
     }
     if (command.heard) command.frames.push(frame);
-    if ((command.heard && command.quietMs >= endSilenceMs) || (!command.heard && command.elapsedMs >= (command.waitMs ?? noSpeechMs)) || command.elapsedMs >= maxCommandMs) finish();
+    if ((command.heard && command.quietMs >= endSilenceMs) || (!command.heard && command.elapsedMs >= (command.waitMs ?? noSpeechMs)) || command.elapsedMs >= maxCommandMs) await finish();
   }
 
   return {
@@ -104,6 +145,11 @@ export function createWakeListener({
     followUp({ deafMs = 0, waitMs = 8000 } = {}) {
       deafUntil = clock + deafMs;
       command = { frames: [], heard: false, quietMs: 0, elapsedMs: 0, waitMs, followUp: true };
+    },
+    // Novi started / stopped talking on the laptop. Off leaves a short tail for the room's echo.
+    setSpeaking(on) {
+      speaking = Boolean(on);
+      if (!speaking) deafUntil = Math.max(deafUntil, clock + 300);
     },
     setThreshold(value) {
       threshold = value;
