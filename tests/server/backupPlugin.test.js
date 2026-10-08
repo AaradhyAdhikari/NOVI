@@ -17,13 +17,13 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
 
-function setup({ now = () => new Date('2026-10-07T03:15:00'), existing = [] } = {}) {
+function setup({ now = () => new Date('2026-10-07T03:15:00'), existing = [], drive = null } = {}) {
   fs.mkdirSync(backupsDir, { recursive: true });
   for (const f of existing) fs.writeFileSync(path.join(backupsDir, f), 'old');
   const archived = [];
   const archive = async ({ from, to, exclude }) => { archived.push({ from, to, exclude }); fs.writeFileSync(to, 'zip'); };
   const host = new PluginHost({ runtime: { dataDir }, env: { NOVI_PLUGIN_BACKUP_DIR: backupsDir }, logger: { warn() {} } });
-  expect(host.register(createBackupPlugin({ archive, now, intervalMs: 3_600_000 }))).toBe(true);
+  expect(host.register(createBackupPlugin({ archive, now, intervalMs: 3_600_000, ...(drive ? { driveUploader: () => drive } : {}) }))).toBe(true);
   return { host, archived };
 }
 
@@ -93,4 +93,35 @@ describe.skipIf(process.platform !== 'win32')('real zip on Windows', () => {
       .split(/\r?\n/).filter(Boolean).sort();
     expect(entries).toEqual(['certs/key.pem', 'memory.json']);
   }, 60_000);
+
+  function fakeDrive({ fails = false } = {}) {
+    const uploaded = [];
+    let st = {};
+    return {
+      uploaded,
+      state: () => st,
+      async upload(file) { if (fails) throw new Error('Google is not connected'); uploaded.push(path.basename(file)); st = { lastUpload: { name: path.basename(file), at: '2026-10-08T02:30:00Z' } }; },
+      async prune() {},
+      fail(err) { st = { ...st, lastError: { message: err.message } }; },
+    };
+  }
+
+  it('backs up to Google Drive on request (newest local zip) and reports it', async () => {
+    const drive = fakeDrive();
+    const { host } = setup({ drive });
+    const out = await host.get('backup_now').run({ drive: true });
+    expect(drive.uploaded).toHaveLength(1);
+    expect(out.text).toMatch(/Google Drive/);
+    const status = await host.get('backup_status').run({});
+    expect(status.text).toMatch(/Last Drive backup: novi-data-/);
+  });
+
+  it('says why a Drive backup failed, and status shows it', async () => {
+    const drive = fakeDrive({ fails: true });
+    const { host } = setup({ drive });
+    const out = await host.get('backup_now').run({ drive: true });
+    expect(out.text).toMatch(/Drive backup failed: Google is not connected/);
+    expect((await host.get('backup_status').run({})).text).toMatch(/Drive backup failed/);
+  });
 });
+

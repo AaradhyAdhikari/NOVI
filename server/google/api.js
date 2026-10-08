@@ -11,7 +11,10 @@ export function createGoogleApi({ auth, accounts, fetchImpl = fetch }) {
         const token = await auth.accessToken(account);
         let res;
         try {
-          res = await fetchImpl(url, { ...init, headers: { Authorization: `Bearer ${token}`, ...(init.body ? { 'Content-Type': 'application/json' } : {}) }, signal: AbortSignal.timeout(20_000) });
+          // raw: a file upload (e.g. a Drive backup) sent as-is with its own content type.
+          const { raw, headers = {}, ...rest } = init;
+          const type = raw ? {} : init.body ? { 'Content-Type': 'application/json' } : {};
+          res = await fetchImpl(url, { ...rest, headers: { Authorization: `Bearer ${token}`, ...type, ...headers }, signal: AbortSignal.timeout(raw ? 120_000 : 20_000) });
         } catch (err) {
           throw new UserFacingError(`I couldn't reach Google: ${err.message}`);
         }
@@ -24,10 +27,10 @@ export function createGoogleApi({ auth, accounts, fetchImpl = fetch }) {
         const msg = String(body.error?.message || '');
         const disabled = /has not been used|is disabled|SERVICE_DISABLED/i.exec(msg);
         if (disabled) {
-          const which = /tasks/i.test(url) ? 'Google Tasks API' : /calendar/i.test(url) ? 'Google Calendar API' : 'Google API';
+          const which = /tasks/i.test(url) ? 'Google Tasks API' : /calendar/i.test(url) ? 'Google Calendar API' : /sheets\.googleapis/i.test(url) ? 'Google Sheets API' : /\/drive\//i.test(url) ? 'Google Drive API' : 'Google API';
           throw new UserFacingError(`First turn on the ${which} for Novi's Google Cloud project (APIs & Services → Library → ${which} → Enable), then try again.`);
         }
-        if (res.status === 403) throw new UserFacingError("Google said Novi isn't allowed to do that. Reconnect Google in Settings and tick the Calendar and Tasks permissions.");
+        if (res.status === 403) throw new UserFacingError("Google said Novi isn't allowed to do that. Reconnect Google in Settings and tick all the permissions it asks for (Calendar, Tasks, Drive files).");
         throw new UserFacingError(`Google returned an error (${res.status}).`);
       }
     },

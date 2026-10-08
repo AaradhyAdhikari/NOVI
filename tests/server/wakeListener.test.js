@@ -103,10 +103,20 @@ describe('always-on wake listener', () => {
 describe('picking the wake-word microphone', async () => {
   const { pickMicIndex } = await import('../../server/voice/wakeword/service.js');
   const devices = ['Microphone Array (Realtek(R) Audio)', 'Microphone (AB13X USB Audio)'];
-  it('uses the Windows default when nothing is set', () => expect(pickMicIndex(devices, undefined)).toBe(-1));
+  it('prefers connected earphones / a headset over the built-in mic when nothing is set', () => expect(pickMicIndex(devices, undefined)).toBe(1));
+  it('prefers a Bluetooth headset over other external mics', () => {
+    expect(pickMicIndex(['Microphone Array (Realtek(R) Audio)', 'Microphone (USB PnP Sound Device)', 'Headset (OnePlus Buds 3)'], undefined)).toBe(2);
+    expect(pickMicIndex(['Microphone Array (Realtek(R) Audio)', 'Headset Microphone (Hands-Free AG Audio)'], '')).toBe(1);
+  });
+  it('uses the Windows default when only the built-in mic is there', () => expect(pickMicIndex(['Microphone Array (Realtek(R) Audio)', 'Microphone Array (Intel® Smart Sound Technology)'], undefined)).toBe(-1));
   it('accepts an index', () => expect(pickMicIndex(devices, '1')).toBe(1));
   it('accepts part of the name, any case', () => expect(pickMicIndex(devices, 'realtek')).toBe(0));
   it('falls back to the default for an unknown name', () => expect(pickMicIndex(devices, 'blue yeti')).toBe(-1));
+  it('knows when to switch: earphones plugged in or unplugged', async () => {
+    const { micToUse } = await import('../../server/voice/wakeword/service.js');
+    expect(micToUse(['Microphone Array (Realtek(R) Audio)'], undefined)).toEqual({ index: -1, name: 'default' });
+    expect(micToUse(devices, undefined)).toEqual({ index: 1, name: 'Microphone (AB13X USB Audio)' });
+  });
 });
 
 describe('normalizeVolume', () => {

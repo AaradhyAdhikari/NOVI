@@ -60,7 +60,7 @@ describe('buildAuthUrl', () => {
   });
 
   it('also asks for Calendar and Tasks (one Google sign-in for everything)', () => {
-    expect(GOOGLE_SCOPES).toEqual(expect.arrayContaining([...GMAIL_SCOPES, 'https://www.googleapis.com/auth/calendar.events', 'https://www.googleapis.com/auth/tasks']));
+    expect(GOOGLE_SCOPES).toEqual(expect.arrayContaining([...GMAIL_SCOPES, 'https://www.googleapis.com/auth/calendar.events', 'https://www.googleapis.com/auth/tasks', 'https://www.googleapis.com/auth/drive.file']));
   });
 
   it('reads the email from an ID token', () => {

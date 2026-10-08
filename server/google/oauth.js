@@ -20,6 +20,8 @@ export const GOOGLE_SCOPES = [
   ...GMAIL_SCOPES,
   'https://www.googleapis.com/auth/calendar.events',
   'https://www.googleapis.com/auth/tasks',
+  // Only files Novi creates or opens: the "Novi backups" folder and the "Novi log" sheet.
+  'https://www.googleapis.com/auth/drive.file',
 ];
 
 const b64url = (buf) => Buffer.from(buf).toString('base64url');

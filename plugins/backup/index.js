@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { definePluginEntry } from '#plugin-sdk';
+import { createDriveUploader } from './drive.js';
+import { everyDayAt } from '../../server/daily.js';
 
 // Daily backup of data/ (accounts, reminders, memory, voice samples) into backups/.
 // The project folder is in OneDrive, so backups also get an off-laptop copy.
@@ -32,7 +34,8 @@ export function zipArchive({ from, to, exclude = [] }) {
   }, (err, _out, stderr) => (err ? reject(new Error(String(stderr || err.message).trim().slice(0, 300))) : resolve())));
 }
 
-export function createBackupPlugin({ archive = zipArchive, now = () => new Date(), intervalMs = 60 * 60 * 1000 } = {}) {
+// driveUploader(api) → the Drive copier (plugins/backup/drive.js); injectable for tests.
+export function createBackupPlugin({ archive = zipArchive, now = () => new Date(), intervalMs = 60 * 60 * 1000, driveUploader = (api) => createDriveUploader({ google: api.runtime.google, stateFile: path.join(api.runtime.dataDir || path.resolve('data'), 'backup', 'drive.json') }) } = {}) {
   return definePluginEntry({
     id: 'backup',
     name: 'Backups',
@@ -63,19 +66,48 @@ export function createBackupPlugin({ archive = zipArchive, now = () => new Date(
         }
       }
 
+      // Nightly copy of the newest zip to Google Drive (keeps 7 there).
+      const drive = driveUploader(api);
+      async function toDrive() {
+        if (!latest()) await backupNow();
+        try {
+          await drive.upload(path.join(dir, latest()));
+          await drive.prune(7);
+          return { ok: true };
+        } catch (err) {
+          drive.fail(err);
+          return { ok: false, error: err.message };
+        }
+      }
+      const nightly = everyDayAt({
+        time: api.pluginConfig.drive_time || '02:30' // NOVI_PLUGIN_BACKUP_DRIVE_TIME,
+        stateFile: path.join(api.runtime.dataDir || path.resolve('data'), 'backup', 'drive-daily.json'),
+        now,
+        logger: api.logger || console,
+        run: async () => {
+          const r = await toDrive();
+          if (!r.ok) api.logger?.warn?.(`[backup] Drive backup failed: ${r.error}`);
+        },
+      });
+
       let timer = null;
       api.registerService({
-        start: async () => { await backupIfDue(); timer = setInterval(backupIfDue, intervalMs); timer.unref?.(); },
-        stop: () => clearInterval(timer),
+        start: async () => { await backupIfDue(); timer = setInterval(backupIfDue, intervalMs); timer.unref?.(); nightly.start(); },
+        stop: () => { clearInterval(timer); nightly.stop(); },
       });
 
       api.registerTool({
         name: 'backup_now',
-        description: "Back up Novi's data (accounts, reminders, memory, settings) right now.",
-        parameters: { type: 'object', properties: {} },
-        async execute() {
+        description: "Back up Novi's data (accounts, reminders, memory, settings) right now. drive: true also copies it to the user's Google Drive.",
+        parameters: { type: 'object', properties: { drive: { type: 'boolean', description: 'Also copy it to Google Drive' } } },
+        async execute(_id, { drive: alsoDrive = false } = {}) {
           const { file, size } = await backupNow();
-          return { content: [{ type: 'text', text: `Backed up Novi's data to backups/${file} (${Math.max(1, Math.round(size / 1024))} KB).` }], details: { file, size } };
+          let text = `Backed up Novi's data to backups/${file} (${Math.max(1, Math.round(size / 1024))} KB).`;
+          if (alsoDrive) {
+            const r = await toDrive();
+            text += r.ok ? ' Also copied to Google Drive (Novi backups).' : ` Drive backup failed: ${r.error}`;
+          }
+          return { content: [{ type: 'text', text }], details: { file, size } };
         },
       });
 
@@ -85,8 +117,10 @@ export function createBackupPlugin({ archive = zipArchive, now = () => new Date(
         parameters: { type: 'object', properties: {} },
         async execute() {
           const last = latest();
-          const text = last ? `Last backup: ${last} (${list().length} kept, newest 14).` : 'No backups yet.';
-          return { content: [{ type: 'text', text }], details: { latest: last, count: list().length } };
+          const d = drive.state();
+          const driveLine = d.lastError ? ` Drive backup failed: ${d.lastError.message}` : d.lastUpload ? ` Last Drive backup: ${d.lastUpload.name}.` : '';
+          const text = (last ? `Last backup: ${last} (${list().length} kept, newest 14).` : 'No backups yet.') + driveLine;
+          return { content: [{ type: 'text', text }], details: { latest: last, count: list().length, drive: d } };
         },
       });
     },

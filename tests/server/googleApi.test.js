@@ -24,4 +24,21 @@ describe('google api helper (runtime.google)', () => {
     const api = createGoogleApi({ auth: { configured: true, accessToken: async () => 't', invalidate() {} }, fetchImpl: async () => res(403, { error: { message: 'Google Calendar API has not been used in project 123 before or it is disabled.' } }) });
     await expect(api.call(account, 'https://www.googleapis.com/calendar/v3/x')).rejects.toThrow(/turn on the Google Calendar API/i);
   });
+
+  it('sends a raw body (file upload) with its own content type', async () => {
+    const seen = [];
+    const api = createGoogleApi({ auth: { configured: true, accessToken: async () => 'tok', invalidate() {} }, fetchImpl: async (url, init) => { seen.push(init); return res(200, { id: 'f1' }); } });
+    const body = Buffer.from('--b\r\nzip\r\n--b--');
+    expect(await api.call(account, 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', { method: 'POST', body, raw: true, headers: { 'Content-Type': 'multipart/related; boundary=b' } })).toEqual({ id: 'f1' });
+    expect(seen[0].headers['Content-Type']).toBe('multipart/related; boundary=b');
+    expect(seen[0].headers.Authorization).toBe('Bearer tok');
+    expect(seen[0].body).toBe(body);
+  });
+
+  it('names the Drive and Sheets APIs when they are not enabled', async () => {
+    const disabled = (name) => createGoogleApi({ auth: { configured: true, accessToken: async () => 't', invalidate() {} }, fetchImpl: async () => res(403, { error: { message: `${name} has not been used in project 1 before or it is disabled.` } }) });
+    await expect(disabled('Google Drive API').call(account, 'https://www.googleapis.com/drive/v3/files')).rejects.toThrow(/Google Drive API/);
+    await expect(disabled('Google Sheets API').call(account, 'https://sheets.googleapis.com/v4/spreadsheets')).rejects.toThrow(/Google Sheets API/);
+  });
 });
+

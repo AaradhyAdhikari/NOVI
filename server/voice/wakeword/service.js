@@ -8,12 +8,26 @@ import { spokenText } from '../../narrator.js';
 
 const DIR = path.resolve('models/wakeword');
 
-// NOVI_WAKEWORD_MIC: a device index or part of its name (e.g. "Realtek"); unset = Windows default.
+// Unset NOVI_WAKEWORD_MIC: connected earphones / a headset (Bluetooth or wired) first, then any
+// other external mic, else the Windows default. Set it to a device index or part of its name
+// (e.g. "Realtek") to always use that one.
+const HEADSET = /headset|headphone|earphone|earbud|\bbuds?\b|airpods|hands-?free|bluetooth|\bbt\b/i;
+const BUILT_IN = /microphone array|realtek|intel|smart sound|internal|built-?in|stereo mix/i;
+
 export function pickMicIndex(devices, value) {
-  if (value === undefined || value === '') return -1;
+  if (value === undefined || value === '') {
+    const headset = devices.findIndex((d) => HEADSET.test(d));
+    if (headset >= 0) return headset;
+    return devices.findIndex((d) => !BUILT_IN.test(d)); // -1 = Windows default
+  }
   if (/^-?\d+$/.test(String(value))) return Number(value);
   const i = devices.findIndex((d) => d.toLowerCase().includes(String(value).toLowerCase()));
   return i;
+}
+
+export function micToUse(devices, value) {
+  const index = pickMicIndex(devices, value);
+  return { index, name: index >= 0 ? devices[index] : 'default' };
 }
 
 export async function startWakeWordService({ novi, env = process.env, logger = console }) {
@@ -36,7 +50,8 @@ export async function startWakeWordService({ novi, env = process.env, logger = c
 
   // A fresh mic each start: follows whichever mic Windows uses now (earbuds in or out).
   async function start({ onError }) {
-    const recorder = new PvRecorder(1280, pickMicIndex(PvRecorder.getAvailableDevices(), env.NOVI_WAKEWORD_MIC));
+    const mic = micToUse(PvRecorder.getAvailableDevices(), env.NOVI_WAKEWORD_MIC);
+    const recorder = new PvRecorder(1280, mic.index);
     const listener = createWakeListener({
       recorder,
       detector,
@@ -68,7 +83,7 @@ export async function startWakeWordService({ novi, env = process.env, logger = c
         onError(err);
       },
     });
-    current = { recorder, listener };
+    current = { recorder, listener, mic: mic.name, onError };
     listener.start();
     novi.setWakeWord('server');
     // Settings → "Hey Novi": record practice clips through this mic and change the level live.
@@ -82,8 +97,21 @@ export async function startWakeWordService({ novi, env = process.env, logger = c
 
   const runner = keepRestarting({ start, logger });
   await runner.begin();
+  // Earphones plugged in or unplugged: switch to the mic that should be used now.
+  const micCheck = setInterval(() => {
+    let want;
+    try { want = micToUse(PvRecorder.getAvailableDevices(), env.NOVI_WAKEWORD_MIC); } catch { return; }
+    if (!current || want.name === current.mic) return;
+    logger.log(`[wake] switching mic: ${current.mic} → ${want.name}`);
+    const old = current;
+    old.listener.stop();
+    try { old.recorder.release(); } catch { /* already released */ }
+    start({ onError: old.onError }).catch((err) => old.onError(err));
+  }, 10_000);
+  micCheck.unref?.();
   return {
     stop() {
+      clearInterval(micCheck);
       runner.stop();
       current?.listener.stop();
       try { current?.recorder.release(); } catch { /* already released */ }
