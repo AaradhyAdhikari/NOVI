@@ -19,6 +19,7 @@ const ALL = [
   tool('memory_recall', 'Search what the user told Novi before.'),
   tool('code_start_task', 'Start a coding task on a project.'),
   tool('code_status', 'Status of the coding task.'),
+  tool('code_take_over', 'Continue the coding task yourself in Claude Code.'),
   tool('backup_now', 'Back up Novi data now.'),
   tool('screen_show', 'Send a screenshot of the laptop screen.'),
   tool('screen_page', 'Send a screenshot of a web page.'),
@@ -110,5 +111,17 @@ describe('isQuickTurn', () => {
     const { isQuickTurn } = await import('../../server/brain/toolSelect.js');
     expect(isQuickTurn('tell me a long joke about a cat and a dog and a cow', [])).toBe(false);
     expect(isQuickTurn('tell me a joke', [])).toBe(true);
+  });
+});
+
+describe('selectTools: Claude by voice', () => {
+  it('"open X in Claude and do Y" offers both opening the project and starting the coding task', () => {
+    for (const text of ['open Novi in Claude and add dark mode', 'Novi project Claude se dark mode add karwa']) {
+      expect(names(text), text).toEqual(expect.arrayContaining(['open_project', 'code_start_task']));
+    }
+  });
+
+  it('"I\'m back, I\'ll take over" offers the take-over tool', () => {
+    for (const text of ["I'm back, I'll take over", 'main sambhal leta hun', 'takeover']) expect(names(text), text).toContain('code_take_over');
   });
 });

@@ -20,7 +20,8 @@ const WORDS = {
   github: 'github repo repos repository issue issues pr prs pull notification notifications commit commits contribution contributions',
   ide: 'cursor vscode antigravity kiro editor ide claude',
   projects: 'project projects folder leave left progress far continue',
-  code: 'fix bug bugs build implement refactor tests coding coder feature',
+  // "claude" is in both ide and code: "open X in Claude and do Y" may open it and start a task.
+  code: 'fix bug bugs build implement refactor tests coding coder feature claude back takeover sambhal',
   memory: 'remember forget memory memories told yesterday earlier talked said ago',
   backup: 'backup backups drive',
   sheets: 'study studied studying log logged hours sheet sheets spreadsheet',
@@ -31,7 +32,11 @@ const WORDS = {
   calendar: 'calendar meeting meetings event events schedule free busy appointment lecture class classes plans',
   tasks: 'task tasks todo todos to-do list lists done complete finished',
 };
-const WORD_GROUP = new Map(Object.entries(WORDS).flatMap(([g, words]) => words.split(' ').map((w) => [w, g])));
+// A word can pick several groups.
+const WORD_GROUP = new Map();
+for (const [g, list] of Object.entries(WORDS)) {
+  for (const w of list.split(' ')) WORD_GROUP.set(w, [...(WORD_GROUP.get(w) || []), g]);
+}
 // Words in tool names too generic to pick a group on their own.
 const GENERIC = new Set('get read add list status now set open search start stop connect cancel create mark comment rename default allow edits message task app send'.split(' '));
 
@@ -40,7 +45,7 @@ const words = (text) => String(text || '').toLowerCase().match(/[\p{L}\p{N}]+/gu
 function groupsFor(text, nameWords) {
   const found = new Set();
   for (const w of words(text)) {
-    if (WORD_GROUP.has(w)) found.add(WORD_GROUP.get(w));
+    for (const g of WORD_GROUP.get(w) || []) found.add(g);
     if (nameWords.has(w)) for (const g of nameWords.get(w)) found.add(g);
   }
   return found;

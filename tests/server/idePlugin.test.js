@@ -88,3 +88,11 @@ describe('ide plugin: open a project in an editor', () => {
     expect(await host.get('open_project').gate({ project: 'novi', editor: 'vscode' })).toEqual({});
   });
 });
+
+describe('ide plugin vs coding tasks', () => {
+  it('tells the brain not to open Claude Code when the user also gives a coding instruction', () => {
+    const { host } = setup();
+    const schema = host.schemas().find((s) => s.function.name === 'open_project');
+    expect(schema.function.description).toMatch(/code_start_task/);
+  });
+});

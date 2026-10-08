@@ -57,3 +57,68 @@ describe('createNoviTools', () => {
     expect(tools.get('code_start_task').describe({ project: 'site', instruction: 'add login' })).toBe('Start Novi Coder (free, Groq) on site: "add login"');
   });
 });
+
+describe('choosing the coder by voice', () => {
+  function withCoder(coder) {
+    const s = setup();
+    const started = [];
+    s.tasks.start = (p, i, opts) => { started.push(opts); return { active: true }; };
+    return { ...s, started, tools: createNoviTools({ memory: s.memory, tasks: s.tasks, coder, alternativeAvailable: true }) };
+  }
+
+  it('the brain can pick the coder the user named; otherwise the default (Claude Code) is used', async () => {
+    const { tools, started } = withCoder('claude');
+    const start = tools.get('code_start_task');
+    expect(start.parameters.properties.agent.enum).toEqual(['claude', 'novi-coder']);
+    await start.run({ project: 'site', instruction: 'add login' });
+    await start.run({ project: 'site', instruction: 'add login', agent: 'novi-coder' });
+    await start.run({ project: 'site', instruction: 'add login', agent: 'cursor' }); // not a coder → default
+    expect(started.map((o) => o?.agent)).toEqual([undefined, 'novi-coder', undefined]);
+  });
+
+  it('the spoken question names the coder that will run, and a card choice still wins', async () => {
+    const { tools, started } = withCoder('claude');
+    const start = tools.get('code_start_task');
+    expect(start.prompt({ project: 'site', instruction: 'add login' })).toMatch(/^I'll use Claude Code/);
+    expect(start.prompt({ project: 'site', instruction: 'add login', agent: 'novi-coder' })).toMatch(/^I'll use Novi Coder.*use Claude instead/);
+    expect(start.describe({ project: 'site', instruction: 'x', agent: 'novi-coder' })).toMatch(/^Start Novi Coder/);
+    expect(start.choices({ project: 'site', instruction: 'x', agent: 'novi-coder' })[0]).toMatchObject({ id: 'claude', params: { $agent: 'claude' } });
+    await start.run({ project: 'site', instruction: 'x', agent: 'novi-coder', $agent: 'claude' });
+    expect(started.at(-1).agent).toBe('claude');
+  });
+});
+
+describe('Novi picks the coder by how hard the job is', () => {
+  it('tells the brain: small edits → Novi Coder (free), bigger work → Claude Code, what the user says wins', () => {
+    const s = setup();
+    const tools = createNoviTools({ memory: s.memory, tasks: s.tasks, coder: 'claude', alternativeAvailable: true });
+    const agent = tools.get('code_start_task').parameters.properties.agent.description;
+    expect(agent).toMatch(/named/i);
+    expect(agent).toMatch(/novi-coder.*small|small.*novi-coder/i);
+    expect(agent).toMatch(/claude.*(bigger|feature|bug)/i);
+  });
+
+  it('without Claude Code installed there is nothing to choose between', () => {
+    const s = setup();
+    const tools = createNoviTools({ memory: s.memory, tasks: s.tasks, coder: 'novi-coder', alternativeAvailable: false });
+    expect(tools.get('code_start_task').parameters.properties.agent).toBeUndefined();
+  });
+});
+
+describe('code_take_over', () => {
+  it('hands the task over to interactive Claude Code on the laptop', async () => {
+    const s = setup();
+    const opened = [];
+    const tools = createNoviTools({ memory: s.memory, tasks: s.tasks, takeOver: async () => { opened.push('x'); return { project: 'novi' }; } });
+    const t = tools.get('code_take_over');
+    expect(t.tier).toBe('low');
+    expect(t.description).toMatch(/take over/i);
+    expect(await t.run({})).toEqual({ tookOver: true, project: 'novi', note: 'Opened Claude Code on novi with the same conversation. Over to you.' });
+    expect(opened).toEqual(['x']);
+  });
+
+  it('is only offered when the laptop can open Claude Code', () => {
+    const s = setup();
+    expect(createNoviTools({ memory: s.memory, tasks: s.tasks }).get('code_take_over')).toBeFalsy();
+  });
+});

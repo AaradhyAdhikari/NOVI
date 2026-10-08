@@ -23,7 +23,7 @@ export function createIdePlugin({ spawn = nodeSpawn, exists = fs.existsSync, loc
     register(api) {
       api.registerTool({
         name: 'open_project',
-        description: 'Open one of the user\'s remembered projects on the laptop in an editor: VS Code, Cursor, Antigravity, Kiro, or Claude Code (opens a terminal in the folder with Claude Code started). Use the editor the user names; omit it only if they did not say.',
+        description: 'Open one of the user\'s remembered projects on the laptop in an editor: VS Code, Cursor, Antigravity, Kiro, or Claude Code (opens a terminal in the folder with Claude Code started). Use the editor the user names; omit it only if they did not say. If the user also says what to build or fix ("open Novi in Claude and add dark mode"), do NOT call this: call code_start_task instead (it opens a window to watch the work).',
         parameters: {
           type: 'object',
           properties: {

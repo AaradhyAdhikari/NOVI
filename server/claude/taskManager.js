@@ -87,6 +87,17 @@ export class TaskManager extends EventEmitter {
     return true;
   }
 
+  // "I'm back, I'll take over": stop the background run (if any) and hand back the project and the
+  // Claude Code conversation so the owner can continue it interactively (claude --resume).
+  async takeOver() {
+    const task = this.task || this._restoreLastTask();
+    if (!task?.sessionId) throw new UserFacingError('There is no coding task to take over yet.');
+    const agentName = task.agentName || this.agentName;
+    if (agentName !== 'Claude') throw new UserFacingError(`That task ran on ${agentName}, which can't be continued in Claude Code. Start it again with Claude.`);
+    if (this.session && !this.session.exited) await this.stop();
+    return { project: task.project, path: task.path, sessionId: task.sessionId };
+  }
+
   async shutdown() {
     if (this.session && !this.session.exited) await this.stop();
     this.narrator?.dispose();

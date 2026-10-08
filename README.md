@@ -261,6 +261,9 @@ Settings → **Words** (on the laptop):
 
 Everything stays on the laptop (`data/vocabulary.json`, `data/voice-log/`; only the last 50 recordings are kept).
 
+### Coding by voice with Claude Code (from anywhere)
+Say **"open Novi in Claude and add dark mode"** (from the laptop or your phone via Tailscale). Coding tasks use **Claude Code** on your Claude plan by default; small edits (a typo, a rename) go to the free Novi Coder, and saying "use Claude" / "use Novi Coder" always wins. Novi asks once ("Shall I start?" — "haan" / "karle" works), then Claude works in the background: its questions ("can I edit App.jsx?") come to your phone, and a **"Claude · Novi" window** on the laptop shows the progress. Back at the laptop? Say **"I'm back, I'll take over"** — Novi stops the background run and opens Claude Code with the same conversation. Normal questions stay on the free Groq/Gemini brain. `NOVI_CODER=free` in `.env` turns Claude off.
+
 ### Understanding test (does Novi get your everyday commands?)
 `tools/my-commands.json` lists the things you say every day and what Novi should do (e.g. `kal ka weather batao` → weather). Run
 `node --env-file-if-exists=.env tools/understanding-benchmark.mjs` — it asks Novi's brain what it *would* do for each one (nothing is opened, sent or set) and lists the ones it gets wrong. Add your own lines any time. Yes / no / cancel also work in Hinglish, Hindi and Marathi now (`karle update`, `include kar`, `go for it`, `nahi`, `cancel kar`, …).

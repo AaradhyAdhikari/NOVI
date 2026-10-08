@@ -44,6 +44,7 @@ import { PairRequests } from './pairRequests.js';
 import { enrollVoice, readClips, createVoiceprintStore } from './voice/speaker/enroll.js';
 import { createVocabulary } from './voice/vocabulary.js';
 import { createVoiceLog } from './voice/voiceLog.js';
+import { createWatchWindows } from './claude/watchWindow.js';
 
 export function createNovi(config, overrides = {}) {
   const memory = overrides.memory || new Memory(path.join(config.dataDir, 'memory.json'));
@@ -66,9 +67,10 @@ export function createNovi(config, overrides = {}) {
   const approvals = overrides.approvals || new ApprovalQueue({ grants, trust });
   if (!approvals.trust) approvals.trust = trust;
   const router = overrides.router || new Router({ providers: config.providers, order: config.order });
-  // Default coder: Novi Coder (free). Claude Code only when configured, or when the user says "use Claude instead".
-  const defaultCoder = config.coder === 'claude' ? 'claude' : 'novi-coder';
+  // Default coder: Claude Code (the user's Claude plan) when installed — NOVI_CODER=claude forces it,
+  // NOVI_CODER=free picks the free Novi Coder. "use Novi Coder instead" switches per task.
   const claudeInstalled = Boolean(config.claudeCommand) && fs.existsSync(config.claudeCommand);
+  const defaultCoder = config.coder === 'claude' || (config.coder === 'auto' && claudeInstalled) ? 'claude' : 'novi-coder';
   const tasks = overrides.tasks || new TaskManager({
     memory,
     approvals,
@@ -124,7 +126,26 @@ export function createNovi(config, overrides = {}) {
       },
       dataDir: config.dataDir, logger: console },
   });
-  plugins.register(wrapRegistryAsPlugin({ id: 'coding', name: 'Coding tasks', registry: createNoviTools({ memory, tasks, coder: defaultCoder, alternativeAvailable: defaultCoder === 'claude' || claudeInstalled }) }));
+  // A Claude task started by voice (e.g. from a walk): a laptop window follows its progress, and
+  // "I'm back, I'll take over" continues the same conversation in interactive Claude Code.
+  const watchWindows = overrides.watchWindows || createWatchWindows({ dir: path.join(config.dataDir, 'task-logs'), claudeCommand: config.claudeCommand });
+  const watched = new Set();
+  tasks.on('task', (st) => {
+    if (!st?.active || st.agent !== 'Claude' || !tasks.task || tasks.task.id !== st.id) return;
+    if (st.status === 'running' && !watched.has(st.id)) {
+      watched.add(st.id);
+      watchWindows.openWatch({ taskId: st.id, project: tasks.task.project, path: tasks.task.path, instruction: tasks.task.instruction });
+    } else if (watched.has(st.id) && (st.status === 'done' || st.status === 'failed')) {
+      watchWindows.append(st.id, `${st.status === 'done' ? 'Done' : 'Stopped with an error'}: ${st.summary || ''} Say "I'm back, I'll take over" to continue in Claude Code.`);
+    }
+  });
+  tasks.on('feed', ({ taskId, text }) => { if (watched.has(taskId)) watchWindows.append(taskId, text); });
+  async function takeOverTask() {
+    const handed = await tasks.takeOver();
+    watchWindows.openTakeOver(handed);
+    return handed;
+  }
+  plugins.register(wrapRegistryAsPlugin({ id: 'coding', name: 'Coding tasks', registry: createNoviTools({ memory, tasks, coder: defaultCoder, alternativeAvailable: defaultCoder === 'claude' || claudeInstalled, takeOver: claudeInstalled ? takeOverTask : null }) }));
   plugins.register(wrapRegistryAsPlugin({ id: 'laptop', name: 'Laptop basics', registry: addLaptopTools(new ToolRegistry(), overrides.laptop) }));
   plugins.register(wrapRegistryAsPlugin({
     id: 'accounts',
