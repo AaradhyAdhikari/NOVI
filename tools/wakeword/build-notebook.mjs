@@ -90,11 +90,66 @@ print('added', len(train_clips) * 15, 'train copies and', len(test_clips), 'test
 const augment = indexOf((c) => c.cell_type === 'code' && text(c).includes('--augment_clips'));
 nb.cells.splice(augment, 0, markdown("### Novi: add the user's own recordings"), code(userClips));
 
+// 4. Real "not Hey Novi" speech before augment + featurise: Hindi + Marathi from Google FLEURS
+//    (CC-BY 4.0, no sign-up; Common Voice needs an account) and, optionally, the user's own
+//    recordings of other sentences (novi-negatives.zip, e.g. data/voice-samples without hey-novi).
+const negatives = `# NOVI: real speech that is NOT "Hey Novi" (Hindi + Marathi + your own voice), so the model
+# learns not to fire on everyday talk in the languages you speak. Never stops the run if a download fails.
+import os, glob, tarfile, zipfile, urllib.request, random, yaml, numpy as np, soundfile as sf
+from scipy.signal import resample_poly
+cfg = yaml.safe_load(open('/content/my_model.yaml'))
+random.seed(0)
+CHUNK = 32000  # 2 s at 16 kHz
+def chunks(path, most=2):
+    a, sr = sf.read(path)
+    a = a if a.ndim == 1 else a.mean(axis=1)
+    if sr != 16000:
+        a = resample_poly(a, 16000, sr)
+    a = a.astype('float32')
+    starts = list(range(0, max(1, len(a) - CHUNK), CHUNK))
+    return [a[s:s + CHUNK] for s in starts[:most] if len(a[s:s + CHUNK]) >= 8000]
+def add(paths, tag, n_train, n_test):
+    random.shuffle(paths)
+    pieces = [c for p in paths for c in chunks(p)]
+    test, train = pieces[:n_test], pieces[n_test:n_test + n_train]
+    for i, c in enumerate(train):
+        sf.write(f"{cfg['negative_clips_train_dir']}/{tag}_{i:04d}.wav", c, 16000)
+    for i, c in enumerate(test):
+        sf.write(f"{cfg['negative_clips_test_dir']}/{tag}_{i:04d}.wav", c, 16000)
+    print(f'{tag}: added {len(train)} train + {len(test)} test negatives')
+for lang in ['hi_in', 'mr_in']:
+    try:
+        tgz = f'/content/fleurs_{lang}.tar.gz'
+        if not os.path.exists(tgz):
+            urllib.request.urlretrieve(f'https://huggingface.co/datasets/google/fleurs/resolve/main/data/{lang}/audio/dev.tar.gz', tgz)
+        out = f'/content/fleurs_{lang}'
+        if not os.path.isdir(out):
+            tarfile.open(tgz).extractall(out)
+        add(glob.glob(f'{out}/**/*.wav', recursive=True), f'fleurs_{lang}', 400, 60)
+    except Exception as e:
+        print(f'FLEURS {lang} skipped ({e}); training continues without it')
+own = glob.glob('/content/novi-negatives*.zip')
+for z in own:
+    zipfile.ZipFile(z).extractall('/content/user_negatives')
+mine = [p for p in glob.glob('/content/user_negatives/**/*.wav', recursive=True) if 'hey-novi' not in p.replace('\\\\', '/')]
+if mine:
+    # Your own voice saying other things: the hardest negatives, so each is used several times.
+    add(mine * 4, 'user_other', 200, 20)
+else:
+    print('no novi-negatives.zip uploaded (optional)')`;
+const augmentAgain = indexOf((c) => c.cell_type === 'code' && text(c).includes('--augment_clips'));
+nb.cells.splice(augmentAgain, 0, markdown('### Novi: real speech that is not "Hey Novi"'), code(negatives));
+
+// 5. Sound-alike phrases the model must ignore (spoken by the same synthetic voices as the positives).
+const SOUND_ALIKES = ['hey nova', 'hey noble', 'hey navy', 'hey novel', 'hey movie', 'hey money', 'hey nobby', 'hey neha', 'hey nani', 'hey buddy', 'hey ruby', 'hey now', 'hey know me', 'hello'];
+config.source = lines(text(config).replace("'custom_negative_phrases': [],", `'custom_negative_phrases': ${JSON.stringify(SOUND_ALIKES).replace(/"/g, "'")},`));
+if (!text(config).includes("'hey nova'")) throw new Error('custom negative phrases were not set');
+
 // Credit + what changed, at the top.
 nb.cells.unshift(markdown(`# Novi "Hey Novi" wake-word trainer
 Based on [openwakeword-colab-2026](https://github.com/alfiedennen/openwakeword-colab-2026) by Alfie Dennen (MIT). Built by \`tools/wakeword/build-notebook.mjs\`.
 
-Novi's changes: phrase **hey novi**, synthetic background noise instead of the FMA download, and the user's own recordings (upload **hey-novi-clips.zip** to \`/content\` during the first ~45 minutes).
+Novi's changes: phrase **hey novi**, synthetic background noise instead of the FMA download, the user's own recordings (upload **hey-novi-clips.zip** to \`/content\` during the first ~45 minutes), real Hindi + Marathi speech (Google FLEURS, CC-BY 4.0) and sound-alike phrases ("hey nova", "hey novel", …) as things it must ignore, and optionally your own voice saying other things (upload **novi-negatives.zip**: a zip of \`data/voice-samples\` — the hey-novi folder inside is skipped).
 
 Runtime: **T4 GPU**, runtime version **2026.04**. Then *Runtime → Run all*.`));
 
