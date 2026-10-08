@@ -261,6 +261,10 @@ Settings → **Words** (on the laptop):
 
 Everything stays on the laptop (`data/vocabulary.json`, `data/voice-log/`; only the last 50 recordings are kept).
 
+### Understanding test (does Novi get your everyday commands?)
+`tools/my-commands.json` lists the things you say every day and what Novi should do (e.g. `kal ka weather batao` → weather). Run
+`node --env-file-if-exists=.env tools/understanding-benchmark.mjs` — it asks Novi's brain what it *would* do for each one (nothing is opened, sent or set) and lists the ones it gets wrong. Add your own lines any time. Yes / no / cancel also work in Hinglish, Hindi and Marathi now (`karle update`, `include kar`, `go for it`, `nahi`, `cancel kar`, …).
+
 ### Voice check (only your voice) and interrupting Novi
 Novi can learn your voice so that only you wake it — a TV, a video or a visitor saying “Hey Novi” is ignored — and you can say **“Hey Novi” while it is talking to stop it** (it then listens for your next sentence; running tasks keep going). It runs offline on the laptop (free WeSpeaker model via sherpa-onnx, no Python).
 

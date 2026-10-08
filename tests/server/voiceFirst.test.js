@@ -14,6 +14,14 @@ describe('voice phrases', () => {
   it('understands yes / no / use X instead', () => {
     for (const t of ['yes', 'Yes, start.', 'sure', 'go ahead', 'yes please', 'start it']) expect(quickCommand(t), t).toBe('approve');
     for (const t of ['no', 'No thanks', 'nope', "don't"]) expect(quickCommand(t), t).toBe('deny');
+  });
+
+  it('understands your everyday Hinglish / Hindi / Marathi yes, no and cancel', () => {
+    for (const t of ['go for it', 'Approved.', 'include kar', 'karle update', 'karle', 'kar do', 'haan', 'haan kar do', 'theek hai', 'chalega', 'हाँ', 'हां', 'कर दो', 'ठीक है', 'हो', 'चालेल']) expect(quickCommand(t), t).toBe('approve');
+    for (const t of ['nahi', 'nahin', 'mat kar', 'rehne de', 'nako', 'नहीं', 'मत करो', 'नको']) expect(quickCommand(t), t).toBe('deny');
+    for (const t of ['cancel kar', 'cancel it', 'Cancel karo.', 'ruk ja', 'band kar', 'रुक जा', 'कैंसल कर']) expect(quickCommand(t), t).toBe('stop');
+    // Longer sentences still go to the brain.
+    for (const t of ['haan but use cursor', 'kar do weather check', 'nahi pata']) expect(quickCommand(t), t).toBeNull();
     for (const t of ['use Claude instead', 'No, use Claude.', 'use claude', 'with Claude', 'Claude instead']) expect(quickCommand(t), t).toBe('choose:claude');
     for (const t of ['use Novi Coder', 'use the free one', 'novi coder instead']) expect(quickCommand(t), t).toBe('choose:novi-coder');
     expect(quickCommand('use claude to write a poem about cats')).toBeNull();

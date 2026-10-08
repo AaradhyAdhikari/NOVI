@@ -23,15 +23,21 @@ export function systemPrompt({ projects, task, accounts = [] }) {
 
 const CHOICE_RE = /^(?:no[, ]+)?(?:(?:use|with|switch to)\s+)?(?:the\s+)?(claude(?: code)?|novi coder|free one)(?:\s+instead)?(?:[, ]+please)?$/;
 
+// The owner's everyday yes / no / cancel in Hinglish, Hindi and Marathi (Latin or Devanagari: Sarvam
+// writes Hindi in Devanagari). Whole reply only: "haan but use cursor" still goes to the brain.
+const APPROVE_LOCAL = /^(?:approved|go for it|include kar(?:o|do)?|kar ?le(?: update)?|kar ?lo|kar do|haa?n?(?: kar do| karo)?|theek hai|thik hai|chalega|हाँ|हां|हा|कर दो|कर लो|कर ले|ठीक है|चलेगा|हो|चालेल|कर)$/;
+const DENY_LOCAL = /^(?:nahi|nahin|nai|mat kar(?:o)?|rehne de|rehne do|nako|नहीं|नही|मत करो|मत कर|रहने दो|नको)$/;
+const STOP_LOCAL = /^(?:cancel (?:kar|karo|it|kar do)|ruk ja|ruko|band kar(?:o)?|बंद करो|बंद कर|रुक जा|रुको|कैंसल कर(?:ो| दो)?|थांब)$/;
+
 // Short spoken replies Novi handles without calling the AI (stop, yes/no, "use Claude instead", status).
 export function quickCommand(text) {
-  const t = text.trim().toLowerCase().replace(/[.!?]+$/, '').replace(/\s+/g, ' ');
-  if (/^(stop|cancel|abort|stop it|stop claude|stop the task)$/.test(t)) return 'stop';
+  const t = text.trim().toLowerCase().replace(/[.!?।]+$/, '').replace(/\s+/g, ' ');
+  if (/^(stop|cancel|abort|stop it|stop claude|stop the task)$/.test(t) || STOP_LOCAL.test(t)) return 'stop';
   const choice = CHOICE_RE.exec(t);
   if (choice) return choice[1].startsWith('claude') ? 'choose:claude' : 'choose:novi-coder';
   if (/^(?:(?:yes|yeah|ok|okay)[, ]+)?(?:always allow|allow always|always)(?:[, ]+(?:allow )?(?:it|this|that))?(?:[, ]+please)?$/.test(t)) return 'approve-always';
-  if (/^(yes|yeah|yep|yup|sure|allow|allow it|approve|go ahead|do it|ok|okay|start|start it)(?:[, ]+(?:please|start|go ahead|do it))?$/.test(t)) return 'approve';
-  if (/^(no|nope|nah|deny|don't|do not|reject)(?:[, ]+(?:thanks|thank you))?$/.test(t)) return 'deny';
+  if (/^(yes|yeah|yep|yup|sure|allow|allow it|approve|go ahead|do it|ok|okay|start|start it)(?:[, ]+(?:please|start|go ahead|do it))?$/.test(t) || APPROVE_LOCAL.test(t)) return 'approve';
+  if (/^(no|nope|nah|deny|don't|do not|reject)(?:[, ]+(?:thanks|thank you))?$/.test(t) || DENY_LOCAL.test(t)) return 'deny';
   if (/^(what('s| is) (claude|the coder|novi coder|it) doing|status|what('s| is) the progress)$/.test(t)) return 'status';
   return null;
 }
@@ -69,22 +75,11 @@ export class Agent {
       if (quickReply) return this._remember(text, quickReply);
     }
 
-    // Plugins (e.g. long-term memory) add guidance and context for this turn.
-    const extra = (await this.tools.promptContext?.({ prompt: text, messages: this.history })) || {};
-    const system = [systemPrompt({ projects: this.memory.listProjects(), task: this.tasks.status(), accounts: this._accountsForPrompt() }), extra.system, extra.context].filter(Boolean).join('\n');
-    const messages = [
-      { role: 'system', content: system },
-      ...this.history,
-      { role: 'user', content: text },
-    ];
+    const { extra, messages, offered, purpose } = await this._prepare(text);
     const notes = [];
     // Personal context (memories) only goes to providers the user trusts with private data.
     let provider = extra.sensitive ? this.privateProviders[0] : undefined;
     let waited = false;
-    // Only the tools this request needs (keeps each call small enough for free rate limits).
-    const taskActive = Boolean(this.tasks.status().active);
-    const offered = selectTools(this.tools.schemas(), { text, history: this.history, taskActive });
-    const purpose = isQuickTurn(text, offered, { taskActive }) ? 'quick' : 'fast';
     for (let round = 0; round < MAX_ROUNDS; round++) {
       let res;
       try {
@@ -118,6 +113,39 @@ export class Agent {
       }
     }
     return this._remember(text, notes.join(' ') || 'I got stuck working that out. Could you rephrase?');
+  }
+
+  // The system prompt, messages and tools for one turn (shared by handle and firstStep).
+  async _prepare(text) {
+    // Plugins (e.g. long-term memory) add guidance and context for this turn.
+    const extra = (await this.tools.promptContext?.({ prompt: text, messages: this.history })) || {};
+    const system = [systemPrompt({ projects: this.memory.listProjects(), task: this.tasks.status(), accounts: this._accountsForPrompt() }), extra.system, extra.context].filter(Boolean).join('\n');
+    const messages = [
+      { role: 'system', content: system },
+      ...this.history,
+      { role: 'user', content: text },
+    ];
+    // Only the tools this request needs (keeps each call small enough for free rate limits).
+    const taskActive = Boolean(this.tasks.status().active);
+    const offered = selectTools(this.tools.schemas(), { text, history: this.history, taskActive });
+    const purpose = isQuickTurn(text, offered, { taskActive }) ? 'quick' : 'fast';
+    return { extra, messages, offered, purpose };
+  }
+
+  // Dry run for tools/understanding-benchmark.mjs: what the brain would do first for `text`
+  // (a quick yes/no/cancel, tool calls with their arguments, or a plain reply). Runs nothing and
+  // leaves the conversation history alone.
+  async firstStep(text) {
+    const quick = quickCommand(text);
+    if (quick) return { quick, calls: [], reply: null, provider: null };
+    const { extra, messages, offered, purpose } = await this._prepare(text);
+    const res = await this.router.chat({ messages, tools: offered, purpose, only: extra.sensitive ? this.privateProviders[0] : undefined });
+    const calls = (res.message.tool_calls || []).map((c) => {
+      let args = {};
+      try { args = JSON.parse(c.function?.arguments || '{}'); } catch { /* keep {} */ }
+      return { name: c.function?.name, args };
+    });
+    return { quick: null, calls, reply: calls.length ? null : (res.message.content || '').trim(), provider: res.provider };
   }
 
   async _quick(kind, from = 'local') {
