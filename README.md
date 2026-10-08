@@ -253,6 +253,14 @@ Then: "any GitHub notifications?", "list my repos", "open issues on NOVI", "read
 
 **Later — Claude Code:** set `NOVI_CODER=claude` in `.env` to hand coding tasks to [Claude Code](https://claude.com/claude-code) instead of Novi Coder (requires the `claude` CLI logged in; uses your Claude plan).
 
+### Words: teach Novi your names and fix what it mishears
+Settings → **Words** (on the laptop):
+- **Names Novi should expect** — people, projects, apps, places. They're added to the speech-to-text hint.
+- **Fixes**, one per line: `what Novi hears = what you meant` (e.g. `open claw = OpenClaw`). Applied to every voice command before Novi acts on it.
+- **What Novi heard recently** — your last voice commands. Press **Wrong** and type what you actually said: the recording is saved in `data/voice-samples/real/` and Novi offers a one-tap fix. The speech benchmark (`node --env-file-if-exists=.env tools/stt-benchmark.mjs`) now also scores these real commands (column `real`).
+
+Everything stays on the laptop (`data/vocabulary.json`, `data/voice-log/`; only the last 50 recordings are kept).
+
 ### Voice check (only your voice) and interrupting Novi
 Novi can learn your voice so that only you wake it — a TV, a video or a visitor saying “Hey Novi” is ignored — and you can say **“Hey Novi” while it is talking to stop it** (it then listens for your next sentence; running tasks keep going). It runs offline on the laptop (free WeSpeaker model via sherpa-onnx, no Python).
 

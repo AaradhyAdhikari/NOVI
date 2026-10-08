@@ -63,6 +63,13 @@ describe('Groq Whisper provider', () => {
     expect((await p.transcribe({ audio: Buffer.from('a'), mimeType: 'audio/webm' })).text).toBe('yo');
   });
 
+  it('adds your word list to the Whisper hint', async () => {
+    let body;
+    const p = createGroqWhisperStt({ keys: ['k'], prompt: (base) => `${base} OpenClaw.`, fetchImpl: async (u, i) => { body = i.body; return new Response('{"text":"x"}'); } });
+    await p.transcribe({ audio: Buffer.from('a') });
+    expect(body.get('prompt')).toMatch(/Hey Novi\..*OpenClaw\.$/);
+  });
+
   it('sends the language hint to Whisper when one is given', async () => {
     let body;
     const p = createGroqWhisperStt({ keys: ['k'], fetchImpl: async (u, i) => { body = i.body; return new Response('{"text":"x"}'); } });
