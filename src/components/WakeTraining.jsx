@@ -11,6 +11,7 @@ export default function WakeTraining({ api }) {
   const [phase, setPhase] = useState('idle'); // idle | recording
   const [last, setLast] = useState(null);
   const [error, setError] = useState(null);
+  const [match, setMatch] = useState(null);
   const load = () => api('/api/wake-samples').then((r) => r.json()).then(setInfo).catch(() => {});
   useEffect(() => { load(); }, [api]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -22,6 +23,7 @@ export default function WakeTraining({ api }) {
       const body = await res.json();
       if (!res.ok) throw new Error(body.error);
       setLast(body.score);
+      setMatch(body.voiceMatch ?? null);
     } catch (err) {
       setError(err.message);
     }
@@ -44,10 +46,72 @@ export default function WakeTraining({ api }) {
         {phase === 'recording' ? <Loader2 size={16} className="spin" /> : <Mic size={16} />}
         {phase === 'recording' ? ' Say “Hey Novi” now…' : ` Record clip ${info.count + 1}`}
       </button>
-      {last !== null && <p className="muted">Last clip scored {last.toFixed(2)} (wakes at {info.threshold ?? '—'}).</p>}
+      {last !== null && <p className="muted">Last clip scored {last.toFixed(2)} (wakes at {info.threshold ?? '—'}){match !== null && `, voice match ${match.toFixed(2)}`}.</p>}
       <p className="muted">{info.count} clip{info.count === 1 ? '' : 's'} saved in data/voice-samples/hey-novi.</p>
       {info.suggested !== null && info.suggested !== info.threshold && (
         <button className="btn" onClick={() => apply(info.suggested)}>Use level {info.suggested} (fits your voice)</button>
+      )}
+      {error && <p className="warn">{error}</p>}
+      <VoiceCheck api={api} clips={info.count} />
+    </div>
+  );
+}
+
+// "Only my voice": learn a voiceprint from the clips above; then only your voice wakes Novi, and
+// saying "Hey Novi" while it talks stops it.
+function VoiceCheck({ api, clips }) {
+  const [v, setV] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const [strictness, setStrictness] = useState(null);
+  const show = (body) => { setV(body); setStrictness(body.strictness); };
+  const load = () => api('/api/voiceprint').then((r) => r.json()).then(show).catch(() => {});
+  useEffect(() => { load(); }, [api]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function send(url, method, body) {
+    setError(null);
+    setBusy(true);
+    try {
+      const res = await api(url, { method, headers: { 'Content-Type': 'application/json' }, body: body && JSON.stringify(body) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      show(data);
+    } catch (err) {
+      setError(err.message);
+    }
+    setBusy(false);
+  }
+
+  if (!v) return null;
+  return (
+    <div className="voice-check">
+      <h4>Only my voice</h4>
+      {v.status !== 'ready' ? (
+        <p className="muted">{v.status === 'error' ? 'The speaker model failed to load (see the log).' : 'Voice check needs the speaker model — see README (Voice check).'}</p>
+      ) : (
+        <>
+          <p className="muted">Novi learns your voice from the clips above (at least 5). Then a TV or someone else saying “Hey Novi” is ignored, and you can say “Hey Novi” while it talks to stop it.</p>
+          <button className="btn" onClick={() => send('/api/voiceprint/learn', 'POST')} disabled={busy || clips < 5}>
+            {busy ? <Loader2 size={16} className="spin" /> : null} {v.learned ? 'Learn my voice again' : 'Learn my voice'}
+          </button>
+          {v.check === 'relearn' && <p className="warn">The speaker model changed: learn your voice again.</p>}
+          {v.learned && (
+            <>
+              <p className="muted">Learned from {v.clipCount} clips · your match {v.selfScores[0].toFixed(2)}–{v.selfScores[1].toFixed(2)} · strictness {v.strictness}</p>
+              <label className="row">
+                <input type="checkbox" checked={v.enabled} onChange={(e) => send('/api/voiceprint', 'PUT', { enabled: e.target.checked })} /> Only my voice wakes Novi
+              </label>
+              <label className="row">
+                Strictness {strictness?.toFixed(2)}
+                <input type="range" min="0.1" max="0.9" step="0.01" value={strictness ?? 0.5}
+                  onChange={(e) => setStrictness(Number(e.target.value))}
+                  onPointerUp={() => send('/api/voiceprint', 'PUT', { strictness })}
+                  onKeyUp={() => send('/api/voiceprint', 'PUT', { strictness })} />
+              </label>
+              <p className="muted">Higher = stricter. If Novi ignores you, lower it a little.</p>
+            </>
+          )}
+        </>
       )}
       {error && <p className="warn">{error}</p>}
     </div>

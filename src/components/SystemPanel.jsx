@@ -7,6 +7,14 @@ const ago = (iso) => {
 const uptime = (s) => (s < 3600 ? `${Math.round(s / 60)} min` : s < 86400 ? `${(s / 3600).toFixed(1)} h` : `${(s / 86400).toFixed(1)} days`);
 
 // Settings → System: is Novi healthy? Restart it, or copy diagnostics to share when something breaks.
+const VOICE_CHECK = {
+  on: 'only your voice wakes Novi',
+  off: 'off (Settings → “Hey Novi” → Learn my voice)',
+  'no-model': 'speaker model missing (see README → Voice check)',
+  error: 'speaker model failed to load (see the log)',
+  relearn: 'learn your voice again (the speaker model changed)',
+};
+
 export default function SystemPanel({ api }) {
   const [health, setHealth] = useState(null);
   const [msg, setMsg] = useState(null);
@@ -45,6 +53,7 @@ export default function SystemPanel({ api }) {
         <li><div><strong>Running for</strong><span className="muted">{uptime(health.uptimeSec)}{health.supervised ? `, ${health.restarts} automatic restart${health.restarts === 1 ? '' : 's'}` : ' (not supervised: start with Start Novi.cmd to auto-restart)'}</span></div></li>
         <li><div><strong>AI providers</strong><span className="muted">{providers}</span></div></li>
         <li><div><strong>“Hey Novi”</strong><span className="muted">{health.wakeWord === 'server' ? 'laptop microphone (always on)' : 'this browser'}</span></div></li>
+        <li><div><strong>Voice check</strong><span className="muted">{VOICE_CHECK[health.speakerCheck] || 'off'}</span></div></li>
         <li><div><strong>Last backup</strong><span className="muted">{health.lastBackup ? `${ago(health.lastBackup.at)} (${health.lastBackup.file})` : 'none yet'}</span></div></li>
       </ul>
       {health.errors.length > 0 && (

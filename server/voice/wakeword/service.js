@@ -5,8 +5,27 @@ import { createWakeWordDetector } from './detector.js';
 import { createWakeListener, normalizeVolume } from './listener.js';
 import { encodeWav } from '../../../src/lib/utterance.js';
 import { spokenText } from '../../narrator.js';
+import { loadSpeakerVerifier } from '../speaker/verifier.js';
 
 const DIR = path.resolve('models/wakeword');
+const SPEAKER_MODEL = path.resolve('models/speaker/wespeaker_en_voxceleb_resnet34.onnx');
+
+// "Only my voice" + "Hey Novi" interrupts: the listener asks Novi whether a voice is the owner's
+// (true / false / null = check off) and silences Novi when the owner interrupts it.
+export function speakerOptions({ novi, env, logger }) {
+  return {
+    checkSpeaker: (audio) => (novi.checkVoice ? novi.checkVoice(audio).ok : null),
+    interruptThreshold: env.NOVI_WAKEWORD_INTERRUPT_THRESHOLD ? Number(env.NOVI_WAKEWORD_INTERRUPT_THRESHOLD) : null,
+    onRejected: ({ score }) => {
+      if (env.NOVI_WAKEWORD_DEBUG) logger.log(`[wake] not the owner's voice (wake score ${score.toFixed(2)}), ignored`);
+    },
+    onInterrupt: () => {
+      logger.log('[wake] interrupted: stopped talking, listening');
+      novi.stopSpeaking?.();
+      novi.broadcast?.({ type: 'wake' });
+    },
+  };
+}
 
 // Unset NOVI_WAKEWORD_MIC: connected earphones / a headset (Bluetooth or wired) first, then any
 // other external mic, else the Windows default. Set it to a device index or part of its name
@@ -42,6 +61,10 @@ export async function startWakeWordService({ novi, env = process.env, logger = c
   const { PvRecorder } = await import('@picovoice/pvrecorder-node');
   let detector = await createWakeWordDetector({ melspectrogramPath: shared[0], embeddingPath: shared[1], modelPath });
   if (env.NOVI_WAKEWORD_DEBUG) detector = withDebugLog(detector, logger);
+  const speaker = await loadSpeakerVerifier({ modelPath: path.resolve(env.NOVI_SPEAKER_MODEL || SPEAKER_MODEL) });
+  if (speaker.status === 'error') logger.warn(`⚠  Voice check off: the speaker model failed to load (${speaker.error}).`);
+  novi.setSpeakerVerifier?.(speaker);
+  const voiceCheck = { ready: 'ready', 'no-model': 'no model', error: 'error' }[speaker.status];
 
   // 0.35: the hey_novi model trained on synthetic voices; override with NOVI_WAKEWORD_THRESHOLD.
   // A level chosen in Settings → "Hey Novi" from the user's own clips wins over the default.
@@ -56,6 +79,7 @@ export async function startWakeWordService({ novi, env = process.env, logger = c
       recorder,
       detector,
       threshold: level,
+      ...speakerOptions({ novi, env, logger }),
       onWake: (score) => {
         logger.log(`[wake] heard the wake word (${score.toFixed(2)})`);
         novi.broadcast({ type: 'wake' });
@@ -91,8 +115,9 @@ export async function startWakeWordService({ novi, env = process.env, logger = c
       capture: (ms) => current.listener.capture(ms),
       setThreshold: (value) => { level = value; current.listener.setThreshold(value); },
       threshold: level,
+      setSpeaking: (on) => current?.listener.setSpeaking(on),
     });
-    logger.log(`  Wake word: always on (${path.basename(modelPath)}, level ${level}, mic: ${recorder.getSelectedDevice()})`);
+    logger.log(`  Wake word: always on (${path.basename(modelPath)}, level ${level}, mic: ${recorder.getSelectedDevice()}, voice check model: ${voiceCheck})`);
   }
 
   const runner = keepRestarting({ start, logger });

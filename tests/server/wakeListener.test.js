@@ -200,3 +200,128 @@ describe('conversation mode (follow-ups without "Hey Novi")', () => {
   });
 });
 
+
+// Speaker check + interrupt: frames may carry `act(listener)`, run just before the frame is read.
+async function runWith(frames, options = {}) {
+  const ref = {};
+  const events = [];
+  let i = 0;
+  const recorder = {
+    start() {},
+    stop() {},
+    async read() {
+      if (i >= frames.length) { ref.current.stop(); return quiet(); }
+      frames[i].act?.(ref.current);
+      return frames[i++].audio;
+    },
+  };
+  let d = 0;
+  const detector = { async process() { return [frames[d++]?.score ?? 0]; } };
+  const listener = createWakeListener({
+    recorder,
+    detector,
+    onWake: (score) => events.push({ wake: score }),
+    onCommand: (audio, { followUp } = {}) => events.push({ command: audio.length, followUp }),
+    onNoCommand: ({ followUp } = {}) => events.push({ noCommand: true, followUp }),
+    onRejected: ({ score }) => events.push({ rejected: score }),
+    onInterrupt: () => events.push({ interrupt: true }),
+    ...options,
+  });
+  ref.current = listener;
+  await listener.start();
+  return events;
+}
+const sentence = () => [...repeat(10, () => f(loud())), ...repeat(15, () => f(quiet()))];
+
+describe('only the owner wakes Novi', () => {
+  it('wakes for the owner\'s voice', async () => {
+    const events = await runWith([f(loud(), 0.9), ...sentence()], { checkSpeaker: () => true });
+    expect(events[0]).toEqual({ wake: 0.9 });
+  });
+
+  it('ignores another voice saying the wake word', async () => {
+    const events = await runWith([f(loud(), 0.9), ...sentence()], { checkSpeaker: () => false });
+    expect(events).toEqual([{ rejected: 0.9 }]);
+  });
+
+  it('never goes deaf when the voice check breaks', async () => {
+    const events = await runWith([f(loud(), 0.9), ...sentence()], { checkSpeaker: () => { throw new Error('model crashed'); } });
+    expect(events[0]).toEqual({ wake: 0.9 });
+  });
+
+  it('checks at most the last 1.5 s of audio', async () => {
+    const lengths = [];
+    await runWith([...repeat(40, () => f(loud())), f(loud(), 0.9)], { checkSpeaker: (a) => { lengths.push(a.length); return true; } });
+    expect(lengths[0]).toBeLessThanOrEqual(19 * FRAME);
+    expect(lengths[0]).toBeGreaterThan(10 * FRAME);
+  });
+
+  it('drops a follow-up sentence spoken by someone else', async () => {
+    let calls = 0;
+    const events = await runWith([{ ...f(quiet()), act: (l) => l.followUp({ waitMs: 8000 }) }, ...sentence()], {
+      checkSpeaker: () => { calls += 1; return false; },
+    });
+    expect(calls).toBe(1);
+    expect(events).toEqual([{ noCommand: true, followUp: true }]);
+  });
+});
+
+describe('"Hey Novi" interrupts Novi while it talks', () => {
+  const speaking = (l) => l.setSpeaking(true);
+
+  it('a normal wake score while speaking does not interrupt (could be Novi\'s own voice)', async () => {
+    const events = await runWith([{ ...f(quiet()), act: speaking }, f(loud(), 0.6), ...sentence()], { threshold: 0.5, checkSpeaker: () => true });
+    expect(events).toEqual([]);
+  });
+
+  it('a strong owner "Hey Novi" stops Novi and listens for the next sentence', async () => {
+    const events = await runWith([{ ...f(quiet()), act: speaking }, f(loud(), 0.7), ...sentence()], { threshold: 0.5, checkSpeaker: () => true });
+    expect(events[0]).toEqual({ interrupt: true });
+    expect(events[1]).toMatchObject({ followUp: true });
+    expect(events[1].command).toBeGreaterThanOrEqual(10 * FRAME);
+  });
+
+  it('another voice at a strong score does not interrupt', async () => {
+    const events = await runWith([{ ...f(quiet()), act: speaking }, f(loud(), 0.7), ...sentence()], { threshold: 0.5, checkSpeaker: () => false });
+    expect(events).toEqual([]);
+  });
+
+  it('an explicit interrupt level wins over threshold + 0.15', async () => {
+    const events = await runWith([{ ...f(quiet()), act: speaking }, f(loud(), 0.7), ...sentence()], { threshold: 0.5, interruptThreshold: 0.9, checkSpeaker: () => true });
+    expect(events).toEqual([]);
+  });
+
+  it('wakes normally again shortly after Novi stops talking', async () => {
+    const events = await runWith([
+      { ...f(quiet()), act: speaking },
+      { ...f(quiet()), act: (l) => l.setSpeaking(false) },
+      ...repeat(5, () => f(quiet())),
+      f(loud(), 0.6),
+      ...sentence(),
+    ], { threshold: 0.5, checkSpeaker: () => true });
+    expect(events[0]).toEqual({ wake: 0.6 });
+  });
+});
+
+describe('voice check switched off (no voiceprint yet)', () => {
+  it('wakes for anyone but never lets a voice interrupt Novi', async () => {
+    const off = () => null; // the check answers "off" instead of yes/no
+    expect((await runWith([f(loud(), 0.9), ...sentence()], { checkSpeaker: off }))[0]).toEqual({ wake: 0.9 });
+    const events = await runWith([{ ...f(quiet()), act: (l) => l.setSpeaking(true) }, f(loud(), 0.95), ...sentence()], { threshold: 0.5, checkSpeaker: off });
+    expect(events).toEqual([]);
+  });
+});
+
+describe('after an interrupt', () => {
+  it('hears the very start of the next sentence even when "stopped talking" arrives late', async () => {
+    const events = await runWith([
+      { ...f(quiet()), act: (l) => l.setSpeaking(true) },
+      f(loud(), 0.7), // owner says "Hey Novi" → interrupt
+      { ...f(loud()), act: (l) => l.setSpeaking(false) }, // the killed voice reports it stopped
+      ...repeat(9, () => f(loud())),
+      ...repeat(15, () => f(quiet())),
+    ], { threshold: 0.5, checkSpeaker: () => true });
+    expect(events[0]).toEqual({ interrupt: true });
+    expect(events[1].command).toBe((10 + 13) * FRAME); // all 10 frames of speech + 1 s of trailing quiet
+  });
+});

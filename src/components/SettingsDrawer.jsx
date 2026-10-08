@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { X, Trash2, Pencil } from 'lucide-react';
 import VoiceTest from './VoiceTest.jsx';
 import WakeTraining from './WakeTraining.jsx';
+import VoiceWords from './VoiceWords.jsx';
 import SystemPanel from './SystemPanel.jsx';
 import PermissionsPanel from './PermissionsPanel.jsx';
 import PasskeySetup from './PasskeySetup.jsx';
@@ -117,6 +118,10 @@ export default function SettingsDrawer({ open, onClose, projects, devices, accou
           <SystemPanel api={api} />
         </section>
 
+        <section>
+          <h3>Words</h3>
+          {isLocal ? <VoiceWords api={api} /> : <p className="muted">Edit your word list on the laptop.</p>}
+        </section>
         <section>
           <h3>“Hey Novi”</h3>
           {isLocal ? <WakeTraining api={api} /> : <p className="muted">Train the wake word on the laptop.</p>}

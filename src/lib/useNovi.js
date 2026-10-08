@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getItem, setItem } from './storage.js';
 import { pairCodeFromHash, deviceName, tryAutoPair } from './pairing.js';
+import { stopSpeaking } from './voice.js';
 
 const isLocal = ['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname);
 const initialState = { transcript: [], task: { active: false }, approvals: [], providers: [], projects: [], devices: [], feed: [], thinking: false, accounts: [], googleConfigured: false };
@@ -39,6 +40,8 @@ export function useNovi({ onSpeak }) {
         // The laptop microphone heard "Hey Novi" (server wake word): show it's listening.
         case 'wake': setState((s) => ({ ...s, wakeHeardAt: Date.now() })); break;
         case 'wake_timeout': setState((s) => ({ ...s, wakeHeardAt: 0 })); break;
+        // "Hey Novi" interrupted Novi on the laptop: stop talking here too.
+        case 'stop_speaking': stopSpeaking(); break;
         default: break;
       }
     };

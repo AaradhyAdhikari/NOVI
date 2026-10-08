@@ -9,6 +9,7 @@ import { createGeminiStt } from '../server/voice/providers/geminiStt.js';
 import { createSarvamStt } from '../server/voice/providers/sarvamStt.js';
 import { createGroqWhisperStt } from '../server/voice/providers/groqWhisper.js';
 import { createSpeechEngine } from '../server/voice/speechEngine.js';
+import { createVocabulary } from '../server/voice/vocabulary.js';
 
 const DIR = path.resolve('data/voice-samples');
 const keys = (name) => String(process.env[name] || '').split(',').map((k) => k.trim()).filter(Boolean);
@@ -19,21 +20,38 @@ const sarvamKeys = keys('SARVAM_API_KEYS').length ? keys('SARVAM_API_KEYS') : ke
 // Names and words Novi hears a lot, in both scripts.
 const RICH_PROMPT = 'Hey Novi. Novi, Novi Coder, Claude, Groq, Gemini, GitHub, LeetCode, YouTube, Gmail, Pune, Antigravity, reminder, timer, alarm, lofi. नोवी, पुणे, यूट्यूब, ईमेल, टाइमर.';
 
-// What Novi actually does now: Whisper first, Hindi / Marathi re-sent to Sarvam.
+// What Novi actually does now: Whisper first (with your word list as hint), Hindi / Marathi
+// re-sent to Sarvam, then your word-list fixes (Settings → Words).
+const vocabulary = createVocabulary({ file: path.resolve('data/vocabulary.json') });
 const noviEngine = () => {
   const sarvam = createSarvamStt({ keys: sarvamKeys });
-  return createSpeechEngine({ stt: [createGroqWhisperStt({ keys: groqKeys }), sarvam], indic: sarvam });
+  return createSpeechEngine({ stt: [createGroqWhisperStt({ keys: groqKeys, prompt: vocabulary.prompt }), sarvam], indic: sarvam });
 };
+const MIME = { wav: 'audio/wav', webm: 'audio/webm', ogg: 'audio/ogg', m4a: 'audio/mp4', mp3: 'audio/mpeg' };
+
+// The latest voice-test recording per phrase, plus real commands marked "Wrong" (data/voice-samples/real).
+export function loadClips(dir) {
+  const readJson = (f, fallback) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return fallback; } };
+  let index = [];
+  try { index = fs.readFileSync(path.join(dir, 'index.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)); } catch { /* none yet */ }
+  const tests = [...new Map(index.map((c) => [c.phraseId, c])).values()]
+    .filter((c) => c.expected && fs.existsSync(path.join(dir, c.file)))
+    .map((c) => ({ ...c, mimeType: 'audio/wav' }));
+  const real = readJson(path.join(dir, 'real', 'expected.json'), [])
+    .filter((r) => r.said && fs.existsSync(path.join(dir, 'real', r.file)))
+    .map((r) => ({ phraseId: `real:${r.file}`, lang: 'real', expected: r.said, file: path.join('real', r.file), mimeType: MIME[r.file.split('.').pop()] || 'audio/wav' }));
+  return [...tests, ...real];
+}
 
 const SETUPS = [
-  { name: 'Novi now (Whisper, then Sarvam for hi/mr)', run: async (a) => (await noviEngine().transcribe({ audio: a, mimeType: 'audio/wav' })).text, gapMs: 3200 },
-  { name: 'today: turbo + short hint', run: (a) => transcribe({ audio: a, mimeType: 'audio/wav', keys: groqKeys }), gapMs: 3200 },
-  { name: 'full v3 + short hint', run: (a) => transcribe({ audio: a, mimeType: 'audio/wav', keys: groqKeys, model: 'whisper-large-v3' }), gapMs: 3200 },
-  { name: 'turbo + rich hint', run: (a) => transcribe({ audio: a, mimeType: 'audio/wav', keys: groqKeys, prompt: RICH_PROMPT }), gapMs: 3200 },
-  { name: 'full v3 + rich hint', run: (a) => transcribe({ audio: a, mimeType: 'audio/wav', keys: groqKeys, model: 'whisper-large-v3', prompt: RICH_PROMPT }), gapMs: 3200 },
-  { name: 'Sarvam v4 (auto language)', run: (a) => createSarvamStt({ keys: sarvamKeys }).transcribe({ audio: a, mimeType: 'audio/wav' }), gapMs: 1500, skip: !sarvamKeys.length },
-  { name: 'Sarvam v3 codemix', run: (a) => createSarvamStt({ keys: sarvamKeys, model: 'saaras:v3', mode: 'codemix' }).transcribe({ audio: a, mimeType: 'audio/wav' }), gapMs: 1500, skip: !sarvamKeys.length },
-  { name: 'Gemini (backup)', run: (a) => createGeminiStt({ keys: geminiKeys }).transcribe({ audio: a, mimeType: 'audio/wav' }), gapMs: 4500, skip: !geminiKeys.length },
+  { name: 'Novi now (Whisper, then Sarvam for hi/mr)', run: async (a, mimeType) => vocabulary.apply((await noviEngine().transcribe({ audio: a, mimeType })).text), gapMs: 3200 },
+  { name: 'today: turbo + short hint', run: (a, mimeType) => transcribe({ audio: a, mimeType, keys: groqKeys }), gapMs: 3200 },
+  { name: 'full v3 + short hint', run: (a, mimeType) => transcribe({ audio: a, mimeType, keys: groqKeys, model: 'whisper-large-v3' }), gapMs: 3200 },
+  { name: 'turbo + rich hint', run: (a, mimeType) => transcribe({ audio: a, mimeType, keys: groqKeys, prompt: RICH_PROMPT }), gapMs: 3200 },
+  { name: 'full v3 + rich hint', run: (a, mimeType) => transcribe({ audio: a, mimeType, keys: groqKeys, model: 'whisper-large-v3', prompt: RICH_PROMPT }), gapMs: 3200 },
+  { name: 'Sarvam v4 (auto language)', run: (a, mimeType) => createSarvamStt({ keys: sarvamKeys }).transcribe({ audio: a, mimeType }), gapMs: 1500, skip: !sarvamKeys.length },
+  { name: 'Sarvam v3 codemix', run: (a, mimeType) => createSarvamStt({ keys: sarvamKeys, model: 'saaras:v3', mode: 'codemix' }).transcribe({ audio: a, mimeType }), gapMs: 1500, skip: !sarvamKeys.length },
+  { name: 'Gemini (backup)', run: (a, mimeType) => createGeminiStt({ keys: geminiKeys }).transcribe({ audio: a, mimeType }), gapMs: 4500, skip: !geminiKeys.length },
 ];
 
 // Lowercase, no punctuation (incl. Devanagari danda), single spaces.
@@ -55,9 +73,7 @@ const chosen = () => SETUPS.filter((s) => !s.skip && (!only || s.name.toLowerCas
 
 async function main() {
   if (!groqKeys.length && !only) throw new Error('No GROQ_API_KEYS in .env');
-  const index = fs.readFileSync(path.join(DIR, 'index.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
-  // Latest recording per phrase.
-  const clips = [...new Map(index.map((c) => [c.phraseId, c])).values()].filter((c) => c.expected && fs.existsSync(path.join(DIR, c.file)));
+  const clips = loadClips(DIR);
   console.log(`${clips.length} clips × ${chosen().length} setups (paced for the free tier, a few minutes)…`);
   const results = [];
   for (const setup of chosen()) {
@@ -66,7 +82,7 @@ async function main() {
       let heard = '';
       let error = null;
       const t0 = Date.now();
-      try { heard = String(await setup.run(audio)); } catch (err) { error = err.message; }
+      try { heard = String(await setup.run(audio, clip.mimeType)); } catch (err) { error = err.message; }
       results.push({ setup: setup.name, phrase: clip.phraseId, lang: clip.lang, expected: clip.expected, heard, wer: error ? 1 : wordErrorRate(clip.expected, heard), ms: Date.now() - t0, error });
       await new Promise((r) => setTimeout(r, setup.gapMs));
     }
@@ -75,7 +91,7 @@ async function main() {
   const out = path.resolve(`data/stt-benchmark-${new Date().toISOString().slice(0, 10)}${only ? `-${only.replace(/W+/g, '-')}` : ''}.json`);
   fs.writeFileSync(out, JSON.stringify(results, null, 2));
 
-  const langs = ['en', 'hinglish', 'hi', 'mr'];
+  const langs = ['en', 'hinglish', 'hi', 'mr', 'real'];
   console.log(`\nWord error rate (lower is better)\n${'setup'.padEnd(28)}${['all', ...langs].map((l) => l.padStart(10)).join('')}${'avg ms'.padStart(9)}  errors`);
   for (const setup of chosen()) {
     const rows = results.filter((r) => r.setup === setup.name);

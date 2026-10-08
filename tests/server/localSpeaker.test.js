@@ -93,3 +93,32 @@ describe('laptop speaker (Windows voice)', () => {
     expect(createLocalSpeaker({ platform: 'linux' })).toBeNull();
   });
 });
+
+describe('stopping the laptop voice mid-reply ("Hey Novi" interrupt)', () => {
+  it('kills the playing reply, drops queued lines, and has a fresh voice ready', async () => {
+    const { run, spawned } = fakeVoice({ delay: 1000 });
+    const speak = createLocalSpeaker({ platform: 'win32', run });
+    const first = speak('a long reply');
+    const second = speak('queued line');
+    await new Promise((r) => setTimeout(r, 5));
+    speak.stop();
+    await Promise.all([first, second]);
+    expect(spawned).toHaveLength(2);
+    expect(spawned[0].child.lines).toEqual(['a long reply']);
+    expect(spawned[1].child.lines).toEqual([]);
+    await speak('next reply');
+    expect(spawned).toHaveLength(2);
+    expect(spawned[1].child.lines).toEqual(['next reply']);
+  }, 3000);
+
+  it('is harmless when nothing is playing, even twice', async () => {
+    const { run, spawned } = fakeVoice();
+    const speak = createLocalSpeaker({ platform: 'win32', run });
+    speak.stop();
+    speak.stop();
+    expect(spawned.length).toBeLessThanOrEqual(1);
+    await speak('hello');
+    expect(spawned.length).toBeLessThanOrEqual(1);
+    expect(spawned.at(-1).child.lines).toEqual(['hello']);
+  });
+});
