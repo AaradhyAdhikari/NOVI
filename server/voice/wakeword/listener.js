@@ -147,9 +147,12 @@ export function createWakeListener({
       command = { frames: [], heard: false, quietMs: 0, elapsedMs: 0, waitMs, followUp: true };
     },
     // Novi started / stopped talking on the laptop. Off leaves a short tail for the room's echo.
+    // (After an interrupt Novi already counts as silent: a late "stopped" must not deafen the
+    // sentence the owner is already saying.)
     setSpeaking(on) {
+      const was = speaking;
       speaking = Boolean(on);
-      if (!speaking) deafUntil = Math.max(deafUntil, clock + 300);
+      if (was && !speaking) deafUntil = Math.max(deafUntil, clock + 300);
     },
     setThreshold(value) {
       threshold = value;

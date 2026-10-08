@@ -311,3 +311,17 @@ describe('voice check switched off (no voiceprint yet)', () => {
     expect(events).toEqual([]);
   });
 });
+
+describe('after an interrupt', () => {
+  it('hears the very start of the next sentence even when "stopped talking" arrives late', async () => {
+    const events = await runWith([
+      { ...f(quiet()), act: (l) => l.setSpeaking(true) },
+      f(loud(), 0.7), // owner says "Hey Novi" → interrupt
+      { ...f(loud()), act: (l) => l.setSpeaking(false) }, // the killed voice reports it stopped
+      ...repeat(9, () => f(loud())),
+      ...repeat(15, () => f(quiet())),
+    ], { threshold: 0.5, checkSpeaker: () => true });
+    expect(events[0]).toEqual({ interrupt: true });
+    expect(events[1].command).toBe((10 + 13) * FRAME); // all 10 frames of speech + 1 s of trailing quiet
+  });
+});
