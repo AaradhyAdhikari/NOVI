@@ -283,3 +283,21 @@ describe('quick lane for simple questions', () => {
   });
 });
 
+
+describe('agent.firstStep (dry run for the understanding test)', () => {
+  it('reports the tools the brain would call, without running them or remembering the turn', async () => {
+    const { agent, router, ran } = setup([{ message: { role: 'assistant', content: null, tool_calls: [toolCall('code_start_task', { project: 'portfolio' })] }, provider: 'groq', model: 'm' }]);
+    const step = await agent.firstStep('fix the navbar in portfolio');
+    expect(step).toEqual({ quick: null, calls: [{ name: 'code_start_task', args: { project: 'portfolio' } }], reply: null, provider: 'groq' });
+    expect(ran).toEqual([]);
+    expect(agent.history).toEqual([]);
+    expect(router.calls[0].messages.at(-1)).toEqual({ role: 'user', content: 'fix the navbar in portfolio' });
+  });
+
+  it('a plain answer and a quick reply (yes / no / cancel) are reported too', async () => {
+    const { agent, router } = setup([reply('Hello!')]);
+    expect(await agent.firstStep('hi')).toEqual({ quick: null, calls: [], reply: 'Hello!', provider: 'groq' });
+    expect(await agent.firstStep('karle update')).toEqual({ quick: 'approve', calls: [], reply: null, provider: null });
+    expect(router.calls).toHaveLength(1);
+  });
+});
