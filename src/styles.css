@@ -122,3 +122,8 @@ code { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--m
 .voice-test-phrase { font-size: 1.25rem; line-height: 1.5; font-family: Inter, system-ui, 'Noto Sans Devanagari', 'Nirmala UI', sans-serif; background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; margin: 0; }
 .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 
+
+/* Settings → Words */
+.voice-words { display: flex; flex-direction: column; gap: 6px; }
+.voice-words input, .voice-words textarea { width: 100%; box-sizing: border-box; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; color: var(--text); font: inherit; }
+.voice-words .list li { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: space-between; }

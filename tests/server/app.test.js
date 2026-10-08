@@ -146,7 +146,9 @@ describe('Novi server', () => {
   it('transcribes raw audio', async () => {
     const { base } = await start();
     const res = await fetch(`${base}/api/stt`, { method: 'POST', headers: { 'Content-Type': 'audio/webm;codecs=opus' }, body: Buffer.from('abcd') });
-    expect(await res.json()).toEqual({ text: 'heard 4 bytes of audio/webm' });
+    const body = await res.json();
+    expect(body.text).toBe('heard 4 bytes of audio/webm');
+    expect(body.logId).toEqual(expect.any(String)); // Settings → Words can mark it "Wrong"
   });
 
   it('records voice test samples into data/voice-samples', async () => {

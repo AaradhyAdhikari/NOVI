@@ -42,6 +42,8 @@ import { createMissedQueue } from './missed.js';
 import { createTailscaleIdentity } from './tailscaleIdentity.js';
 import { PairRequests } from './pairRequests.js';
 import { enrollVoice, readClips, createVoiceprintStore } from './voice/speaker/enroll.js';
+import { createVocabulary } from './voice/vocabulary.js';
+import { createVoiceLog } from './voice/voiceLog.js';
 
 export function createNovi(config, overrides = {}) {
   const memory = overrides.memory || new Memory(path.join(config.dataDir, 'memory.json'));
@@ -138,13 +140,26 @@ export function createNovi(config, overrides = {}) {
   // Groq Whisper first (free, good English). Hindi / Marathi clips go on to Sarvam, which is
   // also the backup when Groq is down; Gemini last (it timed out often in the 2026-10-07 benchmark).
   const sarvam = createSarvamStt({ keys: config.speechKeys?.sarvam || [] });
-  const speech = createSpeechEngine({ stt: [createGroqWhisperStt({ keys: providerKeys('groq') }), sarvam, createGeminiStt({ keys: providerKeys('gemini') })], indic: sarvam });
+  // Settings → Words: your word list (hint + fixes) and the log of what was heard.
+  const vocabulary = createVocabulary({ file: path.join(config.dataDir, 'vocabulary.json') });
+  const voiceLog = createVoiceLog({ dir: path.join(config.dataDir, 'voice-log'), realDir: path.join(config.dataDir, 'voice-samples', 'real') });
+  const speech = createSpeechEngine({ stt: [createGroqWhisperStt({ keys: providerKeys('groq'), prompt: vocabulary.prompt }), sarvam, createGeminiStt({ keys: providerKeys('gemini') })], indic: sarvam });
   const stt = overrides.transcribe || (async (audio, mimeType) => {
     const result = await speech.transcribe({ audio, mimeType });
     if (result.fallbackFrom.length) console.warn(`[voice] ${result.fallbackFrom.join(', ')} failed; used ${result.provider}`);
     if (result.refinedFrom) console.log(`[voice] Hindi/Marathi: used ${result.provider} instead of ${result.refinedFrom}`);
     return result.text;
   });
+  // Speech → text with your fixes applied; logged (with the recording) for Settings → Words.
+  async function hear(audio, mimeType, source) {
+    const heard = String(await stt(audio, mimeType)).trim();
+    const text = vocabulary.apply(heard);
+    let id = null;
+    if (heard && heard !== '.') {
+      try { id = voiceLog.add({ heard, text, audio, mimeType, source }); } catch (err) { console.warn(`[voice] log failed: ${err.message}`); }
+    }
+    return { text, id };
+  }
   const lanUrls = overrides.lanUrls || [];
   // Browsers attach Origin to WebSocket and cross-site requests. Because localhost is
   // trusted, any other website open in the laptop's browser could otherwise drive Novi
@@ -345,6 +360,21 @@ export function createNovi(config, overrides = {}) {
     res.json({ ...wakeSamples.save(audio, best), voiceMatch: checkVoice(audio).score });
   });
 
+  // Settings → Words (laptop only: the log holds what you said).
+  const localOnly = (req, res) => {
+    if (isLocal(req)) return true;
+    res.status(403).json({ error: 'Open this on the laptop.' });
+    return false;
+  };
+  const tryJson = (res, fn) => {
+    try { res.json(fn()); } catch (err) { res.status(400).json({ error: err.message }); }
+  };
+  app.get('/api/vocabulary', (req, res) => localOnly(req, res) && res.json(vocabulary.get()));
+  app.put('/api/vocabulary', (req, res) => localOnly(req, res) && tryJson(res, () => vocabulary.set(req.body || {})));
+  app.post('/api/vocabulary/fix', (req, res) => localOnly(req, res) && tryJson(res, () => vocabulary.addFix(req.body?.from, req.body?.to)));
+  app.get('/api/voice-log', (req, res) => localOnly(req, res) && res.json({ entries: voiceLog.recent(30) }));
+  app.post('/api/voice-log/:id/wrong', (req, res) => localOnly(req, res) && tryJson(res, () => voiceLog.markWrong(req.params.id, req.body?.said)));
+
   // "Only my voice": the owner's voiceprint, learned from the "Hey Novi" practice clips. The
   // speaker model comes from the wake-word service (setSpeakerVerifier); no model = check off.
   let speaker = { verifier: null, status: 'no-model' };
@@ -495,10 +525,10 @@ export function createNovi(config, overrides = {}) {
     try {
       const mimeType = String(req.headers['content-type'] || 'audio/webm').split(';')[0];
       const t0 = Date.now();
-      const text = await stt(req.body, mimeType);
+      const { text, id } = await hear(req.body, mimeType, 'talk');
       // Where the time goes (tap → mic open on the phone, speech-to-text here). Never logs the words.
       console.log(`[timing] mic open ${Number(req.headers['x-novi-mic-ms']) || '?'} ms, speech-to-text ${Date.now() - t0} ms (${Math.round(req.body.length / 1024)} KB)`);
-      res.json({ text });
+      res.json({ text, logId: id });
     } catch (err) {
       res.status(502).json({ error: err.message });
     }
@@ -664,10 +694,12 @@ export function createNovi(config, overrides = {}) {
 
   // A command heard by the always-on laptop microphone (16 kHz WAV).
   async function runVoiceCommand(wav) {
-    const text = String(await stt(wav, 'audio/wav')).trim();
+    const { text, id } = await hear(wav, 'audio/wav', 'wake');
     if (!text || text === '.') return null;
     // What was heard and Novi's reply: the wake-word service uses them for conversation mode.
-    return { text, reply: (await handleMessage({ type: 'user_message', text })) || '' };
+    const reply = (await handleMessage({ type: 'user_message', text })) || '';
+    if (id) voiceLog.setReply(id, reply);
+    return { text, reply };
   }
   const setWakeTools = (tools) => { wakeTools = tools; };
   // Trigger level chosen in Settings (from the user's own clips), if any.
