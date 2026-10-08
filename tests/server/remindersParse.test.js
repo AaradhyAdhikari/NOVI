@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseWhen, describeTime, nextOccurrence } from '../../plugins/reminders/parse.js';
+import { parseWhen, describeTime, nextOccurrence, parseRepeat, alignToRepeat, describeRepeat } from '../../plugins/reminders/parse.js';
 
 // Saturday 3 October 2026, 2:30 pm local time
 const NOW = new Date(2026, 9, 3, 14, 30, 0, 0);
@@ -82,3 +82,37 @@ describe('nextOccurrence', () => {
     expect(nextOccurrence(new Date(2026, 9, 5, 9, 0), 'weekdays').getTime()).toBe(at(2026, 9, 6, 9, 0)); // Mon → Tue
   });
 });
+
+describe('repeating rules', () => {
+  it('reads how often, in the user’s words', () => {
+    expect(parseRepeat('every Monday and Thursday')).toBe('weekly:mon,thu');
+    expect(parseRepeat('every sunday')).toBe('weekly:sun');
+    expect(parseRepeat('every 2 hours')).toBe('hourly:2');
+    expect(parseRepeat('every hour')).toBe('hourly:1');
+    expect(parseRepeat('every weekday')).toBe('weekdays');
+    expect(parseRepeat('daily')).toBe('daily');
+    expect(parseRepeat('every morning')).toBe('daily');
+    expect(parseRepeat('once')).toBeNull();
+  });
+
+  it('weekly: next matching day, across the week boundary', () => {
+    const thu = new Date(2026, 9, 8, 19, 0); // Thursday 7 pm
+    expect(nextOccurrence(thu, 'weekly:mon,thu')).toEqual(new Date(2026, 9, 12, 19, 0)); // Monday
+    expect(nextOccurrence(new Date(2026, 9, 12, 19, 0), 'weekly:mon,thu')).toEqual(new Date(2026, 9, 15, 19, 0));
+    expect(alignToRepeat(new Date(2026, 9, 10, 19, 0), 'weekly:mon,thu')).toEqual(new Date(2026, 9, 12, 19, 0)); // Sat → Mon
+    expect(alignToRepeat(new Date(2026, 9, 8, 19, 0), 'weekly:mon,thu')).toEqual(new Date(2026, 9, 8, 19, 0)); // already Thu
+  });
+
+  it('hourly: every n hours, only between 8 am and 10 pm', () => {
+    expect(nextOccurrence(new Date(2026, 9, 8, 14, 0), 'hourly:2')).toEqual(new Date(2026, 9, 8, 16, 0));
+    expect(nextOccurrence(new Date(2026, 9, 8, 21, 0), 'hourly:2')).toEqual(new Date(2026, 9, 9, 8, 0));
+    expect(alignToRepeat(new Date(2026, 9, 8, 23, 30), 'hourly:1')).toEqual(new Date(2026, 9, 9, 8, 0));
+  });
+
+  it('says the repeat in plain words', () => {
+    expect(describeRepeat('weekly:mon,thu')).toBe('every Mon, Thu');
+    expect(describeRepeat('hourly:2')).toBe('every 2 hours (8 am–10 pm)');
+    expect(describeRepeat('daily')).toBe('every day');
+  });
+});
+

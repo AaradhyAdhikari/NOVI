@@ -1,12 +1,11 @@
 import path from 'node:path';
 import { definePluginEntry } from '#plugin-sdk';
-import { parseWhen, describeTime } from './parse.js';
+import { parseWhen, describeTime, parseRepeat, alignToRepeat, describeRepeat } from './parse.js';
 import { ReminderStore } from './store.js';
 import { ReminderScheduler } from './scheduler.js';
 
 const obj = (properties = {}, required = []) => ({ type: 'object', properties, required });
 const str = (description) => ({ type: 'string', description });
-const REPEATS = new Set(['daily', 'weekdays']);
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const text = (t, details = {}) => ({ content: [{ type: 'text', text: t }], details });
 
@@ -21,6 +20,15 @@ export function createRemindersPlugin() {
       const scheduler = new ReminderScheduler({
         store,
         onFire: (r, { missed }) => {
+          // A rule with a look-up action ("every morning at 8 tell me the weather"): run it and say
+          // the answer. runtime.callTool refuses anything that needs approval.
+          if (r.action?.tool && !missed) {
+            Promise.resolve()
+              .then(() => api.runtime.callTool(r.action.tool, r.action.params || {}))
+              .then((out) => say(String(out?.text || out?.content?.[0]?.text || '').slice(0, 300) || `Done: ${r.text}.`))
+              .catch((err) => say(`I couldn't run ${r.action.tool}: ${err.message}`));
+            return;
+          }
           const what = r.kind === 'timer' ? `Timer done: ${r.text}.` : `Reminder: ${r.text}`;
           say(missed ? `Missed ${r.kind === 'timer' ? 'timer' : 'reminder'}: ${r.text} (it was due ${describeTime(new Date(r.at), new Date())}).` : what);
         },
@@ -36,15 +44,25 @@ export function createRemindersPlugin() {
       api.registerTool({
         name: 'reminder_add',
         description: 'Set a reminder. Pass the time exactly as the user said it (e.g. "in 10 minutes", "at 6 pm", "tomorrow at 9", "Monday at 5"); do not convert it to a date yourself.',
-        parameters: obj({ text: str('What to remind the user about'), when: str("The user's own words for the time"), repeat: str('"daily" or "weekdays" for repeating reminders; omit for one-off') }, ['text', 'when']),
-        async execute(_id, { text: what, when, repeat }) {
+        parameters: obj({
+          text: str('What to remind the user about'),
+          when: str("The user's own words for the time (for \"every 2 hours\" rules, the start, e.g. \"now\" or \"at 9 am\")"),
+          repeat: str('How often, in the user\'s words: "every day", "every weekday", "every Monday and Thursday", "every 2 hours"; omit for one-off'),
+          action_tool: str('Optional: a look-up tool to run and speak each time, e.g. "weather_get" for "tell me the weather"'),
+          action_params: { type: 'object', description: 'Optional parameters for action_tool' },
+        }, ['text', 'when']),
+        async execute(_id, { text: what, when, repeat, action_tool: actionTool, action_params: actionParams }) {
           const now = new Date();
-          const parsed = parseWhen(when, now);
+          const rep = parseRepeat(repeat);
+          let parsed = parseWhen(when, now);
+          // "every 2 hours" with no clear start: the first one is n hours from now.
+          if (!parsed && rep?.startsWith('hourly:')) parsed = { at: new Date(now.getTime() + Number(rep.split(':')[1]) * 3_600_000), rolled: false };
           if (!parsed) throw new Error(`I couldn't understand the time "${when}". Try "in 10 minutes", "at 6 pm" or "tomorrow at 9".`);
-          const rep = REPEATS.has(String(repeat || '').toLowerCase()) ? String(repeat).toLowerCase() : null;
-          const reminder = store.add({ text: what, at: parsed.at, repeat: rep });
+          if (rep) parsed = { ...parsed, at: alignToRepeat(parsed.at, rep) };
+          const action = actionTool ? { tool: String(actionTool), params: actionParams && typeof actionParams === 'object' ? actionParams : {} } : null;
+          const reminder = store.add({ text: what, at: parsed.at, repeat: rep, action });
           scheduler.add(reminder);
-          const every = rep === 'daily' ? ', every day' : rep === 'weekdays' ? ', every weekday' : '';
+          const every = rep ? `, ${describeRepeat(rep)}` : '';
           const note = parsed.rolled ? ' (That time had already passed today, so I set the next one.)' : '';
           return text(`Okay, ${describeTime(parsed.at, now)}${every}: ${what}.${note}`, { id: reminder.id, at: reminder.at, repeat: rep });
         },
@@ -72,7 +90,7 @@ export function createRemindersPlugin() {
         async execute() {
           const items = upcoming();
           const summary = items.length
-            ? `You have ${plural(items.length, 'reminder')}: ${items.map((i) => `${i.when}: ${i.text}`).join('; ')}.`
+            ? `You have ${plural(items.length, 'reminder')}: ${items.map((i) => `${i.when}: ${i.text}${i.repeat ? ` (${describeRepeat(i.repeat)})` : ''}`).join('; ')}.`
             : 'You have no reminders.';
           return text(summary, { items });
         },

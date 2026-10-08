@@ -33,8 +33,9 @@ export class ReminderStore {
     return this.reminders.find((r) => r.id === id) || null;
   }
 
-  add({ text, at, repeat = null }) {
-    const reminder = { id: crypto.randomUUID(), text, at: at.toISOString(), repeat, createdAt: new Date().toISOString() };
+  // action: { tool, params } — a read-only tool to run and speak when it fires (rules by voice).
+  add({ text, at, repeat = null, action = null }) {
+    const reminder = { id: crypto.randomUUID(), text, at: at.toISOString(), repeat, ...(action ? { action } : {}), createdAt: new Date().toISOString() };
     this.reminders.push(reminder);
     this._save();
     return reminder;

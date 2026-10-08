@@ -59,6 +59,8 @@ export function createBriefingPlugin({ now = () => new Date(), tickMs = 30_000 }
         ['github', 'github_notifications', {}],
         ['reminders', 'reminder_list', {}],
         ['memory', 'memory_list', {}],
+        ['projects', 'project_next', {}],
+        ['backup', 'backup_status', {}],
       ];
 
       async function compose() {
@@ -110,6 +112,18 @@ export function createBriefingPlugin({ now = () => new Date(), tickMs = 30_000 }
         const bdays = birthdaysOn((got.memory?.facts || []).map((f) => f.text), d);
         if (bdays.today.length) spoken.push(`Today is ${bdays.today.join(' and ')} birthday.`);
         if (bdays.tomorrow.length) spoken.push(`Tomorrow is ${bdays.tomorrow.join(' and ')} birthday.`);
+
+        // Where you left off on the project you worked on last.
+        if (got.projects?.project && got.projects.text) {
+          spoken.push(`On ${got.projects.project}: ${got.projects.text}`);
+          lines.push(`Projects: ${got.projects.project} — ${got.projects.text}`);
+        }
+        // Only a problem is worth saying; a healthy backup isn't mentioned.
+        const driveError = got.backup?.drive?.lastError?.message;
+        if (driveError) {
+          spoken.push("Last night's Drive backup failed.");
+          lines.push(`Backup: Drive backup failed (${driveError})`);
+        }
 
         return { spoken: spoken.join(' '), text: [...lines, ...missing].join('\n') };
       }

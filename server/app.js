@@ -33,6 +33,7 @@ import { PluginHost } from './plugins/host.js';
 import { wrapRegistryAsPlugin } from './plugins/builtin.js';
 import { openUrl } from './laptop/opener.js';
 import { createRemoteTrust } from './remoteTrust.js';
+import { activeWindowTitle } from './laptop/activeWindow.js';
 import { RemotePin, parseSpokenPin } from './remotePin.js';
 import { Passkeys } from './passkeys.js';
 import { createWakeSampleStore, suggestThreshold } from './voice/wakeSamples.js';
@@ -95,12 +96,21 @@ export function createNovi(config, overrides = {}) {
       google: overrides.google || createGoogleApi({ auth, accounts }),
       vision: overrides.vision || createGeminiVision({ keys: config.providers.find((p) => p.name === 'gemini')?.keys || [] }),
       // Chat entry + spoken (e.g. a reminder going off), and a folder for plugin data files.
-      // kind: what the phone notification says if Novi isn't open there ('reminder', 'briefing').
-      say: (text, { kind = 'reminder' } = {}) => {
-        say('novi', text);
-        sendTo(active, { type: 'speak', text: plainText(text) });
-        notify(kind);
+      // kind: what the phone notification says if Novi isn't open there ('reminder', 'briefing');
+      // null = no notification. local: on the laptop only (e.g. "last time on NOVI…" when an editor opens).
+      say: (text, { kind = 'reminder', local = false } = {}) => {
+        const to = local ? 'local' : active;
+        say('novi', text, to);
+        sendTo(to, { type: 'speak', text: plainText(text) });
+        if (kind) notify(kind, to);
       },
+      // One AI answer on the private provider only (Groq) — for plugin summaries of private data.
+      privateComplete: async (text) => {
+        const res = await router.chat({ messages: [{ role: 'user', content: String(text) }], purpose: 'fast', only: (config.privateProviders || ['groq'])[0] });
+        return String(res.message?.content || '').trim();
+      },
+      // Title of the window in front on the laptop (no screenshot).
+      activeWindowTitle: overrides.activeWindowTitle || activeWindowTitle,
       // A phone notification only (fixed, private-free text per kind; see server/push.js).
       notify: ({ kind } = {}) => notify(kind),
       // A picture (screenshot) for whoever asked. Only the caption is kept in the transcript.

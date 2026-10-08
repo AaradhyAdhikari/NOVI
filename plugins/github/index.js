@@ -110,6 +110,26 @@ export function createGithubPlugin({ fetchImpl = fetch, sleep } = {}) {
         },
       });
 
+      // Commits the user made on a day, per repo (the nightly Sheets log and the morning briefing).
+      readTool({
+        name: 'github_activity',
+        description: 'How many commits the user made on a day, per repository. date: YYYY-MM-DD (default today).',
+        parameters: obj({ date: { type: 'string', description: 'YYYY-MM-DD' }, account: ACCOUNT }),
+        run: async (account, { date }) => {
+          const day = /^\d{4}-\d{2}-\d{2}$/.test(String(date || '')) ? date : new Date().toISOString().slice(0, 10);
+          const q = encodeURIComponent(`author:${account.email} committer-date:${day}`);
+          const found = await call(account, 'GET', `/search/commits?q=${q}&per_page=100`);
+          const counts = new Map();
+          let anyPrivate = false;
+          for (const item of found.items || []) {
+            const repo = item.repository?.full_name || 'unknown';
+            anyPrivate ||= Boolean(item.repository?.private);
+            counts.set(repo, (counts.get(repo) || 0) + 1);
+          }
+          return { account: account.label, date: day, sensitive: anyPrivate, commits: [...counts].map(([repo, count]) => ({ repo, count })) };
+        },
+      });
+
       readTool({
         name: 'github_notifications',
         description: 'List GitHub notifications (unread by default).',

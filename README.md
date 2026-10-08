@@ -213,6 +213,16 @@ Use Novi from your phone away from home; the laptop stays home, on and plugged i
 
 Removing a phone in Settings cuts it off at once (its open page and its fingerprint/face setup too).
 
+### Automations
+
+One-time setup: in Google Cloud Console turn on the **Google Drive API** and **Google Sheets API** (next to Calendar and Tasks), then reconnect Google in Settings and tick every permission. Novi only gets "files Novi creates" in your Drive.
+
+- **Nightly Drive backup** at 2:30 AM to a "Novi backups" folder (keeps 7). "Back up to Google Drive" does it now.
+- **Novi log** Google Sheet: GitHub commits per day and Novi's daily counts fill in each night; say "log 2 hours of DSA" to add study time; "send me the Novi log link".
+- **Rules by voice**: "every Monday and Thursday at 7 pm remind me to go to the gym", "every 2 hours remind me to drink water" (8 AM–10 PM), "every morning at 8 tell me the weather".
+- **Where you left off**: "what's next on NOVI?" — from the project's commits, notes, plans and TODOs (summarised privately on Groq). Opening a project in VS Code, Cursor, Antigravity or Kiro gets a "last time on…" once a day.
+- The **morning briefing** adds your project and any backup problem, and also arrives as a phone notification.
+
 ### Gmail (optional)
 
 Novi can search, read and send email from one or more Gmail accounts. You sign in on Google's own page, so Novi never sees your password; its access key is stored encrypted with your Windows login (DPAPI). Email content is only ever processed by Groq, never by Gemini's free tier.

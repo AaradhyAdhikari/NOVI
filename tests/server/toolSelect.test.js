@@ -22,6 +22,10 @@ const ALL = [
   tool('backup_now', 'Back up Novi data now.'),
   tool('screen_show', 'Send a screenshot of the laptop screen.'),
   tool('screen_page', 'Send a screenshot of a web page.'),
+  tool('study_log', 'Log study time to the Novi log sheet.'),
+  tool('sheets_log_link', 'Link to the Novi log sheet.'),
+  tool('project_next', 'Where the user left off on a project.'),
+  tool('open_project', 'Open a project in an editor.'),
 ];
 const names = (text, opts) => selectTools(ALL, { text, ...opts }).map((t) => t.function.name);
 
@@ -38,6 +42,12 @@ describe('selectTools: send the model only the tools a request needs', () => {
       expect(names(text)).toEqual(expect.arrayContaining(['screen_show', 'screen_page']));
     }
     expect(names('Show me a screenshot of my GitHub contributions')).toContain('github_notifications');
+  });
+
+  it('automations: study log, where you left off, Drive backup', () => {
+    for (const text of ['log 2 hours of DSA', 'I studied OS for 45 minutes', 'send me my study sheet']) expect(names(text)).toContain('study_log');
+    for (const text of ["what's next on NOVI", 'where did I leave off', 'how far did I get on flexr']) expect(names(text)).toContain('project_next');
+    expect(names('back up to google drive')).toContain('backup_now');
   });
 
   it('always offers the basics: memory and opening apps/websites', () => {

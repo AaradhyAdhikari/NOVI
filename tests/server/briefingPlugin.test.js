@@ -23,9 +23,10 @@ const FULL = {
 function setup(results = FULL, { failing = [] } = {}) {
   const called = [];
   const said = [];
+  const sayOptions = [];
   const runtime = {
     dataDir,
-    say: (t) => said.push(t),
+    say: (t, o) => { said.push(t); sayOptions.push(o); },
     callTool: async (name, params) => {
       called.push([name, params]);
       if (failing.includes(name)) throw new Error(`${name} is down`);
@@ -35,14 +36,14 @@ function setup(results = FULL, { failing = [] } = {}) {
   };
   const host = new PluginHost({ runtime, env: {}, logger: { warn() {}, log() {} } });
   expect(host.register(createBriefingPlugin({ now: () => clock, tickMs: 1000 }))).toBe(true);
-  return { host, called, said, run: (n, p = {}) => host.get(n).run(p) };
+  return { host, called, said, sayOptions, run: (n, p = {}) => host.get(n).run(p) };
 }
 
 describe('morning briefing', () => {
   it('gathers the day from the read-only tools and says a short summary', async () => {
     const { run, called } = setup();
     const out = await run('briefing_get');
-    expect(called.map(([n]) => n).sort()).toEqual(['calendar_events', 'github_notifications', 'gmail_search', 'memory_list', 'reminder_list', 'tasks_list', 'weather_get'].sort());
+    expect(called.map(([n]) => n).sort()).toEqual(['backup_status', 'calendar_events', 'github_notifications', 'gmail_search', 'memory_list', 'project_next', 'reminder_list', 'tasks_list', 'weather_get'].sort());
     expect(called.find(([n]) => n === 'gmail_search')[1].query).toMatch(/is:unread/);
     const s = out.spoken;
     expect(s).toMatch(/^Good morning/);
@@ -105,4 +106,30 @@ describe('daily schedule', () => {
   it('rejects a time it cannot read', async () => {
     expect((await setup().run('briefing_schedule', { time: 'morningish' })).text).toMatch(/HH:MM/);
   });
+
+  it('adds where you left off on your project, and says when the Drive backup failed', async () => {
+    const { run } = setup({ ...FULL, project_next: { project: 'NOVI CONTEXT', text: 'Last time you added easy pairing. Still open: retrain the wake word.' }, backup_status: { text: '', drive: { lastError: { message: 'Google is not connected' } } } });
+    const out = await run('briefing_get');
+    expect(out.spoken).toMatch(/On NOVI CONTEXT: Last time you added easy pairing./);
+    expect(out.spoken).toMatch(/Drive backup failed/);
+    expect(out.text).toMatch(/Projects: NOVI CONTEXT — Last time you added easy pairing/);
+  });
+
+  it('a healthy backup is not mentioned', async () => {
+    const { run } = setup({ ...FULL, backup_status: { text: '', drive: { lastUpload: { name: 'novi-data-x.zip' } } } });
+    expect((await run('briefing_get')).spoken).not.toMatch(/backup/i);
+  });
+
+  it('the scheduled briefing is also a phone notification (kind briefing)', async () => {
+    clock = new Date('2026-10-07T07:28:00');
+    const { run, host, said, sayOptions } = setup();
+    await run('briefing_schedule', { time: '7:30 am' });
+    await host.startServices();
+    clock = new Date('2026-10-07T07:30:20');
+    await new Promise((r) => setTimeout(r, 1300)); // the briefing checks the clock every second here
+    expect(said.length).toBe(1);
+    expect(sayOptions[0]).toEqual({ kind: 'briefing' });
+    await host.stopServices();
+  });
 });
+

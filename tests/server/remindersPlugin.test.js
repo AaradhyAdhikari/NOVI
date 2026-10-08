@@ -13,9 +13,9 @@ beforeEach(() => {
 });
 afterEach(() => vi.useRealTimers());
 
-async function boot() {
+async function boot({ callTool } = {}) {
   const said = [];
-  const host = new PluginHost({ logger: { warn() {} }, runtime: { dataDir, say: (t) => said.push(t) } });
+  const host = new PluginHost({ logger: { warn() {} }, runtime: { dataDir, say: (t) => said.push(t), ...(callTool ? { callTool } : {}) } });
   expect(host.register(createRemindersPlugin())).toBe(true);
   await host.startServices();
   return { host, said };
@@ -106,4 +106,32 @@ describe('plugin services', () => {
     expect(calls).toEqual(['start', 'stop']);
     expect(host.warnings.some((w) => /bad.*nope/.test(w))).toBe(true);
   });
+
+  it('a rule can run a look-up tool and speak its answer ("every morning at 8 tell me the weather")', async () => {
+    const calls = [];
+    const { host, said } = await boot({ callTool: async (name, params) => { calls.push([name, params]); return { text: 'Pune: 27 degrees, clear.' }; } });
+    const out = await host.get('reminder_add').run({ text: 'weather', when: 'at 8 pm', repeat: 'every day', action_tool: 'weather_get' });
+    expect(out.text).toMatch(/every day/);
+    vi.advanceTimersByTime(5.5 * 3_600_000 + 1000);
+    await vi.runOnlyPendingTimersAsync();
+    expect(calls).toEqual([['weather_get', {}]]);
+    expect(said.at(-1)).toBe('Pune: 27 degrees, clear.');
+  });
+
+  it("an action that needs approval is refused, and Novi says it couldn't run it", async () => {
+    const { host, said } = await boot({ callTool: async (name) => { throw new Error(`${name} needs approval, so a plugin can't run it`); } });
+    await host.get('reminder_add').run({ text: 'mail', when: 'at 3 pm', action_tool: 'gmail_send' });
+    vi.advanceTimersByTime(31 * 60_000);
+    await vi.runOnlyPendingTimersAsync();
+    expect(said.at(-1)).toMatch(/couldn't run gmail_send: gmail_send needs approval/);
+  });
+
+  it('weekly rules start on the next matching day and list in plain words', async () => {
+    const { host } = await boot();
+    const out = await host.get('reminder_add').run({ text: 'back up phone', when: 'at 9 pm', repeat: 'every Sunday' });
+    expect(out.text).toMatch(/every Sun/);
+    const list = await host.get('reminder_list').run({});
+    expect(list.text).toMatch(/9:00 pm tomorrow: back up phone \(every Sun\)/); // it is Saturday
+  });
 });
+

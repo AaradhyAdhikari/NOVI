@@ -91,8 +91,65 @@ export function describeTime(at, now = new Date()) {
   return `${at.getDate()} ${at.toLocaleDateString('en-US', { month: 'short' })} ${time}`;
 }
 
+// Repeats: 'daily', 'weekdays', 'weekly:mon,thu', 'hourly:2' (hourly only between 8 am and 10 pm).
+const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+const HOURLY_FROM = 8;
+const HOURLY_UNTIL = 22;
+const weeklyDays = (repeat) => String(repeat).slice('weekly:'.length).split(',').map((d) => DAY_KEYS.indexOf(d)).filter((d) => d >= 0);
+
 export function nextOccurrence(at, repeat) {
+  if (String(repeat).startsWith('hourly:')) {
+    const n = Math.max(1, Number(String(repeat).split(':')[1]) || 1);
+    return alignToRepeat(new Date(at.getTime() + n * 3_600_000), repeat);
+  }
   let next = dateAt(at, 1, at.getHours(), at.getMinutes());
   if (repeat === 'weekdays') while (next.getDay() === 0 || next.getDay() === 6) next = dateAt(next, 1, at.getHours(), at.getMinutes());
+  if (String(repeat).startsWith('weekly:')) return alignToRepeat(next, repeat);
   return next;
+}
+
+// The first time a new repeating rule should fire: moved to an allowed day / hour if needed.
+export function alignToRepeat(at, repeat) {
+  if (String(repeat).startsWith('weekly:')) {
+    const days = weeklyDays(repeat);
+    let next = at;
+    for (let i = 0; i < 7 && days.length && !days.includes(next.getDay()); i++) next = dateAt(next, 1, at.getHours(), at.getMinutes());
+    return next;
+  }
+  if (String(repeat).startsWith('hourly:')) {
+    if (at.getHours() >= HOURLY_UNTIL) return dateAt(at, 1, HOURLY_FROM, 0);
+    if (at.getHours() < HOURLY_FROM) return dateAt(at, 0, HOURLY_FROM, 0);
+  }
+  if (repeat === 'weekdays') {
+    let next = at;
+    while (next.getDay() === 0 || next.getDay() === 6) next = dateAt(next, 1, at.getHours(), at.getMinutes());
+    return next;
+  }
+  return at;
+}
+
+// "every Monday and Thursday" → 'weekly:mon,thu'; "every 2 hours" → 'hourly:2'; null = one-off.
+export function parseRepeat(input) {
+  const t = String(input || '').toLowerCase();
+  if (!t.trim()) return null;
+  const hours = /every\s+(\d+)\s*(hours?|hrs?)/.exec(t);
+  if (hours) return `hourly:${Math.max(1, Number(hours[1]))}`;
+  if (/every\s+hour|hourly/.test(t)) return 'hourly:1';
+  if (/weekdays?|working days|monday to friday/.test(t)) return 'weekdays';
+  const days = WEEKDAYS.map((d, i) => (new RegExp(`\\b${d}s?\\b|\\b${d.slice(0, 3)}\\b`).test(t) ? DAY_KEYS[i] : null)).filter(Boolean);
+  if (days.length) return `weekly:${days.join(',')}`;
+  if (/daily|every\s*day|every\s+(morning|evening|night|afternoon)|each day/.test(t)) return 'daily';
+  return null;
+}
+
+export function describeRepeat(repeat) {
+  if (!repeat) return '';
+  if (repeat === 'daily') return 'every day';
+  if (repeat === 'weekdays') return 'every weekday';
+  if (String(repeat).startsWith('weekly:')) return `every ${weeklyDays(repeat).map((d) => DAY_KEYS[d][0].toUpperCase() + DAY_KEYS[d].slice(1)).join(', ')}`;
+  if (String(repeat).startsWith('hourly:')) {
+    const n = Number(String(repeat).split(':')[1]) || 1;
+    return `every ${n === 1 ? 'hour' : `${n} hours`} (8 am–10 pm)`;
+  }
+  return '';
 }

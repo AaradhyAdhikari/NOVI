@@ -80,7 +80,7 @@ export function createBackupPlugin({ archive = zipArchive, now = () => new Date(
         }
       }
       const nightly = everyDayAt({
-        time: api.pluginConfig.drive_time || '02:30' // NOVI_PLUGIN_BACKUP_DRIVE_TIME,
+        time: api.pluginConfig.drive_time || '02:30', // NOVI_PLUGIN_BACKUP_DRIVE_TIME
         stateFile: path.join(api.runtime.dataDir || path.resolve('data'), 'backup', 'drive-daily.json'),
         now,
         logger: api.logger || console,

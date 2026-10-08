@@ -36,7 +36,7 @@ describe('everyDayAt', () => {
     expect(JSON.parse(fs.readFileSync(stateFile, 'utf8')).lastDay).toBe('2026-10-10');
   });
 
-  it('first ever start before the time does nothing; a failed run is retried on the next tick', async () => {
+  it('a failed run (e.g. Google not connected) is retried after 30 minutes, not every minute', async () => {
     let fail = true;
     const runs = [];
     const stateFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'novi-daily-')), 'job.json');
@@ -44,7 +44,11 @@ describe('everyDayAt', () => {
     const job = everyDayAt({ time: '23:50', run: async (day) => { if (fail) throw new Error('offline'); runs.push(day); }, stateFile, now: () => t, logger: { warn() {} } });
     await job.tick();
     fail = false;
+    t = new Date('2026-10-08T23:55:00');
     await job.tick();
-    expect(runs).toEqual(['2026-10-08']);
+    expect(runs).toEqual([]); // too soon after the failure
+    t = new Date('2026-10-09T00:22:00');
+    await job.tick();
+    expect(runs).toEqual(['2026-10-08']); // the missed day, caught up
   });
 });

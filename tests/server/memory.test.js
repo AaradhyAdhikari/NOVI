@@ -57,4 +57,15 @@ describe('Memory', () => {
     m.updateTask('t54', { status: 'done', sessionId: 's1' });
     expect(new Memory(file).lastTask()).toMatchObject({ status: 'done', sessionId: 's1' });
   });
+
+  it('lists coding tasks, newest first, as copies', () => {
+    const m = new Memory(file);
+    m.addTask({ id: 'a', status: 'done' });
+    m.addTask({ id: 'b', status: 'failed' });
+    const list = m.listTasks();
+    expect(list.map((t) => t.id)).toEqual(['b', 'a']);
+    list[0].status = 'changed';
+    expect(m.listTasks()[0].status).toBe('failed');
+  });
 });
+

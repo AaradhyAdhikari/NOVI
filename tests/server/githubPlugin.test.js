@@ -96,6 +96,20 @@ describe('github plugin', () => {
     expect(new URLSearchParams(calls.find((c) => /access_token/.test(c.url)).body).get('grant_type')).toBe('urn:ietf:params:oauth:grant-type:device_code');
   });
 
+  it('counts your commits per repo for a day (for the Sheets log), read-only', async () => {
+    const { host, calls } = await setup({
+      routes: [{ match: /\/search\/commits\?/, reply: { total_count: 3, items: [
+        { repository: { full_name: 'octo/NOVI', private: false } },
+        { repository: { full_name: 'octo/NOVI', private: false } },
+        { repository: { full_name: 'octo/FLEXR-', private: true } },
+      ] } }],
+    });
+    expect(await host.get('github_activity').gate({ date: '2026-10-08' })).toEqual({});
+    const out = await host.get('github_activity').run({ date: '2026-10-08' });
+    expect(out.commits).toEqual([{ repo: 'octo/NOVI', count: 2 }, { repo: 'octo/FLEXR-', count: 1 }]);
+    expect(decodeURIComponent(calls[0].url)).toContain('q=author:octo committer-date:2026-10-08');
+  });
+
   it('lists notifications, marking private ones sensitive', async () => {
     const { host, calls } = await setup({
       routes: [{ match: /\/notifications\?/, reply: [

@@ -692,5 +692,28 @@ describe('Novi server', () => {
     const { novi } = await start();
     expect(await novi.runVoiceCommand(Buffer.from('wav'))).toEqual({ text: 'heard 3 bytes of audio/wav', reply: 'echo: heard 3 bytes of audio/wav' });
   });
+
+  it('plugins get a private-only AI call (Groq), never another provider', async () => {
+    const seen = [];
+    const router = { status: () => [], chat: async (opts) => { seen.push(opts); return { message: { content: ' Last time you added pairing. ' } }; } };
+    const { novi } = await start({ router });
+    expect(await novi.plugins.runtime.privateComplete('summarise')).toBe('Last time you added pairing.');
+    expect(seen[0]).toMatchObject({ only: 'groq', messages: [{ role: 'user', content: 'summarise' }] });
+  });
+
+  it('runtime.say can speak on the laptop only, without a phone notification', async () => {
+    const spoken = [];
+    const push = { publicKey: 'P', subscribe: () => true, has: () => true, removeDevice() {}, sent: [], send: async (id, m) => { push.sent.push(m.kind); } };
+    const env = await start({ isLocalAddress: () => false, push, localSpeaker: (t) => spoken.push(t) });
+    const phone = await pairedPhone(env);
+    phone.c.ws.send(JSON.stringify({ type: 'user_message', text: 'hi' }));
+    await phone.c.waitFor((m) => m.type === 'speak');
+    env.novi.plugins.runtime.say('Last time on NOVI: pairing.', { kind: null, local: true });
+    await new Promise((r) => setTimeout(r, 100));
+    expect(spoken).toEqual(['Last time on NOVI: pairing.']);
+    expect(phone.c.messages.filter((m) => m.type === 'speak').map((m) => m.text)).not.toContain('Last time on NOVI: pairing.');
+    expect(push.sent).toEqual([]);
+    phone.c.ws.close();
+  });
 });
 

@@ -1,0 +1,9 @@
+{
+  "id": "projects",
+  "name": "Where you left off",
+  "description": "\"What's next on <project>?\" from its commits, notes, plans and TODOs, and a \"last time on…\" note when you open it in your editor.",
+  "categories": ["developer"],
+  "contracts": { "tools": ["project_next"] },
+  "activation": { "onStartup": true },
+  "configSchema": { "type": "object", "additionalProperties": false }
+}

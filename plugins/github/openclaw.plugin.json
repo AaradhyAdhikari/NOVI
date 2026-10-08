@@ -4,7 +4,7 @@
   "description": "GitHub notifications, repositories, issues and pull requests; comments and new issues need approval.",
   "categories": ["developer"],
   "contracts": {
-    "tools": ["github_connect", "github_notifications", "github_repos", "github_issues", "github_read", "github_comment", "github_create_issue", "github_mark_read"]
+    "tools": ["github_connect", "github_activity", "github_notifications", "github_repos", "github_issues", "github_read", "github_comment", "github_create_issue", "github_mark_read"]
   },
   "activation": { "onStartup": true },
   "configSchema": {

@@ -7,6 +7,7 @@ const GROUP = {
   play_youtube: 'youtube', youtube_search: 'youtube',
   open_project: 'ide', list_projects: 'projects', remember_project: 'projects', forget_project: 'projects',
   timer_set: 'reminder', conversation_history: 'memory',
+  project_next: 'projects', study_log: 'sheets', sheets_log_link: 'sheets',
 };
 const groupOf = (name) => GROUP[name] || name.split('_')[0];
 
@@ -18,10 +19,11 @@ const WORDS = {
   reminder: 'remind reminder reminders timer timers alarm alarms wake',
   github: 'github repo repos repository issue issues pr prs pull notification notifications commit commits contribution contributions',
   ide: 'cursor vscode antigravity kiro editor ide claude',
-  projects: 'project projects folder',
+  projects: 'project projects folder leave left progress far continue',
   code: 'fix bug bugs build implement refactor tests coding coder feature',
   memory: 'remember forget memory memories told yesterday earlier talked said ago',
-  backup: 'backup backups',
+  backup: 'backup backups drive',
+  sheets: 'study studied studying log logged hours sheet sheets spreadsheet',
   clock: 'announce announcement',
   accounts: 'account accounts',
   screen: 'screen click type press key button window whatsapp notepad look see showing tab screenshot screenshots ss picture photo image snapshot capture',

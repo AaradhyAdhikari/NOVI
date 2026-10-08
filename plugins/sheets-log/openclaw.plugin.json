@@ -1,0 +1,9 @@
+{
+  "id": "sheets-log",
+  "name": "Novi log (Google Sheets)",
+  "description": "A \"Novi log\" Google Sheet: GitHub commits per day, study hours you log by voice, and Novi's daily counts.",
+  "categories": ["productivity"],
+  "contracts": { "tools": ["study_log", "sheets_log_link"] },
+  "activation": { "onStartup": true },
+  "configSchema": { "type": "object", "additionalProperties": false }
+}

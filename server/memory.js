@@ -84,4 +84,9 @@ export class Memory {
   lastTask() {
     return this.data.tasks[0] || null;
   }
+
+  // Newest first, copies (plugins count them for the Novi log; they can't change history).
+  listTasks() {
+    return this.data.tasks.map((t) => ({ ...t }));
+  }
 }
