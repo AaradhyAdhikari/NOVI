@@ -9,9 +9,13 @@ const CODERS = {
 };
 
 // coder: default coding agent; alternativeAvailable: whether the other coder can be offered by voice.
-export function createNoviTools({ memory, tasks, coder = 'novi-coder', alternativeAvailable = false }) {
+// takeOver: async () => { project } — stops the background Claude run and opens it interactively (laptop).
+export function createNoviTools({ memory, tasks, coder = 'novi-coder', alternativeAvailable = false, takeOver = null }) {
   const c = CODERS[coder] || CODERS['novi-coder'];
-  return new ToolRegistry()
+  // The coder the user named for this task (only when it isn't the default), and the one that will run.
+  const named = ({ agent } = {}) => (CODERS[agent] && agent !== coder ? agent : null);
+  const coderFor = (a) => CODERS[named(a) || coder] || c;
+  const registry = new ToolRegistry()
     .add({
       name: 'list_projects',
       description: 'List the projects Novi knows, with their folders.',
@@ -39,12 +43,21 @@ export function createNoviTools({ memory, tasks, coder = 'novi-coder', alternati
     .add({
       name: 'code_start_task',
       description: 'Start the coding agent on a known project with a complete coding instruction. Progress is narrated to the user automatically.',
-      parameters: obj({ project: str('Known project name'), instruction: str('Clear, complete instruction for Claude Code') }, ['project', 'instruction']),
+      parameters: obj({
+        project: str('Known project name'),
+        instruction: str('Clear, complete instruction for the coding agent'),
+        // Only when both coders exist: the brain picks by how hard the job is; what the user named wins.
+        ...(alternativeAvailable ? { agent: {
+          type: 'string',
+          enum: ['claude', 'novi-coder'],
+          description: 'Which coder. If the user named one, use it ("Claude"/"Claude Code" → claude; "Novi Coder"/"the free one" → novi-coder). Otherwise decide by difficulty: novi-coder for small, quick edits (a typo, a rename, changing a text, colour or one line); claude for bigger work (features, bugs, refactors, tests, anything across several files).',
+        } } : {}),
+      }, ['project', 'instruction']),
       tier: 'medium',
-      describe: ({ project, instruction }) => `Start ${c.title} on ${project}: "${instruction}"`,
-      prompt: ({ project, instruction }) => `I'll use ${c.spoken}, on ${project}: ${String(instruction).trim().replace(/[.!?]+$/, '')}. Shall I start? ${alternativeAvailable ? `Say yes, no, or ${c.otherSpoken}.` : 'Say yes or no.'}`,
-      choices: () => (alternativeAvailable ? [{ id: c.other, label: c.otherLabel, params: { $agent: c.other } }] : undefined),
-      run: async ({ project, instruction, $agent }) => ({ started: true, task: tasks.start(project, instruction, { agent: $agent }), note: 'The coder is working on it; I will narrate the progress.' }),
+      describe: (a) => `Start ${coderFor(a).title} on ${a.project}: "${a.instruction}"`,
+      prompt: (a) => `I'll use ${coderFor(a).spoken}, on ${a.project}: ${String(a.instruction).trim().replace(/[.!?]+$/, '')}. Shall I start? ${alternativeAvailable ? `Say yes, no, or ${coderFor(a).otherSpoken}.` : 'Say yes or no.'}`,
+      choices: (a = {}) => (alternativeAvailable ? [{ id: coderFor(a).other, label: coderFor(a).otherLabel, params: { $agent: coderFor(a).other } }] : undefined),
+      run: async ({ project, instruction, agent, $agent }) => ({ started: true, task: tasks.start(project, instruction, { agent: $agent || named({ agent }) || undefined }), note: 'The coder is working on it; I will narrate the progress.' }),
     })
     .add({
       name: 'code_send_message',
@@ -81,4 +94,18 @@ export function createNoviTools({ memory, tasks, coder = 'novi-coder', alternati
         return { allowEdits: Boolean(allow) };
       },
     });
+  if (takeOver) {
+    registry.add({
+      name: 'code_take_over',
+      description: 'The user is back at the laptop and wants to continue the coding task themselves ("I\'m back, I\'ll take over", "main sambhal leta hun"): stops the background Claude Code run and opens Claude Code on the project with the same conversation.',
+      parameters: obj({}, []),
+      tier: 'low',
+      describe: () => 'Open the coding task in Claude Code for you',
+      run: async () => {
+        const { project } = await takeOver();
+        return { tookOver: true, project, note: `Opened Claude Code on ${project} with the same conversation. Over to you.` };
+      },
+    });
+  }
+  return registry;
 }

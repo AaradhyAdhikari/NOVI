@@ -67,10 +67,12 @@ describe('loadConfig', () => {
     expect(loadConfig(base).googleClientId).toBe('');
   });
 
-  it('defaults the coding agent to the free Novi Coder', () => {
-    expect(loadConfig(base).coder).toBe('free');
+  it('defaults the coding agent to Claude Code (auto), Novi Coder on request', () => {
+    // Claude Code is the default coder (when installed); NOVI_CODER=free picks Novi Coder.
+    expect(loadConfig(base).coder).toBe('auto');
     expect(loadConfig({ ...base, NOVI_CODER: 'claude' }).coder).toBe('claude');
-    expect(loadConfig({ ...base, NOVI_CODER: 'whatever' }).coder).toBe('free');
+    expect(loadConfig({ ...base, NOVI_CODER: 'free' }).coder).toBe('free');
+    expect(loadConfig({ ...base, NOVI_CODER: 'whatever' }).coder).toBe('auto');
   });
 
   it('reads Sarvam speech-to-text keys (one key or a list)', () => {

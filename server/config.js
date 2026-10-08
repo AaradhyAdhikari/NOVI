@@ -62,7 +62,8 @@ export function loadConfig(env = process.env) {
     providers,
     order: { fast: order(env.NOVI_FAST_ORDER, DEFAULT_FAST), long: order(env.NOVI_LONG_ORDER, DEFAULT_LONG), quick: order(env.NOVI_FAST_ORDER, DEFAULT_FAST) },
     claudeCommand: env.CLAUDE_PATH || (fs.existsSync(localClaude) ? localClaude : 'claude'),
-    coder: env.NOVI_CODER === 'claude' ? 'claude' : 'free',
+    // auto = Claude Code when it's installed (the user's choice, 2026-10-08), else the free Novi Coder.
+    coder: ['claude', 'free'].includes(env.NOVI_CODER) ? env.NOVI_CODER : 'auto',
     googleClientId: (env.GOOGLE_CLIENT_ID || '').trim(),
     googleClientSecret: (env.GOOGLE_CLIENT_SECRET || '').trim(),
     privateProviders: splitList(env.NOVI_PRIVATE_PROVIDERS || 'groq'),

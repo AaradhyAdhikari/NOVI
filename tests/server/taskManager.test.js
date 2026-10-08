@@ -128,3 +128,38 @@ describe('permissionTitle', () => {
     expect(permissionTitle('WebFetch', {})).toBe('Claude wants to use WebFetch');
   });
 });
+
+describe('TaskManager.takeOver ("I\'m back, I\'ll take over")', () => {
+  it('stops the background run and hands over the project and Claude conversation', async () => {
+    const { tm } = makeManager();
+    tm.start('portfolio', 'HANG');
+    await until(() => tm.task?.sessionId);
+    const handed = await tm.takeOver();
+    expect(handed).toMatchObject({ project: 'portfolio', sessionId: 'fake-session-1' });
+    expect(handed.path).toBe(memory.findProject('portfolio').path);
+    expect(tm.status().status).toBe('stopped');
+  });
+
+  it('also works after the task has finished, and after a restart', async () => {
+    const { tm } = makeManager();
+    tm.start('portfolio', 'add login');
+    await until(() => tm.status().status === 'done');
+    expect((await tm.takeOver()).sessionId).toBe('fake-session-1');
+    await tm.shutdown();
+    const fresh = makeManager().tm;
+    expect((await fresh.takeOver()).sessionId).toBe('fake-session-1');
+  });
+
+  it('says so when there is nothing to take over', async () => {
+    const { tm } = makeManager();
+    await expect(tm.takeOver()).rejects.toThrow(UserFacingError);
+  });
+
+  it('only Claude Code conversations can be continued in Claude Code', async () => {
+    const { tm } = makeManager();
+    tm.start('portfolio', 'add login', { agent: 'novi-coder' });
+    tm.task.agentName = 'Novi Coder';
+    await until(() => tm.status().status === 'done');
+    await expect(tm.takeOver()).rejects.toThrow(/Novi Coder/);
+  });
+});
