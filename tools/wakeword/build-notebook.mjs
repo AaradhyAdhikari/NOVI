@@ -31,7 +31,11 @@ if (!text(config).includes("'hey_novi'")) throw new Error('model name was not re
 
 // 2. Synthetic noise before the FMA/ACAV download (cell 7 skips FMA when /content/fma has >100 entries
 //    and cell 8 skips conversion when /content/fma_wav has 1500 WAVs).
-const noise = `# NOVI: synthetic background noise instead of the 8 GB FMA music download (free Colab dropped the VM during it).
+const noise = `# NOVI: "novi" isn't in the CMU pronunciation dictionary, so openwakeword's adversarial-phrase step
+# needs DeepPhonemizer (dp.phonemizer), which the original notebook never installs ("mr graves" never needed it).
+!pip install -q deep-phonemizer
+from dp.phonemizer import Phonemizer  # fails here, early, if the install broke
+# NOVI: synthetic background noise instead of the 8 GB FMA music download (free Colab dropped the VM during it).
 import os, numpy as np, soundfile as sf
 os.makedirs('/content/fma_wav', exist_ok=True)
 os.makedirs('/content/fma', exist_ok=True)
