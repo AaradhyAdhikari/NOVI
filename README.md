@@ -253,6 +253,17 @@ Then: "any GitHub notifications?", "list my repos", "open issues on NOVI", "read
 
 **Later — Claude Code:** set `NOVI_CODER=claude` in `.env` to hand coding tasks to [Claude Code](https://claude.com/claude-code) instead of Novi Coder (requires the `claude` CLI logged in; uses your Claude plan).
 
+### Voice check (only your voice) and interrupting Novi
+Novi can learn your voice so that only you wake it — a TV, a video or a visitor saying “Hey Novi” is ignored — and you can say **“Hey Novi” while it is talking to stop it** (it then listens for your next sentence; running tasks keep going). It runs offline on the laptop (free WeSpeaker model via sherpa-onnx, no Python).
+
+1. Download the speaker model (≈26 MB, once) into `models/speaker/`:
+   https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/wespeaker_en_voxceleb_resnet34.onnx
+   (the release name really is spelled “recongition”).
+2. Restart Novi.
+3. Settings → “Hey Novi”: record at least 5 clips (30 is better), then press **Learn my voice**. If Novi starts ignoring you, lower the strictness a little.
+
+Optional `.env`: `NOVI_SPEAKER_MODEL` (another model path), `NOVI_WAKEWORD_INTERRUPT_THRESHOLD` (how sure the wake word must be to interrupt; default = wake level + 0.15). Settings → System shows the voice check status. Without the model everything works as before.
+
 ### Morning briefing
 
 *"Good morning"*, *"brief me"*, *"what's my day like?"* — one short spoken summary: weather in your home city, today's calendar, tasks due, unread mail, GitHub notifications, today's reminders and birthdays you told Novi. *"Brief me every morning at 7:30"* makes it automatic (spoken in the browser, or on the laptop speakers if no page is open); *"stop the morning briefing"* turns it off. Each part appears once it's set up (home city: `NOVI_PLUGIN_WEATHER_PLACE=Pune` in .env; Calendar/Tasks: see below).

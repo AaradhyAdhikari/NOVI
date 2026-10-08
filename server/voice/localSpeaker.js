@@ -21,6 +21,7 @@ export function createLocalSpeaker({ platform = process.platform, run = spawn, s
   if (platform !== 'win32') return null;
   let voice = null; // { child, waiting: [resolve...] }
   let queue = Promise.resolve();
+  let generation = 0; // bumped by stop(): lines queued before it are dropped
 
   function start() {
     const child = run('powershell.exe', ['-NoProfile', '-NonInteractive', '-STA', '-Command', SCRIPT], { stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true });
@@ -44,14 +45,17 @@ export function createLocalSpeaker({ platform = process.platform, run = spawn, s
     voice.child.stdin.write(`${line}\n`);
   });
 
-  return (text) => {
+  const say = (text) => {
     const line = String(text).replace(/\s*[\r\n]+\s*/g, ' ').trim().slice(0, 1000);
+    const mine = generation;
     queue = queue.then(async () => {
+      if (mine !== generation) return;
       if (synth && line) {
         let file = null;
         try {
           file = path.join(tmpDir, `novi-say-${crypto.randomUUID()}.mp3`);
           fs.writeFileSync(file, await synth(line));
+          if (mine !== generation) return;
           await send(`PLAY:${file}`);
           return;
         } catch {
@@ -64,4 +68,15 @@ export function createLocalSpeaker({ platform = process.platform, run = spawn, s
     });
     return queue;
   };
+
+  // "Hey Novi" while Novi talks: silence it now. Killing the voice process is the only way to cut
+  // a line short; a fresh one starts straight away so the next reply isn't 2.5 s late.
+  say.stop = () => {
+    generation += 1;
+    if (!voice?.waiting.length) return;
+    const old = voice;
+    voice = start();
+    try { old.child.kill(); } catch { /* already gone */ }
+  };
+  return say;
 }

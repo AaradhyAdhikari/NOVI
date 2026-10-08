@@ -16,6 +16,9 @@ git commit -m "%MSG%"
 if errorlevel 1 (echo The commit failed.& pause & exit /b)
 :push
 for /f %%b in ('git branch --show-current') do set "BR=%%b"
+rem Get changes made on GitHub first (e.g. work merged there), or the push is refused.
+git pull --no-rebase --no-edit origin %BR%
+if errorlevel 1 (echo Getting the latest changes from GitHub failed - send a screenshot to Claude.& pause & exit /b)
 git push origin %BR%
 if errorlevel 1 (echo Push failed - check your internet or GitHub sign-in.& pause & exit /b)
 echo.

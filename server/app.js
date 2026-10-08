@@ -41,6 +41,7 @@ import { createPush } from './push.js';
 import { createMissedQueue } from './missed.js';
 import { createTailscaleIdentity } from './tailscaleIdentity.js';
 import { PairRequests } from './pairRequests.js';
+import { enrollVoice, readClips, createVoiceprintStore } from './voice/speaker/enroll.js';
 
 export function createNovi(config, overrides = {}) {
   const memory = overrides.memory || new Memory(path.join(config.dataDir, 'memory.json'));
@@ -167,9 +168,19 @@ export function createNovi(config, overrides = {}) {
   const send = (ws, msg) => ws.readyState === 1 && ws.send(JSON.stringify(msg));
   // With no Novi page open, spoken lines go to the laptop speakers instead (Windows voice).
   const localSpeaker = overrides.localSpeaker || null;
+  // The wake listener must know when the laptop is talking ("Hey Novi" then interrupts it).
+  let wakeTools = null; // { capture, setThreshold, threshold, setSpeaking } from the wake-word service
+  let talking = 0;
+  const speakLocal = (text) => {
+    if (!localSpeaker) return;
+    if (++talking === 1) wakeTools?.setSpeaking?.(true);
+    Promise.resolve(localSpeaker(text)).catch(() => {}).finally(() => {
+      if (--talking === 0) wakeTools?.setSpeaking?.(false);
+    });
+  };
   const broadcast = (msg) => {
     for (const ws of clients) send(ws, msg);
-    if (msg.type === 'speak' && clients.size === 0 && msg.text) localSpeaker?.(msg.text);
+    if (msg.type === 'speak' && clients.size === 0 && msg.text) speakLocal(msg.text);
   };
   // Replies go only to the device that asked: 'local' = the laptop (its pages, else its speakers),
   // { deviceId } = that phone. `active` is whoever spoke to Novi last — task updates, reminders and
@@ -181,7 +192,7 @@ export function createNovi(config, overrides = {}) {
     const key = deviceKey(from);
     let reached = 0;
     for (const ws of clients) if (viewerKey(ws) === key) { send(ws, msg); reached += 1; }
-    if (msg.type === 'speak' && msg.text && !reached && key === 'local') localSpeaker?.(msg.text);
+    if (msg.type === 'speak' && msg.text && !reached && key === 'local') speakLocal(msg.text);
     // A phone that doesn't have Novi open hears it later (and gets a notification, see notify()).
     if (msg.type === 'speak' && msg.text && !reached && key !== 'local') missed.add(key, msg.text);
   };
@@ -331,7 +342,55 @@ export function createNovi(config, overrides = {}) {
     if (!isLocal(req)) return res.status(403).json({ error: 'Record these on the laptop (they use its microphone).' });
     if (!wakeTools) return res.status(409).json({ error: 'The laptop wake word is not running.' });
     const { audio, best } = await wakeTools.capture(2500);
-    res.json(wakeSamples.save(audio, best));
+    res.json({ ...wakeSamples.save(audio, best), voiceMatch: checkVoice(audio).score });
+  });
+
+  // "Only my voice": the owner's voiceprint, learned from the "Hey Novi" practice clips. The
+  // speaker model comes from the wake-word service (setSpeakerVerifier); no model = check off.
+  let speaker = { verifier: null, status: 'no-model' };
+  const voiceprints = createVoiceprintStore({ file: path.join(config.dataDir, 'voiceprint.json') });
+  const heyNoviDir = path.join(config.dataDir, 'voice-samples', 'hey-novi');
+  const usableVoiceprint = () => {
+    const saved = voiceprints.get();
+    return speaker.verifier && saved?.enabled && saved.voiceprint.length === speaker.verifier.dim ? saved : null;
+  };
+  // ok: true = the owner, false = someone else, null = check off (never makes Novi deaf).
+  function checkVoice(audio) {
+    const saved = usableVoiceprint();
+    if (!saved) return { ok: null, score: null };
+    try {
+      const score = Math.round(speaker.verifier.score(speaker.verifier.embed(audio), saved.voiceprint) * 1000) / 1000;
+      return { ok: score >= saved.strictness, score };
+    } catch {
+      return { ok: null, score: null };
+    }
+  }
+  const speakerCheck = () => {
+    if (!speaker.verifier) return speaker.status === 'error' ? 'error' : 'no-model';
+    const saved = voiceprints.get();
+    if (saved?.enabled && saved.voiceprint.length !== speaker.verifier.dim) return 'relearn';
+    return saved?.enabled ? 'on' : 'off';
+  };
+  const voiceInfo = () => ({ available: speaker.status === 'ready', status: speaker.status, check: speakerCheck(), ...voiceprints.summary() });
+  app.get('/api/voiceprint', (req, res) => res.json(voiceInfo()));
+  app.post('/api/voiceprint/learn', (req, res) => {
+    if (!isLocal(req)) return res.status(403).json({ error: 'Learn your voice on the laptop.' });
+    if (!speaker.verifier) return res.status(409).json({ error: 'Speaker model not installed.' });
+    try {
+      voiceprints.save(enrollVoice({ verifier: speaker.verifier, clips: readClips(heyNoviDir) }), { model: speaker.verifier.model });
+      res.json(voiceInfo());
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+  app.put('/api/voiceprint', (req, res) => {
+    if (!isLocal(req)) return res.status(403).json({ error: 'This can only be changed on the laptop.' });
+    try {
+      voiceprints.update({ enabled: req.body?.enabled, strictness: req.body?.strictness });
+      res.json(voiceInfo());
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
   });
   app.put('/api/wake-samples/threshold', (req, res) => {
     if (!isLocal(req)) return res.status(403).json({ error: 'This can only be changed on the laptop.' });
@@ -407,6 +466,7 @@ export function createNovi(config, overrides = {}) {
     supervised: system.supervised,
     restarts: system.restarts,
     wakeWord,
+    speakerCheck: speakerCheck(),
     providers: router.status(),
     lastBackup: lastBackup(),
     errors: overrides.logBuffer?.recent() || [],
@@ -609,11 +669,16 @@ export function createNovi(config, overrides = {}) {
     // What was heard and Novi's reply: the wake-word service uses them for conversation mode.
     return { text, reply: (await handleMessage({ type: 'user_message', text })) || '' };
   }
-  let wakeTools = null;
   const setWakeTools = (tools) => { wakeTools = tools; };
   // Trigger level chosen in Settings (from the user's own clips), if any.
   const wakeThreshold = () => wakeSamples.threshold();
   const setWakeWord = (mode) => { wakeWord = mode; refresh(); };
+  const setSpeakerVerifier = (value) => { speaker = value; };
+  // "Hey Novi" while Novi talks: silence the laptop voice and any open laptop page.
+  const stopSpeaking = () => {
+    localSpeaker?.stop?.();
+    broadcast({ type: 'stop_speaking' });
+  };
 
-  return { app, attachWebSocket, remotePin, setWakeTools, wakeThreshold, snapshot, runVoiceCommand, setWakeWord, memory, accounts, approvals, tasks, router, agent, tools, plugins, pairing, broadcast };
+  return { app, attachWebSocket, remotePin, setWakeTools, setSpeakerVerifier, checkVoice, stopSpeaking, wakeThreshold, snapshot, runVoiceCommand, setWakeWord, memory, accounts, approvals, tasks, router, agent, tools, plugins, pairing, broadcast };
 }
