@@ -99,3 +99,21 @@ describe('supervisor output', () => {
   });
 });
 
+
+describe('uiIsStale (rebuild the screen after a git pull, even on a restart from Settings)', async () => {
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const { uiIsStale } = await import('../../server/supervisor.js');
+  const touch = (f, t) => { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, 'x'); fs.utimesSync(f, t, t); };
+
+  it('is stale when there is no build, or a source file is newer than the build', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'novi-ui-'));
+    touch(path.join(root, 'src', 'lib', 'a.js'), 1000);
+    expect(uiIsStale(root)).toBe(true);
+    touch(path.join(root, 'dist', 'index.html'), 2000);
+    expect(uiIsStale(root)).toBe(false);
+    touch(path.join(root, 'src', 'components', 'b.jsx'), 3000);
+    expect(uiIsStale(root)).toBe(true);
+  });
+});
