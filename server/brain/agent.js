@@ -70,6 +70,26 @@ export function codeCommand(text) {
   return t;
 }
 
+// "Rename (my folder / project named) X to Y" → { name | null (= the current project), newName }.
+export function renameCommand(text) {
+  const t = String(text || '').trim().replace(/[.!?।]+$/, '').replace(/\s+(?:in|on|with) (?:claude|the laptop|my laptop)$/i, '');
+  const m = /^(?:please )?(?:rename|change the name of)\s+(?:my |the )?(?:(?:folder|project)\s+)?(?:(?:named|called)\s+)?(.+?)\s+to\s+(.+)$/i.exec(t);
+  if (!m) return null;
+  const name = /^(?:(?:my|the|this) )?(?:project|folder|it)$/i.test(m[1]) ? null : m[1];
+  return { name, newName: m[2] };
+}
+
+// "Ask Claude to …", "Claude, …", "in Claude …": a coding job for Claude Code on the Pro plan, passed on
+// in the user's own words (no free AI in the middle). → the job, or null.
+const JOB_VERB = /^(?:make|build|fix|add|change|create|write|remove|delete|update|refactor|rename|implement|set up|setup|start|continue|test|improve|style|design|redesign|convert|move|clean|debug|deploy|run|finish|complete|bana\w*|kar\w*|badal\w*|likh\w*|hata\w*|jod\w*)\b/i;
+export function claudeCommand(text) {
+  const t = String(text || '').trim().replace(/[.!?।]+$/, '');
+  const m = /^(?:hey )?(?:ask|tell|use|get) claude(?: code)?\s+(?:to\s+)?(.+)$/i.exec(t)
+    || /^claude(?: code)?[,:]?\s+(.+)$/i.exec(t)
+    || /^(?:in|on|with|via) claude(?: code)?[,:]?\s+(.+)$/i.exec(t);
+  return m && JOB_VERB.test(m[1]) ? m[1] : null;
+}
+
 const QUESTION = /^(?:what|whats|what's|how|why|who|when|where|which|is|are|can|could|do|does|kya|kaise|kab|kaun|kahan|kitna)\b/i;
 
 // Short spoken replies Novi handles without calling the AI (stop, yes/no, "use Claude instead", status).
@@ -156,6 +176,8 @@ export class Agent {
       const { output } = await this._runTool({ id: `code-${Date.now()}`, function: { name: 'code_show', arguments: JSON.stringify({ what: code }) } });
       return this._remember(text, output?.error || `Here's ${output?.file}.`);
     }
+    const direct = await this._projectCommand(text);
+    if (direct) return this._remember(text, direct);
     const gh = this.tools.get('github_graph') ? githubGraphCommand(text) : null;
     if (gh) {
       const { output } = await this._runTool({ id: `gh-${Date.now()}`, function: { name: 'github_graph', arguments: JSON.stringify({ date: gh.date }) } });
@@ -175,7 +197,8 @@ export class Agent {
       } catch (err) {
         if (!(err instanceof AllProvidersUnavailableError)) throw err;
         // A private turn can't fall back to another provider; a short rate-limit is worth waiting out.
-        if (extra.sensitive && !waited && err.retryInMs <= 20_000) {
+        // A private turn can't fall back, so it waits up to 20 s; any turn waits out a few seconds.
+        if (!waited && err.retryInMs <= (extra.sensitive ? 20_000 : 5_000)) {
           waited = true;
           await this.sleep(err.retryInMs);
           round -= 1;
@@ -238,6 +261,27 @@ export class Agent {
       return { name: c.function?.name, args };
     });
     return { quick: null, calls, reply: calls.length ? null : (res.message.content || '').trim(), provider: res.provider };
+  }
+
+  // Rename a project / hand a job to Claude Code without the free AI (it got these wrong or was "busy").
+  async _projectCommand(text) {
+    const run = async (name, args) => {
+      const { output } = await this._runTool({ id: `${name}-${Date.now()}`, function: { name, arguments: JSON.stringify(args) } });
+      return output?.error || output?.note || 'Okay.';
+    };
+    const st = this.tasks.status();
+    const rename = this.tools.get('rename_project') ? renameCommand(text) : null;
+    if (rename) {
+      const name = rename.name || st.project;
+      return name ? run('rename_project', { name, newName: rename.newName }) : 'Which project should I rename?';
+    }
+    const job = this.tools.get('code_start_task') ? claudeCommand(text) : null;
+    if (!job) return null;
+    if (st.active && st.status === 'running') return run('code_send_message', { instruction: job });
+    const lower = text.toLowerCase();
+    const named = this.memory.listProjects().filter((p) => lower.includes(p.name)).sort((a, b) => b.name.length - a.name.length)[0];
+    const project = named?.name || st.project;
+    return project ? run('code_start_task', { project, instruction: job, agent: 'claude' }) : null; // no project: the brain asks
   }
 
   async _youtube(text) {

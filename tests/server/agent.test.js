@@ -61,7 +61,7 @@ describe('Agent', () => {
   it('asks approval for medium tools, runs them, and keeps the turn on one provider with the raw message', async () => {
     const assistant = { role: 'assistant', content: null, tool_calls: [toolCall('code_start_task', { project: 'portfolio', instruction: 'add login' })] };
     const { agent, router, ran } = setup([{ message: assistant, provider: 'gemini', model: 'g' }, reply('On it.', 'gemini')], { autoAnswer: true });
-    expect(await agent.handle('ask claude to add login to portfolio')).toBe('On it.');
+    expect(await agent.handle('add login to portfolio')).toBe('On it.');
     expect(ran).toEqual([{ project: 'portfolio', instruction: 'add login' }]);
     const second = router.calls[1];
     expect(second.only).toBe('gemini');
@@ -489,6 +489,66 @@ describe('answering a waiting question by voice (what speech-to-text writes)', (
       expect(await pending, said).toBe(allowed);
     }
     expect(router.calls).toHaveLength(0);
+  });
+});
+
+describe('direct project commands (no free AI in the middle)', async () => {
+  const { renameCommand, claudeCommand } = await import('../../server/brain/agent.js');
+  it('"rename my folder named Sample Project to Calculator Maker"', () => {
+    expect(renameCommand('Rename my folder named Sample Project to Calculator Maker in Claude.')).toEqual({ name: 'Sample Project', newName: 'Calculator Maker' });
+    expect(renameCommand('change the name of sample project to calculator maker')).toEqual({ name: 'sample project', newName: 'calculator maker' });
+    expect(renameCommand('rename the project to Calc')).toEqual({ name: null, newName: 'Calc' });
+    expect(renameCommand('what is the weather')).toBeNull();
+  });
+
+  it('"ask Claude to …" / "in Claude, …" goes straight to Claude Code with the user\'s own words', () => {
+    expect(claudeCommand('Ask Claude to add a dark mode toggle')).toBe('add a dark mode toggle');
+    expect(claudeCommand('Claude, fix the login bug')).toBe('fix the login bug');
+    expect(claudeCommand('in Claude make the buttons rounded')).toBe('make the buttons rounded');
+    expect(claudeCommand('use Claude to write tests for the calculator')).toBe('write tests for the calculator');
+    expect(claudeCommand('open Claude on my laptop')).toBeNull();
+    expect(claudeCommand('use Claude instead')).toBeNull();
+    expect(claudeCommand("what's the weather")).toBeNull();
+  });
+
+  it('renames through rename_project, using the current project when none is named', async () => {
+    const ran = [];
+    const tools = new ToolRegistry().add({ name: 'rename_project', description: 'r', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'r', run: async (a) => { ran.push(a); return { note: 'Renamed it to Calc.' }; } });
+    const agent = new Agent({ router: scriptedRouter([]), tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: true, project: 'sample project' }) }, logger: { log() {} } });
+    expect(await agent.handle('rename the project to Calc')).toBe('Renamed it to Calc.');
+    expect(ran).toEqual([{ name: 'sample project', newName: 'Calc' }]);
+  });
+
+  it('Claude jobs: a change while a task runs, else a new Claude task on the current project', async () => {
+    const ran = [];
+    const tool = (name) => ({ name, description: name, parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => name, run: async (a) => { ran.push([name, a]); return { note: 'ok' }; } });
+    const tools = new ToolRegistry().add(tool('code_send_message')).add(tool('code_start_task'));
+    let status = { active: true, status: 'running', project: 'calc' };
+    const agent = new Agent({ router: scriptedRouter([]), tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => status }, logger: { log() {} } });
+    await agent.handle('ask Claude to add dark mode');
+    status = { active: true, status: 'done', project: 'calc' };
+    await agent.handle('Claude, add a history panel');
+    expect(ran).toEqual([['code_send_message', { instruction: 'add dark mode' }], ['code_start_task', { project: 'calc', instruction: 'add a history panel', agent: 'claude' }]]);
+  });
+
+  it('a project named in the words wins; with no project at all the brain decides', async () => {
+    const ran = [];
+    const tools = new ToolRegistry().add({ name: 'code_start_task', description: 's', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 's', run: async (a) => { ran.push(a); return { note: 'ok' }; } });
+    const router = scriptedRouter([reply('Which project?')]);
+    const agent = new Agent({ router, tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [{ name: 'portfolio', path: 'C:\\p' }] }, tasks: { status: () => ({ active: false }) }, logger: { log() {} } });
+    await agent.handle('ask Claude to add login to portfolio');
+    expect(ran).toEqual([{ project: 'portfolio', instruction: 'add login to portfolio', agent: 'claude' }]);
+    expect(await agent.handle('ask Claude to build a calculator')).toBe('Which project?');
+  });
+});
+
+describe('a few seconds of "busy" are waited out, not said', () => {
+  it('any turn waits up to 5 s once instead of answering "try again in 1 seconds"', async () => {
+    const waits = [];
+    const router = scriptedRouter([new AllProvidersUnavailableError(1000), reply('Done.')]);
+    const agent = new Agent({ router, tools: new ToolRegistry(), approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) }, sleep: async (ms) => { waits.push(ms); }, logger: { log() {} } });
+    expect(await agent.handle('tell me a joke')).toBe('Done.');
+    expect(waits).toEqual([1000]);
   });
 });
 
