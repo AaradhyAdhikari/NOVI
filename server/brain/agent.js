@@ -27,7 +27,7 @@ const CHOICE_RE = /^(?:no[, ]+)?(?:(?:use|with|switch to)\s+)?(?:the\s+)?(claude
 // The owner's everyday yes / no / cancel in Hinglish, Hindi and Marathi (Latin or Devanagari: Sarvam
 // writes Hindi in Devanagari). Whole reply only: "haan but use cursor" still goes to the brain.
 const APPROVE_LOCAL = /^(?:approved|go for it|include kar(?:o|do)?|kar ?le(?: update)?|kar ?lo|kar do|haa?n?(?: kar do| karo)?|theek hai|thik hai|chalega|हाँ|हां|हा|कर दो|कर लो|कर ले|ठीक है|चलेगा|हो|चालेल|कर)$/;
-const DENY_LOCAL = /^(?:nahi|nahin|nai|mat kar(?:o)?|rehne de|rehne do|nako|नहीं|नही|मत करो|मत कर|रहने दो|नको)$/;
+const DENY_LOCAL = /^(?:nahi|nahin|nai|nahi karna|mat kar(?:o)?|rehne de|rehne do|nako|नहीं|नही|मत करो|मत कर|रहने दो|नको)$/;
 const STOP_LOCAL = /^(?:cancel (?:kar|karo|it|kar do)|ruk ja|ruko|band kar(?:o)?|बंद करो|बंद कर|रुक जा|रुको|कैंसल कर(?:ो| दो)?|थांब)$/;
 
 // YouTube by voice without the AI: "open YouTube" opens it now and the next answer names the video;
@@ -71,6 +71,8 @@ export function codeCommand(text) {
 
 const QUESTION = /^(?:what|whats|what's|how|why|who|when|where|which|is|are|can|could|do|does|kya|kaise|kab|kaun|kahan|kitna)\b/i;
 
+const DENY_HEARD = /^(?:dino|deno|deni|denny|deanie|dinah|deni it|denny it|dinah it|the nye|deny)$/;
+
 // Short spoken replies Novi handles without calling the AI (stop, yes/no, "use Claude instead", status).
 export function quickCommand(text) {
   const t = text.trim().toLowerCase().replace(/[.!?।]+$/, '').replace(/\s+/g, ' ');
@@ -79,7 +81,7 @@ export function quickCommand(text) {
   if (choice) return choice[1].startsWith('claude') ? 'choose:claude' : 'choose:novi-coder';
   if (/^(?:(?:yes|yeah|ok|okay)[, ]+)?(?:always allow|allow always|always)(?:[, ]+(?:allow )?(?:it|this|that))?(?:[, ]+please)?$/.test(t)) return 'approve-always';
   if (/^(yes|yeah|yep|yup|sure|allow|allow it|approve|go ahead|do it|ok|okay|start|start it)(?:[, ]+(?:please|start|go ahead|do it))?$/.test(t) || APPROVE_LOCAL.test(t)) return 'approve';
-  if (/^(no|nope|nah|deny|don't|do not|reject)(?:[, ]+(?:thanks|thank you))?$/.test(t) || DENY_LOCAL.test(t)) return 'deny';
+  if (/^(?:no[, ]+)?(no|nope|nah|deny|decline|reject|block|don't|do not|don't allow|do not allow|don't do it)(?:[, ]+(?:it|that|this|the request|this request|thanks|thank you|please))?$/.test(t) || DENY_LOCAL.test(t)) return 'deny';
   if (/^(what('s| is) (claude|the coder|novi coder|it) doing|status|progress|what('s| is) the progress|how far( along)?( is it)?|progress kya hai|kitna hua|kaha tak pahuncha|status kya hai)$/.test(t)) return 'status';
   if (/^(what('s| is) next|what('s| is) the next step|next step|aage kya( hai)?|ab kya( hai)?|next kya hai)$/.test(t)) return 'next';
   return null;
@@ -140,7 +142,9 @@ export class Agent {
 
   // from: 'local' (the laptop) or { deviceId } — approvals answered by voice check it (server/remoteTrust.js).
   async handle(text, { from = 'local' } = {}) {
-    const quick = quickCommand(text);
+    // While Novi waits for a yes/no, sound-alikes of "deny" ("Dino", "Denny") are a deny — never a song.
+    const waiting = Boolean(this.approvals.latest?.({ excludeTier: 'high' }));
+    const quick = waiting && DENY_HEARD.test(text.trim().toLowerCase().replace(/[.!?।,]+/g, '')) ? 'deny' : quickCommand(text);
     if (quick) {
       const quickReply = await this._quick(quick, from);
       if (quickReply) return this._remember(text, quickReply);
@@ -244,6 +248,7 @@ export class Agent {
     if (!cmd) return null;
     let query = cmd.play;
     if (cmd.maybe) {
+      if (this.approvals.pending?.().length) return null; // a question is waiting: answers aren't song names
       // Only a plain answer ("valorant") is a video name; anything that needs another tool goes to the brain.
       const offered = selectTools(this.tools.schemas(), { text });
       const plain = offered.every((s) => ALWAYS.has(s.function.name)) && cmd.maybe.split(' ').length <= 8 && !QUESTION.test(cmd.maybe);
