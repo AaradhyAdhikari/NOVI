@@ -77,7 +77,7 @@ export function createProjectsPlugin({ gather = gatherSources, now = () => new D
 
       api.registerTool({
         name: 'project_next',
-        description: 'Where the user left off on a project and what is still open ("what\'s next on NOVI?", "where did I leave off?"). project: name, default = the last one worked on.',
+        description: 'Where the user left off on a project and what is still open ("what\'s next on NOVI?", "where did I leave off?", "tell me my project updates"). project: name; omit it when the user names none — it then uses the last one worked on, so don\'t ask which project.',
         parameters: { type: 'object', properties: { project: { type: 'string' } } },
         async execute(_id, { project } = {}) {
           const p = pick(project);

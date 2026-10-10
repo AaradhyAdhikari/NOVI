@@ -17,7 +17,13 @@ export function scoreStep(step, want) {
   return (step.calls || []).some((c) => want.tools.includes(c.name) && argsMatch(c.args)) ? 'pass' : 'fail';
 }
 
-const describeStep = (s) => (s.quick ? `quick: ${s.quick}` : s.calls.length ? s.calls.map((c) => `${c.name}(${JSON.stringify(c.args)})`).join(', ') : `said: "${String(s.reply).slice(0, 60)}"`);
+// Errors in full (rate-limit numbers matter); normal replies cut short.
+export const describeStep = (s) => {
+  if (s.quick) return `quick: ${s.quick}`;
+  if (s.calls.length) return s.calls.map((c) => `${c.name}(${JSON.stringify(c.args)})`).join(', ');
+  const reply = String(s.reply);
+  return `said: "${reply.startsWith('ERROR') ? reply : reply.slice(0, 60)}"`;
+};
 
 async function main() {
   const { loadConfig } = await import('../server/config.js');

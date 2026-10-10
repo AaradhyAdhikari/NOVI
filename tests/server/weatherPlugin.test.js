@@ -84,3 +84,11 @@ describe('weather plugin (Open-Meteo, no key)', () => {
     expect(await host.get('weather_get').gate({ place: 'Pune' })).toEqual({});
   });
 });
+
+describe('weather: never made up', () => {
+  it('tells the brain to always fetch the weather instead of answering from memory', () => {
+    const { host } = setup();
+    const d = host.schemas().find((s) => s.function.name === 'weather_get').function.description;
+    expect(d).toMatch(/never .*(guess|memory|make)/i);
+  });
+});

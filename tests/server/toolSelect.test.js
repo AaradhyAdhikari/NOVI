@@ -131,3 +131,17 @@ describe('selectTools: Hinglish reminders', () => {
     for (const text of ['kal subah 7 baje utha dena', 'mujhe 5 baje yaad dila dena', 'subah jaga dena']) expect(names(text), text).toContain('reminder_add');
   });
 });
+
+describe('selectTools: Hindi / Marathi weather', () => {
+  it('हवामान, मौसम, पाऊस, mausam offer the weather tool', () => {
+    for (const text of ['उद्याचे हवामान सांग', 'आज मौसम कैसा है', 'पाऊस पडेल का', 'kal ka mausam batao', 'barish hogi kya']) expect(names(text), text).toContain('weather_get');
+  });
+});
+
+describe('selectTools: Hinglish coding requests reach the coder', () => {
+  it('"add kar", "bana de", "karwa", "change kar" offer code_start_task', () => {
+    for (const text of ['Novi project mein dark mode add kar', 'Novi mein login page bana de', 'Novi ka button change kar', 'dark mode karwa do Novi mein']) {
+      expect(names(text), text).toContain('code_start_task');
+    }
+  });
+});
