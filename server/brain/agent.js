@@ -14,7 +14,7 @@ export function systemPrompt({ projects, task, accounts = [] }) {
     'If the user mentions a project you do not know, ask for its folder path, then call remember_project.',
     'You can also act directly: open_website (use a full https URL when you know the site) and play_youtube open things right away on the device the user is using; open_app opens installed apps on the laptop. To watch or play anything ("show me valorant", "play X"), call play_youtube (top result by default; position for "the 5th one"); use youtube_search only when the user asks to see the options. Never read out a list of videos; after playing, just say the title.',
     'To do something inside an app on the laptop that has no tool of its own (e.g. "open Claude and make a project named X"), do it yourself step by step: open_app, then screen_look, screen_click, screen_type and screen_key until it is done. Do not stop after opening the app or tell the user to do it.',
-    'Never say a task is finished unless a tool result says so. If a tool returns an error, explain it briefly.',
+    'Never say you played, opened, sent or did something unless a tool result in this turn says it happened; if you did not call the tool, call it. Never say a task is finished unless a tool result says so. If a tool returns an error, explain it briefly.',
     `Known projects: ${projects.length ? projects.map((p) => `${p.name} (${p.path})`).join('; ') : 'none yet'}.`,
     `Current coding task: ${task.active ? `${task.status} on ${task.project}: "${task.instruction}"` : 'none'}.`,
     'For email use gmail_search (Gmail search syntax), gmail_read and gmail_send; gmail_connect connects a new account. If a tool result contains "ask", ask the user which account and call the tool again with account. Never guess email addresses. Write the complete email before gmail_send; the user approves it on screen. When summarising mail, mention sender and subject briefly.',
@@ -78,8 +78,9 @@ export function describeStatus(s) {
 }
 
 export class Agent {
-  constructor({ router, tools, approvals, memory, tasks, accounts = null, privateProviders = ['groq'], sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
+  constructor({ router, tools, approvals, memory, tasks, accounts = null, privateProviders = ['groq'], logger = console, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
     this.sleep = sleep;
+    this.logger = logger;
     this.accounts = accounts;
     this.privateProviders = privateProviders;
     this.router = router;
@@ -240,7 +241,15 @@ export class Agent {
     return allow ? 'Approved.' : 'Okay, denied.';
   }
 
+  // One log line per tool run (name + ok or the error; never the arguments, which can be private).
   async _runTool(call) {
+    const result = await this._runToolInner(call);
+    const err = result.output?.error;
+    this.logger?.log?.(`[tool] ${call.function?.name} ${err ? `error: ${String(err).slice(0, 200)}` : 'ok'}`);
+    return result;
+  }
+
+  async _runToolInner(call) {
     const tool = this.tools.get(call.function?.name);
     if (!tool) return { output: { error: `Unknown tool ${call.function?.name}` } };
     let args;

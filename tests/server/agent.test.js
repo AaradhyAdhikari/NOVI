@@ -116,6 +116,7 @@ describe('systemPrompt', () => {
     expect(p).toMatch(/position/);
     expect(p).toMatch(/never read out a list/i);
     expect(p).toMatch(/screen_look/);
+    expect(p).toMatch(/never say you played, opened, sent or did something unless a tool result/i);
   });
 });
 
@@ -166,6 +167,14 @@ describe('YouTube by voice: open it now, then say what to play', () => {
     const { agent, ran } = ytSetup();
     expect(await agent.firstStep('play lofi on youtube')).toEqual({ quick: null, calls: [{ name: 'play_youtube', args: { query: 'lofi' } }], reply: null, provider: 'direct' });
     expect(ran).toEqual([]);
+  });
+
+  it('logs every tool run (name + ok or the error) so "it said playing but nothing played" can be checked', async () => {
+    const { agent } = ytSetup({ error: 'boom' });
+    const lines = [];
+    agent.logger = { log: (l) => lines.push(l) };
+    await agent.handle('play lofi on youtube');
+    expect(lines).toEqual(['[tool] play_youtube error: boom']);
   });
 
   it('says what went wrong instead of pretending to play', async () => {
