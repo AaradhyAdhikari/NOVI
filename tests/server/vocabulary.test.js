@@ -51,3 +51,18 @@ describe('word list (vocabulary)', () => {
     expect(() => v.addFix('x', ' ')).toThrow('Give both the misheard words and the right ones.');
   });
 });
+
+describe('built-in fix: "cloud" heard for "Claude"', () => {
+  it('turns cloud into Claude when it means the app, not Google Cloud or the sky', () => {
+    const v = createVocabulary({ file: file() });
+    expect(v.apply('open cloud on my laptop')).toBe('open Claude on my laptop');
+    expect(v.apply('open Novi in cloud code')).toBe('open Novi in Claude code');
+    expect(v.apply('use Cloud instead')).toBe('use Claude instead');
+    expect(v.apply('ask clawed to fix the bug')).toBe('ask Claude to fix the bug');
+    expect(v.apply('open google cloud console')).toBe('open google cloud console');
+    expect(v.apply('upload it to the cloud')).toBe('upload it to the cloud');
+    expect(v.apply('cloud storage is full')).toBe('cloud storage is full');
+    expect(v.apply('the clouds look dark')).toBe('the clouds look dark');
+  });
+});
+

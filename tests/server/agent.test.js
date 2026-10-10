@@ -459,3 +459,24 @@ describe('"cancel" while Novi is asking something', () => {
   });
 });
 
+describe('deny by voice', () => {
+  it('understands the usual ways of saying no', () => {
+    for (const t of ['deny', 'deny it', 'Deny that.', 'decline', 'reject it', "don't allow it", 'no, deny it', 'block it', 'nahi karna']) expect(quickCommand(t), t).toBe('deny');
+  });
+
+  it('while a question is waiting, sound-alikes of "deny" (Dino, Denny) deny it — they never play a song', async () => {
+    const router = scriptedRouter([]);
+    const approvals = new ApprovalQueue();
+    const played = [];
+    const tools = new ToolRegistry()
+      .add({ name: 'open_website', description: 'o', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'o', run: async () => ({ opened: 'https://www.youtube.com/', on: 'laptop' }) })
+      .add({ name: 'play_youtube', description: 'p', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'p', run: async (a) => { played.push(a); return { playing: { title: 'Dino song' } }; } });
+    const agent = new Agent({ router, tools, approvals, memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) }, logger: { log() {} } });
+    await agent.handle('open youtube');
+    const pending = approvals.request({ title: 'Claude wants to run a command', tier: 'medium', source: 'claude' });
+    expect(await agent.handle('Dino.')).toBe('Okay, denied.');
+    expect(await pending).toBe(false);
+    expect(played).toEqual([]);
+  });
+});
+
