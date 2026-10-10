@@ -146,7 +146,7 @@ export function createNovi(config, overrides = {}) {
     watchWindows.openTakeOver(handed);
     return handed;
   }
-  plugins.register(wrapRegistryAsPlugin({ id: 'coding', name: 'Coding tasks', registry: createNoviTools({ memory, tasks, coder: defaultCoder, alternativeAvailable: defaultCoder === 'claude' || claudeInstalled, takeOver: claudeInstalled ? takeOverTask : null, projectsDir: config.projectsDir }) }));
+  plugins.register(wrapRegistryAsPlugin({ id: 'coding', name: 'Coding tasks', registry: createNoviTools({ memory, tasks, coder: defaultCoder, alternativeAvailable: defaultCoder === 'claude' || claudeInstalled, takeOver: claudeInstalled ? takeOverTask : null, projectsDir: config.projectsDir, showImage: (img) => plugins.runtime.showImage(img) }) }));
   plugins.register(wrapRegistryAsPlugin({ id: 'laptop', name: 'Laptop basics', registry: addLaptopTools(new ToolRegistry(), { askedFromPhone, ...overrides.laptop }) }));
   plugins.register(wrapRegistryAsPlugin({
     id: 'accounts',

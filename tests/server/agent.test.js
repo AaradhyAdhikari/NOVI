@@ -239,7 +239,7 @@ describe('describeStatus', () => {
     expect(describeStatus({ active: false })).toBe('No coding task is running right now.');
     expect(describeStatus({ active: true, agent: 'Novi Coder', status: 'running', project: 'site', recent: [] })).toBe('Novi Coder is working on site.');
     expect(describeStatus({ active: true, status: 'running', project: 'portfolio', recent: ['Reading a.js', 'Editing a.js'] }))
-      .toBe('Claude is working on portfolio. Latest: Reading a.js, then Editing a.js.');
+      .toBe('Claude is working on portfolio. Latest: Editing a.js.');
     expect(describeStatus({ active: true, status: 'done', project: 'portfolio', summary: 'Added login. Tests pass.', recent: [] }))
       .toBe('Claude finished the task on portfolio. Added login.');
   });
@@ -398,6 +398,62 @@ describe('GitHub contribution graph by voice (no AI call)', () => {
     expect(ran).toEqual([]);
     const bad = ghSetup({ error: "I don't know your GitHub username yet." });
     expect(await bad.agent.handle('github contribution ss')).toBe("I don't know your GitHub username yet.");
+  });
+});
+
+describe('progress and next step by voice (from the coder\'s plan)', async () => {
+  const { describeNext } = await import('../../server/brain/agent.js');
+  const plan = [
+    { step: 'Create the login page', doing: 'Creating the login page', status: 'completed' },
+    { step: 'Add form validation', doing: 'Adding form validation', status: 'in_progress' },
+    { step: 'Write tests', doing: 'Writing tests', status: 'pending' },
+  ];
+  const running = { active: true, agent: 'Claude', status: 'running', project: 'portfolio', recent: ['Editing a.js'], plan };
+
+  it('"what\'s the progress" says the step it is on, very short', () => {
+    expect(describeStatus(running)).toBe('Step 2 of 3: adding form validation.');
+    for (const t of ["what's the progress", 'progress?', 'progress kya hai', 'kitna hua', 'status']) expect(quickCommand(t), t).toBe('status');
+  });
+
+  it('"what\'s next" says the next planned step', () => {
+    expect(describeNext(running)).toBe('Next: write tests.');
+    expect(describeNext({ ...running, plan: plan.map((p) => ({ ...p, status: p.status === 'pending' ? 'in_progress' : 'completed' })).slice(0, 3) })).toBe('That\'s the last step: writing tests.');
+    expect(describeNext({ ...running, plan: [] })).toBe("Claude hasn't shared a plan yet. Latest: Editing a.js.");
+    expect(describeNext({ active: false })).toBeNull();
+    for (const t of ["what's next", 'what is the next step', 'next step', 'aage kya hai', 'ab kya']) expect(quickCommand(t), t).toBe('next');
+  });
+});
+
+describe('"show me the … code" goes straight to code_show (no AI call)', async () => {
+  const { codeCommand } = await import('../../server/brain/agent.js');
+  it('spots code requests in English and Hinglish, not other things', () => {
+    expect(codeCommand('Show me the HTML code')).toBe('Show me the HTML code');
+    expect(codeCommand('navbar ka code dikhao')).toBe('navbar ka code dikhao');
+    expect(codeCommand('what code did you write for the button? show it')).toBeTruthy();
+    expect(codeCommand('show me the weather')).toBeNull();
+    expect(codeCommand('fix the code in the navbar')).toBeNull();
+  });
+
+  it('runs code_show and says the file', async () => {
+    const ran = [];
+    const tools = new ToolRegistry().add({ name: 'code_show', description: 'c', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'c', run: async (a) => { ran.push(a); return { file: 'index.html', lines: '1–40' }; } });
+    const agent = new Agent({ router: scriptedRouter([]), tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: true }) }, logger: { log() {} } });
+    expect(await agent.handle('show me the html code')).toBe("Here's index.html.");
+    expect(ran).toEqual([{ what: 'show me the html code' }]);
+  });
+});
+
+describe('"cancel" while Novi is asking something', () => {
+  it('declines the question instead of stopping the coding task', async () => {
+    const { agent, approvals } = setup([]);
+    let stopped = false;
+    agent.tasks.stop = async () => { stopped = true; return true; };
+    const pending = approvals.request({ title: 'Tell Claude: add dark mode', tier: 'medium', source: 'novi' });
+    expect(await agent.handle('cancel')).toBe('Okay, cancelled.');
+    expect(await pending).toBe(false);
+    expect(stopped).toBe(false);
+    expect(await agent.handle('cancel')).toBe('Okay, I stopped the coding task.');
+    expect(stopped).toBe(true);
   });
 });
 

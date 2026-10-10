@@ -106,7 +106,7 @@ export class TaskManager extends EventEmitter {
   status() {
     if (!this.task) return { active: false };
     const { id, project, instruction, status, startedAt, summary, allowEdits } = this.task;
-    return { active: true, agent: this.task.agentName || this.agentName, id, project, instruction, status, startedAt, summary, allowEdits, recent: this.task.updates.slice(-5).map((u) => u.text) };
+    return { active: true, agent: this.task.agentName || this.agentName, id, project, path: this.task.path, instruction, status, startedAt, summary, allowEdits, recent: this.task.updates.slice(-5).map((u) => u.text), plan: this.task.plan || [], files: this.task.files || [] };
   }
 
   _restoreLastTask() {
@@ -139,6 +139,13 @@ export class TaskManager extends EventEmitter {
     if (event.kind === 'init' && event.sessionId) {
       task.sessionId = event.sessionId;
       this._save(task);
+    }
+    // The coder's plan (Claude's TodoWrite) and the files it wrote: "what's next", "show me the code".
+    if (event.kind === 'tool_use' && event.name === 'TodoWrite' && Array.isArray(event.input?.todos)) {
+      task.plan = event.input.todos.map((t) => ({ step: String(t.content || ''), doing: String(t.activeForm || t.content || ''), status: t.status || 'pending' }));
+    }
+    if (event.kind === 'tool_use' && EDIT_TOOLS.has(event.name) && event.input?.file_path) {
+      task.files = [...(task.files || []).filter((f) => f !== event.input.file_path), event.input.file_path].slice(-20);
     }
     if (event.kind === 'result') {
       if (this.stopping) return;

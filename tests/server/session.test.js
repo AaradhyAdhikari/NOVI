@@ -38,6 +38,11 @@ describe('claudeArgs', () => {
     expect(args).toEqual(expect.arrayContaining(['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--permission-prompts', 'host', '--permission-prompt-tool', 'stdio']));
     expect(args.slice(-2)).toEqual(['--resume', 's9']);
   });
+
+  it('asks Claude to keep a short step-by-step plan (Novi reads it for "what\'s the progress" / "what\'s next")', () => {
+    const args = claudeArgs();
+    expect(args[args.indexOf('--append-system-prompt') + 1]).toMatch(/TodoWrite/);
+  });
 });
 
 describe('ClaudeSession (against fake CLI)', () => {

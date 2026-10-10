@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { ToolRegistry } from './registry.js';
+import { findCode, codeSvg } from './codeView.js';
+import { UserFacingError } from '../errors.js';
 
 const obj = (properties = {}, required = []) => ({ type: 'object', properties, required });
 const str = (description) => ({ type: 'string', description });
@@ -23,7 +25,7 @@ const folderName = (name) => String(name || '').replace(/[<>:"/\\|?*\x00-\x1f]/g
 // coder: default coding agent; alternativeAvailable: whether the other coder can be offered by voice.
 // takeOver: async () => { project } — stops the background Claude run and opens it interactively (laptop).
 // projectsDir: where new projects are made (code_new_project is offered only when set).
-export function createNoviTools({ memory, tasks, coder = 'novi-coder', alternativeAvailable = false, takeOver = null, projectsDir = null }) {
+export function createNoviTools({ memory, tasks, coder = 'novi-coder', alternativeAvailable = false, takeOver = null, projectsDir = null, showImage = null }) {
   const c = CODERS[coder] || CODERS['novi-coder'];
   // The coder the user named for this task (only when it isn't the default), and the one that will run.
   const named = ({ agent } = {}) => (CODERS[agent] && agent !== coder ? agent : null);
@@ -74,11 +76,15 @@ export function createNoviTools({ memory, tasks, coder = 'novi-coder', alternati
     })
     .add({
       name: 'code_send_message',
-      description: 'Send a follow-up instruction to the coding agent in the current or most recent task (same conversation).',
-      parameters: obj({ instruction: str('What to tell the coding agent') }, ['instruction']),
-      tier: 'low',
+      description: 'Send a change or follow-up to the coding agent in the current or most recent task, even while it is still working ("I don\'t like the button colour, make it blue", "add dark mode", "use a bigger font"). Same conversation, same project.',
+      parameters: obj({ instruction: str('What to tell the coding agent, clear and complete') }, ['instruction']),
+      tier: 'medium',
       describe: ({ instruction }) => `Tell the coder: "${instruction}"`,
-      run: async ({ instruction }) => ({ sent: true, task: tasks.send(instruction) }),
+      prompt: ({ instruction }) => `I'll tell ${tasks.status().agent || (coder === 'claude' ? 'Claude' : 'Novi Coder')}: ${String(instruction).trim().replace(/[.!?]+$/, '')}. Okay? Say yes, no or cancel.`,
+      run: async ({ instruction }) => {
+        const running = tasks.status().status === 'running';
+        return { sent: true, task: tasks.send(instruction), note: running ? 'Sent. The coder will do it right after the step it is on now.' : 'Sent. The coder is on it.' };
+      },
     })
     .add({
       name: 'code_status',
@@ -107,6 +113,28 @@ export function createNoviTools({ memory, tasks, coder = 'novi-coder', alternati
         return { allowEdits: Boolean(allow) };
       },
     });
+  if (showImage) {
+    registry.add({
+      name: 'code_show',
+      description: 'Show the user the exact code they ask for, as a picture on the device they are using ("show me the HTML code", "show me the navbar code", "the CSS for the button"). Finds it in the current coding task\'s project (or the named project). Read-only. Then say only which file it is, in a few words.',
+      parameters: obj({ what: str('What code the user asked for, in their words'), project: str('Project name, only if the user named one') }, ['what']),
+      tier: 'low',
+      describe: ({ what }) => `Show ${what}`,
+      run: async ({ what, project }) => {
+        const st = tasks.status();
+        const named = project ? memory.findProject(project) : null;
+        if (project && !named) throw new UserFacingError(`I don't know a project called ${project}.`);
+        const root = named?.path || (st.active ? st.path || memory.findProject(st.project)?.path : null);
+        const name = named?.name || st.project;
+        if (!root) throw new UserFacingError('Which project should I look in?');
+        const found = findCode(root, what, { recent: named && named.name !== st.project ? [] : st.files || [] });
+        if (!found) throw new UserFacingError(`I couldn't find ${what} in ${name}.`);
+        const lines = `${found.start}–${found.start + Math.max(0, found.lines.length - 1)}`;
+        showImage({ svg: codeSvg(found), caption: `${name} · ${found.file} · lines ${lines}` });
+        return { file: found.file, lines, instructions: 'Sent the code picture. Say only the file name in a few words; do not read the code out.' };
+      },
+    });
+  }
   if (projectsDir) {
     const AGENT = alternativeAvailable ? { agent: { type: 'string', enum: ['claude', 'novi-coder'], description: 'Which coder, only if the user named one. Default: Claude Code.' } } : {};
     registry.add({

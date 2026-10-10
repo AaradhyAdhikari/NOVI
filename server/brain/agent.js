@@ -10,7 +10,7 @@ const MAX_HISTORY = 40;
 export function systemPrompt({ projects, task, accounts = [] }) {
   return [
     'You are Novi, a voice-first personal AI companion. Your replies are spoken aloud: answer in 1-2 short, natural sentences (about 25 words), with no markdown, lists, code or links; never offer more help at the end. Details and links only when asked.',
-    "You control a coding agent on the user's laptop through tools. For coding work on a project, call code_start_task with the project name and a clear, complete instruction for the coding agent. For follow-ups to the current or most recent task, call code_send_message. Use code_status for progress questions and code_stop to stop.",
+    "You control a coding agent on the user's laptop through tools. For coding work on a project, call code_start_task with the project name and a clear, complete instruction for the coding agent. For follow-ups and changes to the current or most recent task, even while it is running ('make the button blue', 'add dark mode'), call code_send_message. To show code ('show me the HTML'), call code_show. To start a brand-new project, call code_new_project. Use code_status for progress questions and code_stop to stop.",
     'If the user mentions a project you do not know, ask for its folder path, then call remember_project.',
     'You can also act directly: open_website (use a full https URL when you know the site) and play_youtube open things right away on the device the user is using; open_app opens installed apps on the laptop. To watch or play anything ("show me valorant", "play X"), call play_youtube (top result by default; position for "the 5th one"); use youtube_search only when the user asks to see the options. Never read out a list of videos; after playing, just say the title.',
     'To do something inside an app on the laptop that has no tool of its own (e.g. "open Claude and make a project named X"), do it yourself step by step: open_app, then screen_look, screen_click, screen_type and screen_key until it is done. Do not stop after opening the app or tell the user to do it.',
@@ -61,6 +61,14 @@ export function githubGraphCommand(text, now = new Date()) {
   return { date: d.toLocaleDateString('en-CA'), when: yesterday ? 'yesterday' : 'today' };
 }
 
+// "Show me the HTML code" / "navbar ka code dikhao" → code_show with the user's words (no AI call).
+export function codeCommand(text) {
+  const t = String(text || '').trim();
+  if (!/\bcode\b|कोड/i.test(t) || !/\b(show|see|dikha\w*|dekh\w*)\b|दिखा/i.test(t)) return null;
+  if (/\b(fix|change|add|write|make|remove|delete|update|bana\w*|badal\w*)\b/i.test(t) && !/\b(show|see)\b.*\b(wrote|written|did you)\b|\bdid you write\b/i.test(t)) return null;
+  return t;
+}
+
 const QUESTION = /^(?:what|whats|what's|how|why|who|when|where|which|is|are|can|could|do|does|kya|kaise|kab|kaun|kahan|kitna)\b/i;
 
 // Short spoken replies Novi handles without calling the AI (stop, yes/no, "use Claude instead", status).
@@ -72,16 +80,35 @@ export function quickCommand(text) {
   if (/^(?:(?:yes|yeah|ok|okay)[, ]+)?(?:always allow|allow always|always)(?:[, ]+(?:allow )?(?:it|this|that))?(?:[, ]+please)?$/.test(t)) return 'approve-always';
   if (/^(yes|yeah|yep|yup|sure|allow|allow it|approve|go ahead|do it|ok|okay|start|start it)(?:[, ]+(?:please|start|go ahead|do it))?$/.test(t) || APPROVE_LOCAL.test(t)) return 'approve';
   if (/^(no|nope|nah|deny|don't|do not|reject)(?:[, ]+(?:thanks|thank you))?$/.test(t) || DENY_LOCAL.test(t)) return 'deny';
-  if (/^(what('s| is) (claude|the coder|novi coder|it) doing|status|what('s| is) the progress)$/.test(t)) return 'status';
+  if (/^(what('s| is) (claude|the coder|novi coder|it) doing|status|progress|what('s| is) the progress|how far( along)?( is it)?|progress kya hai|kitna hua|kaha tak pahuncha|status kya hai)$/.test(t)) return 'status';
+  if (/^(what('s| is) next|what('s| is) the next step|next step|aage kya( hai)?|ab kya( hai)?|next kya hai)$/.test(t)) return 'next';
   return null;
+}
+
+const lower = (t) => String(t).charAt(0).toLowerCase() + String(t).slice(1).replace(/[.!]+$/, '');
+
+// "What's next": the next step of the coder's plan (null when no task, so the brain answers instead).
+export function describeNext(s) {
+  if (!s.active) return null;
+  const plan = s.plan || [];
+  const next = plan.find((p) => p.status === 'pending');
+  if (next) return `Next: ${lower(next.step)}.`;
+  const doing = plan.find((p) => p.status === 'in_progress');
+  if (doing) return `That's the last step: ${lower(doing.doing)}.`;
+  if (plan.length) return s.status === 'running' ? 'All planned steps are done; it is finishing up.' : describeStatus(s);
+  const latest = (s.recent || []).at(-1);
+  return `${s.agent || 'Claude'} hasn't shared a plan yet.${latest ? ` Latest: ${latest}.` : ''}`;
 }
 
 export function describeStatus(s) {
   if (!s.active) return 'No coding task is running right now.';
   const who = s.agent || 'Claude';
   if (s.status === 'running') {
-    const recent = (s.recent || []).slice(-2).join(', then ');
-    return `${who} is working on ${s.project}.${recent ? ` Latest: ${recent}.` : ''}`;
+    const plan = s.plan || [];
+    const at = plan.findIndex((p) => p.status === 'in_progress');
+    if (at >= 0) return `Step ${at + 1} of ${plan.length}: ${lower(plan[at].doing)}.`;
+    const latest = (s.recent || []).at(-1);
+    return `${who} is working on ${s.project}.${latest ? ` Latest: ${latest}.` : ''}`;
   }
   if (s.status === 'done') return `${who} finished the task on ${s.project}. ${firstSentence(s.summary || '')}`.trim();
   if (s.status === 'stopped') return `The task on ${s.project} was stopped.`;
@@ -111,6 +138,11 @@ export class Agent {
     }
     const yt = await this._youtube(text);
     if (yt) return this._remember(text, yt);
+    const code = this.tools.get('code_show') ? codeCommand(text) : null;
+    if (code) {
+      const { output } = await this._runTool({ id: `code-${Date.now()}`, function: { name: 'code_show', arguments: JSON.stringify({ what: code }) } });
+      return this._remember(text, output?.error || `Here's ${output?.file}.`);
+    }
     const gh = this.tools.get('github_graph') ? githubGraphCommand(text) : null;
     if (gh) {
       const { output } = await this._runTool({ id: `gh-${Date.now()}`, function: { name: 'github_graph', arguments: JSON.stringify({ date: gh.date }) } });
@@ -223,8 +255,17 @@ export class Agent {
   }
 
   async _quick(kind, from = 'local') {
-    if (kind === 'stop') return (await this.tasks.stop()) ? 'Okay, I stopped the coding task.' : 'Nothing is running right now.';
+    if (kind === 'stop') {
+      // While Novi is asking something, "cancel" answers that question; it doesn't stop the task.
+      const asking = this.approvals.latest({ excludeTier: 'high' });
+      if (asking) {
+        this.approvals.resolve(asking.id, false, 'voice', null, { from });
+        return 'Okay, cancelled.';
+      }
+      return (await this.tasks.stop()) ? 'Okay, I stopped the coding task.' : 'Nothing is running right now.';
+    }
     if (kind === 'status') return describeStatus(this.tasks.status());
+    if (kind === 'next') return describeNext(this.tasks.status());
     if (kind.startsWith('choose:')) {
       const choice = kind.slice('choose:'.length);
       const open = this.approvals.pending().filter((a) => a.tier !== 'high' && !a.kind && a.choices);

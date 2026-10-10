@@ -175,3 +175,44 @@ describe('code_new_project (new project from the phone, built by Claude Code)', 
     expect(setup().tools.get('code_new_project')).toBeFalsy();
   });
 });
+
+describe('code_show ("show me the html code")', () => {
+  it('finds the code in the current task\'s project and sends it as a picture', async () => {
+    const s = setup();
+    const folder = path.join(s.dir, 'site');
+    fs.mkdirSync(folder);
+    fs.writeFileSync(path.join(folder, 'index.html'), '<html>\n<button>Go</button>\n</html>\n');
+    s.memory.rememberProject('site', folder);
+    s.tasks.status = () => ({ active: true, project: 'site', path: folder, files: [path.join(folder, 'index.html')] });
+    const shown = [];
+    const tools = createNoviTools({ memory: s.memory, tasks: s.tasks, showImage: (img) => shown.push(img) });
+    const tool = tools.get('code_show');
+    expect(tool.tier).toBe('low');
+    const out = await tool.run({ what: 'the html code' });
+    expect(out).toMatchObject({ file: 'index.html', lines: '1–4' });
+    expect(shown[0].svg).toContain('&lt;button&gt;Go&lt;/button&gt;');
+    expect(shown[0].caption).toBe('site · index.html · lines 1–4');
+    await expect(tool.run({ what: 'the rust code' })).rejects.toThrow(/couldn't find/);
+  });
+
+  it('asks which project when there is no task', async () => {
+    const s = setup();
+    const tools = createNoviTools({ memory: s.memory, tasks: s.tasks, showImage: () => {} });
+    await expect(tools.get('code_show').run({ what: 'html' })).rejects.toThrow(/Which project/);
+  });
+});
+
+describe('changes while the coder works ("make the button blue", "add dark mode")', () => {
+  it('asks a spoken yes / no / cancel first, then sends the change to the same task', async () => {
+    const s = setup();
+    const tool = s.tools.get('code_send_message');
+    expect(tool.tier).toBe('medium');
+    expect(tool.prompt({ instruction: 'make the button blue' })).toBe("I'll tell Novi Coder: make the button blue. Okay? Say yes, no or cancel.");
+    expect(tool.description).toMatch(/dark mode/);
+    s.tasks.status = () => ({ active: true, status: 'running', agent: 'Claude' });
+    expect(tool.prompt({ instruction: 'add dark mode' })).toBe("I'll tell Claude: add dark mode. Okay? Say yes, no or cancel.");
+    const out = await tool.run({ instruction: 'make the button blue' });
+    expect(s.calls).toContainEqual(['send', 'make the button blue']);
+    expect(out.note).toMatch(/after/);
+  });
+});
