@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { ToolRegistry } from './registry.js';
 
 const obj = (properties = {}, required = []) => ({ type: 'object', properties, required });
@@ -8,9 +11,19 @@ const CODERS = {
   claude: { title: 'Claude Code (your Claude plan)', spoken: 'Claude Code, on your Claude plan', other: 'novi-coder', otherLabel: 'Use Novi Coder', otherSpoken: 'use Novi Coder instead' },
 };
 
+// Where "make a new project" puts folders: Documents\Projects (OneDrive's Documents when it exists).
+export function defaultProjectsDir(home = os.homedir(), exists = fs.existsSync) {
+  const docs = [path.join(home, 'OneDrive', 'ドキュメント'), path.join(home, 'OneDrive', 'Documents'), path.join(home, 'Documents')].find((d) => exists(d));
+  return path.join(docs || path.join(home, 'Documents'), 'Projects');
+}
+
+// A Windows-safe folder name: no <>:"/\|?*, no leading/trailing dots or spaces.
+const folderName = (name) => String(name || '').replace(/[<>:"/\\|?*\x00-\x1f]/g, '').replace(/\s+/g, ' ').replace(/^[.\s]+|[.\s]+$/g, '').slice(0, 60);
+
 // coder: default coding agent; alternativeAvailable: whether the other coder can be offered by voice.
 // takeOver: async () => { project } — stops the background Claude run and opens it interactively (laptop).
-export function createNoviTools({ memory, tasks, coder = 'novi-coder', alternativeAvailable = false, takeOver = null }) {
+// projectsDir: where new projects are made (code_new_project is offered only when set).
+export function createNoviTools({ memory, tasks, coder = 'novi-coder', alternativeAvailable = false, takeOver = null, projectsDir = null }) {
   const c = CODERS[coder] || CODERS['novi-coder'];
   // The coder the user named for this task (only when it isn't the default), and the one that will run.
   const named = ({ agent } = {}) => (CODERS[agent] && agent !== coder ? agent : null);
@@ -94,6 +107,39 @@ export function createNoviTools({ memory, tasks, coder = 'novi-coder', alternati
         return { allowEdits: Boolean(allow) };
       },
     });
+  if (projectsDir) {
+    const AGENT = alternativeAvailable ? { agent: { type: 'string', enum: ['claude', 'novi-coder'], description: 'Which coder, only if the user named one. Default: Claude Code.' } } : {};
+    registry.add({
+      name: 'code_new_project',
+      description: `Make a brand-new project from scratch ("make a new project called X, description Y, and build Z"): creates the folder in ${projectsDir} with a README (name + description), remembers it, and starts the coder on the instruction. Use this — not screen control or open_project — for new projects.`,
+      parameters: obj({
+        name: str('Project name the user said'),
+        description: str('Project description the user said (optional)'),
+        instruction: str('What the coder should build, complete and clear (optional: omit to only create the project)'),
+        ...AGENT,
+      }, ['name']),
+      tier: 'medium',
+      describe: (a) => `New project "${folderName(a.name)}"${a.instruction ? ` + ${coderFor(a).title}: "${a.instruction}"` : ''}`,
+      detail: (a) => `Folder: ${path.join(projectsDir, folderName(a.name))}${a.description ? `\nDescription: ${a.description}` : ''}`,
+      prompt: (a) => `I'll make a new project "${folderName(a.name)}"${a.instruction ? ` and have ${coderFor(a).spoken} build it: ${String(a.instruction).trim().replace(/[.!?]+$/, '')}. It's a new folder, so it won't ask before each file edit; commands still ask` : ''}. Shall I go ahead? Say yes or no.`,
+      choices: (a = {}) => (alternativeAvailable && a.instruction ? [{ id: coderFor(a).other, label: coderFor(a).otherLabel, params: { $agent: coderFor(a).other } }] : undefined),
+      run: async ({ name, description, instruction, agent, $agent }) => {
+        const clean = folderName(name);
+        if (!clean || /^\.+$/.test(clean)) throw new Error('Tell me a name for the project.');
+        const folder = path.join(projectsDir, clean);
+        if (fs.existsSync(folder) && fs.readdirSync(folder).length) throw new Error(`A project folder called "${clean}" already exists. Pick another name, or ask me to work on that project.`);
+        fs.mkdirSync(folder, { recursive: true });
+        const about = String(description || '').trim();
+        fs.writeFileSync(path.join(folder, 'README.md'), `# ${clean}\n${about ? `\n${about}\n` : ''}`);
+        const project = memory.rememberProject(clean, folder).name;
+        if (!String(instruction || '').trim()) return { created: folder, project, note: `Made the project ${clean}. Tell me what to build in it.` };
+        const brief = `${String(instruction).trim()}\n\nThis is a new, empty project called "${clean}"${about ? `: ${about}` : ''}. Start from scratch in this folder.`;
+        const task = tasks.start(project, brief, { agent: $agent || named({ agent }) || undefined });
+        tasks.setAllowEdits(true); // a brand-new folder: nothing to lose; commands still ask
+        return { created: folder, project, started: true, task, note: `Made ${clean}; the coder is building it now.` };
+      },
+    });
+  }
   if (takeOver) {
     registry.add({
       name: 'code_take_over',
