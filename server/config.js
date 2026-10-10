@@ -1,4 +1,3 @@
-import { defaultProjectsDir } from './tools/noviTools.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -62,8 +61,6 @@ export function loadConfig(env = process.env) {
     dataDir: path.resolve(env.NOVI_DATA_DIR || 'data'),
     providers,
     order: { fast: order(env.NOVI_FAST_ORDER, DEFAULT_FAST), long: order(env.NOVI_LONG_ORDER, DEFAULT_LONG), quick: order(env.NOVI_FAST_ORDER, DEFAULT_FAST) },
-    // "make a new project" puts folders here (Documents\Projects by default).
-    projectsDir: env.NOVI_PROJECTS_DIR || defaultProjectsDir(),
     claudeCommand: env.CLAUDE_PATH || (fs.existsSync(localClaude) ? localClaude : 'claude'),
     // auto = Claude Code when it's installed (the user's choice, 2026-10-08), else the free Novi Coder.
     coder: ['claude', 'free'].includes(env.NOVI_CODER) ? env.NOVI_CODER : 'auto',
