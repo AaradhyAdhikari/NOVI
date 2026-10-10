@@ -3,7 +3,7 @@
 // Run with: node server/supervisor.js   (npm start / Start Novi.cmd / the autostart task do this)
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 export const RESTART_CODE = 75;
@@ -78,6 +78,20 @@ export function createSupervisor({ spawnChild, now = () => Date.now(), logger = 
 }
 
 // Daily log files in data/logs, newest 7 kept.
+// The screen (dist/) is older than its source after a git pull: a restart from Settings or the
+// logon task skips `npm start`'s build, so the phone would keep running old page code.
+export function uiIsStale(root) {
+  let built;
+  try { built = fs.statSync(path.join(root, 'dist', 'index.html')).mtimeMs; } catch { return true; }
+  const newest = (p) => {
+    let st;
+    try { st = fs.statSync(p); } catch { return 0; }
+    if (!st.isDirectory()) return st.mtimeMs;
+    return Math.max(0, ...fs.readdirSync(p).map((n) => newest(path.join(p, n))));
+  };
+  return Math.max(newest(path.join(root, 'src')), newest(path.join(root, 'index.html'))) > built;
+}
+
 function openLog(dir) {
   fs.mkdirSync(dir, { recursive: true });
   const files = fs.readdirSync(dir).filter((f) => /^novi-\d{4}-\d{2}-\d{2}\.log$/.test(f)).sort();
@@ -92,6 +106,11 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
   const supervisor = createSupervisor({
     logger: { log: (line) => write(`${new Date().toISOString()} ${line}\n`) },
     spawnChild: (restarts) => {
+      if (uiIsStale(root)) {
+        write(`${new Date().toISOString()} [supervisor] screen code changed — rebuilding\n`);
+        const b = spawnSync(process.execPath, [path.join(root, 'node_modules', 'vite', 'bin', 'vite.js'), 'build'], { cwd: root, encoding: 'utf8' });
+        write(`${new Date().toISOString()} [supervisor] rebuild ${b.status === 0 ? 'done' : `failed: ${String(b.stderr || b.error?.message || '').slice(-300)}`}\n`);
+      }
       const c = spawn(process.execPath, ['--env-file-if-exists=.env', 'server/index.js'], {
         cwd: root,
         env: { ...process.env, NOVI_SUPERVISED: '1', NOVI_RESTARTS: String(restarts) },
