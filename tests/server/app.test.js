@@ -172,6 +172,8 @@ describe('Novi server', () => {
     await novi.runVoiceCommand(Buffer.from('RIFFabcd'));
     const snap = novi.snapshot();
     expect(snap.wakeWord).toBe('server');
+    // A phone isn't near the laptop mic: its own page keeps listening for "Hey Novi".
+    expect(novi.snapshot('phone-1').wakeWord).toBe('browser');
     expect(snap.transcript.map((t) => [t.role, t.text])).toEqual([
       ['user', 'heard 8 bytes of audio/wav'],
       ['novi', 'echo: heard 8 bytes of audio/wav'],
@@ -562,6 +564,30 @@ describe('Novi server', () => {
     await new Promise((r) => setTimeout(r, 100));
     expect(b.c.messages.some((m) => m.type === 'chat')).toBe(false);
     a.c.ws.close(); b.c.ws.close();
+  });
+
+  it('drawn pictures (SVG) go to the asking device too', async () => {
+    const env = await start({ isLocalAddress: () => false });
+    const a = await pairedPhone(env);
+    a.c.ws.send(JSON.stringify({ type: 'user_message', text: 'graph' }));
+    await a.c.waitFor((m) => m.type === 'speak');
+    env.novi.plugins.runtime.showImage({ svg: '<svg/>', caption: 'octo: 3 contributions' });
+    const chat = await a.c.waitFor((m) => m.type === 'chat' && m.entry.image);
+    expect(chat.entry.image).toBe(`data:image/svg+xml;base64,${Buffer.from('<svg/>').toString('base64')}`);
+    a.c.ws.close();
+  });
+
+  it('a video asked for from the phone plays in Novi on the phone, not on the laptop', async () => {
+    const opened = [];
+    const env = await start({ isLocalAddress: () => false, laptop: { openUrl: async (u) => { opened.push(u); }, searchYouTube: async () => [{ position: 1, videoId: 'abc', title: 'Valorant Finals', channel: 'VCT', length: '10:00' }] } });
+    const a = await pairedPhone(env);
+    a.c.ws.send(JSON.stringify({ type: 'user_message', text: 'hi' }));
+    await a.c.waitFor((m) => m.type === 'speak');
+    expect(await env.novi.plugins.get('play_youtube').run({ query: 'valorant' })).toMatchObject({ on: 'phone' });
+    const chat = await a.c.waitFor((m) => m.type === 'chat' && m.entry.video);
+    expect(chat.entry).toMatchObject({ video: 'abc', text: 'Valorant Finals' });
+    expect(opened).toEqual([]);
+    a.c.ws.close();
   });
 
   it('records "Hey Novi" practice clips through the wake-word mic and applies a trigger level', async () => {

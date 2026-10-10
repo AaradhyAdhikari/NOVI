@@ -10,7 +10,7 @@ const wtSafe = (s) => String(s).replace(/;/g, '\\;');
 const psQuote = (s) => `'${String(s).replace(/'/g, "''")}'`;
 const clock = () => new Date().toTimeString().slice(0, 8);
 
-export function createWatchWindows({ dir, claudeCommand = 'claude', platform = process.platform, run = spawn, logger = console }) {
+export function createWatchWindows({ dir, claudeCommand = 'claude', platform = process.platform, run = spawn, exists = fs.existsSync, logger = console }) {
   const logPath = (taskId) => path.join(dir, `${taskId}.log`);
   const append = (taskId, text) => {
     fs.mkdirSync(dir, { recursive: true });
@@ -33,10 +33,16 @@ export function createWatchWindows({ dir, claudeCommand = 'claude', platform = p
     append,
     openWatch({ taskId, project, path: cwd, instruction }) {
       append(taskId, `Claude Code is working on ${project}: ${instruction}`);
+      // wt.exe refuses to start in a folder that's gone (error 0x8007010b); the log folder always exists.
+      if (!exists(cwd)) cwd = dir;
       append(taskId, 'Its questions go to your phone. Back at the laptop? Say "I\'m back, I\'ll take over".');
       return open(`Claude · ${project}`, cwd, ['powershell.exe', '-NoExit', '-NoProfile', '-Command', `Get-Content -Wait -Encoding UTF8 -LiteralPath ${psQuote(logPath(taskId))}`]);
     },
     openTakeOver({ project, path: cwd, sessionId }) {
+      if (!exists(cwd)) {
+        logger.warn?.(`[claude] can't take over: ${cwd} no longer exists`);
+        return false;
+      }
       return open(`Claude · ${project}`, cwd, [claudeCommand, '--resume', sessionId]);
     },
   };

@@ -59,8 +59,7 @@
     "say": "show me my github contribution of yesterday with ss",
     "expect": {
       "tools": [
-        "github_activity",
-        "screen_page"
+        "github_graph"
       ]
     },
     "note": "say what you contributed + screenshot of the contribution graph; open the page only if asked"
@@ -69,8 +68,7 @@
     "say": "mere kal ke github contribution ka screenshot de",
     "expect": {
       "tools": [
-        "github_activity",
-        "screen_page"
+        "github_graph"
       ]
     }
   },
@@ -78,8 +76,7 @@
     "say": "youtube open karke bgmi news sunna",
     "expect": {
       "tools": [
-        "play_youtube",
-        "youtube_search"
+        "play_youtube"
       ]
     },
     "note": "daily BGMI / IGC updates video; channel link to come"

@@ -1,10 +1,10 @@
 import { AllProvidersUnavailableError } from './router.js';
-import { selectTools, isQuickTurn } from './toolSelect.js';
+import { selectTools, isQuickTurn, ALWAYS } from './toolSelect.js';
 import { classifyApproval } from '../grants.js';
 import { UserFacingError } from '../errors.js';
 import { firstSentence } from '../narrator.js';
 
-const MAX_ROUNDS = 6;
+const MAX_ROUNDS = 10; // screen tasks: open the app, look, click, type, …
 const MAX_HISTORY = 40;
 
 export function systemPrompt({ projects, task, accounts = [] }) {
@@ -12,8 +12,9 @@ export function systemPrompt({ projects, task, accounts = [] }) {
     'You are Novi, a voice-first personal AI companion. Your replies are spoken aloud: answer in 1-2 short, natural sentences (about 25 words), with no markdown, lists, code or links; never offer more help at the end. Details and links only when asked.',
     "You control a coding agent on the user's laptop through tools. For coding work on a project, call code_start_task with the project name and a clear, complete instruction for the coding agent. For follow-ups to the current or most recent task, call code_send_message. Use code_status for progress questions and code_stop to stop.",
     'If the user mentions a project you do not know, ask for its folder path, then call remember_project.',
-    'You can also act on the laptop directly: open_website (use a full https URL when you know the site), youtube_search to list videos, play_youtube to play one (it plays the top result by default; pass position for "the 5th one", and omit query to pick from the last search), and open_app for installed apps. These open things on the laptop right away. After youtube_search, read out the top 5 results as "1, title, by channel" so the user can pick one by number.',
-    'Never say a task is finished unless a tool result says so. If a tool returns an error, explain it briefly.',
+    'You can also act directly: open_website (use a full https URL when you know the site) and play_youtube open things right away on the device the user is using; open_app opens installed apps on the laptop. To watch or play anything ("show me valorant", "play X"), call play_youtube (top result by default; position for "the 5th one"); use youtube_search only when the user asks to see the options. Never read out a list of videos; after playing, just say the title.',
+    'To do something inside an app on the laptop that has no tool of its own (e.g. "open Claude and make a project named X"), do it yourself step by step: open_app, then screen_look, screen_click, screen_type and screen_key until it is done. Do not stop after opening the app or tell the user to do it.',
+    'Never say you played, opened, sent or did something unless a tool result in this turn says it happened; if you did not call the tool, call it. Never say a task is finished unless a tool result says so. If a tool returns an error, explain it briefly.',
     `Known projects: ${projects.length ? projects.map((p) => `${p.name} (${p.path})`).join('; ') : 'none yet'}.`,
     `Current coding task: ${task.active ? `${task.status} on ${task.project}: "${task.instruction}"` : 'none'}.`,
     'For email use gmail_search (Gmail search syntax), gmail_read and gmail_send; gmail_connect connects a new account. If a tool result contains "ask", ask the user which account and call the tool again with account. Never guess email addresses. Write the complete email before gmail_send; the user approves it on screen. When summarising mail, mention sender and subject briefly.',
@@ -28,6 +29,28 @@ const CHOICE_RE = /^(?:no[, ]+)?(?:(?:use|with|switch to)\s+)?(?:the\s+)?(claude
 const APPROVE_LOCAL = /^(?:approved|go for it|include kar(?:o|do)?|kar ?le(?: update)?|kar ?lo|kar do|haa?n?(?: kar do| karo)?|theek hai|thik hai|chalega|हाँ|हां|हा|कर दो|कर लो|कर ले|ठीक है|चलेगा|हो|चालेल|कर)$/;
 const DENY_LOCAL = /^(?:nahi|nahin|nai|mat kar(?:o)?|rehne de|rehne do|nako|नहीं|नही|मत करो|मत कर|रहने दो|नको)$/;
 const STOP_LOCAL = /^(?:cancel (?:kar|karo|it|kar do)|ruk ja|ruko|band kar(?:o)?|बंद करो|बंद कर|रुक जा|रुको|कैंसल कर(?:ो| दो)?|थांब)$/;
+
+// YouTube by voice without the AI: "open YouTube" opens it now and the next answer names the video;
+// "play X on YouTube" / "YouTube pe X lagao" plays at once. Returns { open } | { play } | { maybe } | null.
+const YT = '(?:youtube|yt|you tube|यूट्यूब)';
+const PLAY_VERB = '(?:play|show(?: me)?|put on|watch|search(?: for)?)';
+const HI_VERB = '(?:(?:laga|chala|dikha|lagao|chalao|dikhao)(?: do| de)?|play kar(?:o|do| do)?|search kar(?:o)?)';
+const OPEN = '(?:open|start|launch|khol(?:o|do|de)?|open kar(?:o|do)?)';
+export function youtubeCommand(text, { awaiting = false } = {}) {
+  const t = String(text || '').trim().replace(/[.!?।,]+/g, ' ').replace(/\s+/g, ' ').trim().replace(/^(?:(?:hey )?novi|please) /i, '');
+  const hiTail = (q) => q.replace(new RegExp(` ${HI_VERB}$`, 'iu'), '').trim();
+  let m = new RegExp(`^(?:${OPEN} ${YT}|${YT} ${OPEN})(?: (?:and|aur|then|and then)(?: ${PLAY_VERB})? (.+))?$`, 'iu').exec(t);
+  if (m) return m[1] ? { play: hiTail(m[1]) } : { open: true };
+  m = new RegExp(`^${PLAY_VERB} (.+?) (?:on|in) ${YT}$`, 'iu').exec(t)
+    || new RegExp(`^${YT} (?:open|khol) ?(?:kar ?ke|ke) (.+?)(?: (?:sunna|sunao|dekhna|dekhni|dekho|${HI_VERB}))?$`, 'iu').exec(t)
+    || new RegExp(`^${YT} (?:pe|par|per|on) (.+?) ${HI_VERB}$`, 'iu').exec(t)
+    || new RegExp(`^${YT} (?:pe|par|per|on) ${PLAY_VERB} (.+)$`, 'iu').exec(t);
+  if (m) return { play: m[1] };
+  if (!awaiting || !t) return null;
+  m = new RegExp(`^${PLAY_VERB} (.+)$`, 'iu').exec(t) || new RegExp(`^(.+?) ${HI_VERB}$`, 'iu').exec(t);
+  return m ? { play: m[1] } : { maybe: t };
+}
+const QUESTION = /^(?:what|whats|what's|how|why|who|when|where|which|is|are|can|could|do|does|kya|kaise|kab|kaun|kahan|kitna)\b/i;
 
 // Short spoken replies Novi handles without calling the AI (stop, yes/no, "use Claude instead", status).
 export function quickCommand(text) {
@@ -55,8 +78,9 @@ export function describeStatus(s) {
 }
 
 export class Agent {
-  constructor({ router, tools, approvals, memory, tasks, accounts = null, privateProviders = ['groq'], sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
+  constructor({ router, tools, approvals, memory, tasks, accounts = null, privateProviders = ['groq'], logger = console, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
     this.sleep = sleep;
+    this.logger = logger;
     this.accounts = accounts;
     this.privateProviders = privateProviders;
     this.router = router;
@@ -74,6 +98,8 @@ export class Agent {
       const quickReply = await this._quick(quick, from);
       if (quickReply) return this._remember(text, quickReply);
     }
+    const yt = await this._youtube(text);
+    if (yt) return this._remember(text, yt);
 
     const { extra, messages, offered, purpose } = await this._prepare(text);
     const notes = [];
@@ -138,6 +164,8 @@ export class Agent {
   async firstStep(text) {
     const quick = quickCommand(text);
     if (quick) return { quick, calls: [], reply: null, provider: null };
+    const yt = this.tools.get('play_youtube') ? youtubeCommand(text) : null;
+    if (yt?.play) return { quick: null, calls: [{ name: 'play_youtube', args: { query: yt.play } }], reply: null, provider: 'direct' };
     const { extra, messages, offered, purpose } = await this._prepare(text);
     const res = await this.router.chat({ messages, tools: offered, purpose, only: extra.sensitive ? this.privateProviders[0] : undefined });
     const calls = (res.message.tool_calls || []).map((c) => {
@@ -146,6 +174,33 @@ export class Agent {
       return { name: c.function?.name, args };
     });
     return { quick: null, calls, reply: calls.length ? null : (res.message.content || '').trim(), provider: res.provider };
+  }
+
+  async _youtube(text) {
+    if (!this.tools.get('play_youtube') || !this.tools.get('open_website')) return null;
+    const awaiting = this._ytUntil > Date.now();
+    this._ytUntil = 0;
+    const cmd = youtubeCommand(text, { awaiting });
+    if (!cmd) return null;
+    let query = cmd.play;
+    if (cmd.maybe) {
+      // Only a plain answer ("valorant") is a video name; anything that needs another tool goes to the brain.
+      const offered = selectTools(this.tools.schemas(), { text });
+      const plain = offered.every((s) => ALWAYS.has(s.function.name)) && cmd.maybe.split(' ').length <= 8 && !QUESTION.test(cmd.maybe);
+      if (!plain) return null;
+      query = cmd.maybe;
+    }
+    const run = (name, args) => this._runTool({ id: `yt-${Date.now()}`, function: { name, arguments: JSON.stringify(args) } });
+    if (cmd.open) {
+      const { output } = await run('open_website', { target: 'https://www.youtube.com' });
+      if (output?.error) return output.error;
+      this._ytUntil = Date.now() + 2 * 60_000;
+      return output?.on === 'phone' ? "Here's YouTube. What should I play?" : "YouTube's open. What should I play?";
+    }
+    const { output } = await run('play_youtube', { query });
+    if (output?.error) return output.error;
+    if (output?.note) return output.note;
+    return `Playing ${output?.playing?.title || query}.`;
   }
 
   async _quick(kind, from = 'local') {
@@ -186,7 +241,15 @@ export class Agent {
     return allow ? 'Approved.' : 'Okay, denied.';
   }
 
+  // One log line per tool run (name + ok or the error; never the arguments, which can be private).
   async _runTool(call) {
+    const result = await this._runToolInner(call);
+    const err = result.output?.error;
+    this.logger?.log?.(`[tool] ${call.function?.name} ${err ? `error: ${String(err).slice(0, 200)}` : 'ok'}`);
+    return result;
+  }
+
+  async _runToolInner(call) {
     const tool = this.tools.get(call.function?.name);
     if (!tool) return { output: { error: `Unknown tool ${call.function?.name}` } };
     let args;

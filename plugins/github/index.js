@@ -1,5 +1,6 @@
 import { definePluginEntry } from '#plugin-sdk';
 import { startDeviceFlow, pollForToken, GitHubClient, GitHubError } from './github.js';
+import { fetchContributions, graphSvg } from './contributions.js';
 
 const obj = (properties = {}, required = []) => ({ type: 'object', properties, required });
 const str = (description) => ({ type: 'string', description });
@@ -127,6 +128,25 @@ export function createGithubPlugin({ fetchImpl = fetch, sleep } = {}) {
             counts.set(repo, (counts.get(repo) || 0) + 1);
           }
           return { account: account.label, date: day, sensitive: anyPrivate, commits: [...counts].map(([repo, count]) => ({ repo, count })) };
+        },
+      });
+
+      // The contribution graph as a picture + the day's count. Public data: works without connecting GitHub.
+      api.registerTool({
+        name: 'github_graph',
+        description: 'Show the user their GitHub contribution graph as a picture, with how many contributions they made on a day (e.g. "show me my GitHub contributions", "kal ke contribution ka ss"). Use this — not links, not screen_page. date: YYYY-MM-DD (default today; "yesterday" = the day before).',
+        parameters: obj({ date: { type: 'string', description: 'YYYY-MM-DD' }, username: str('GitHub username, only if the user just said it') }),
+        async execute(_id, { date, username } = {}) {
+          const fromAccount = () => { try { return resolve(undefined).account?.email; } catch { return undefined; } };
+          const login = String(username || api.pluginConfig.username || fromAccount() || '').trim();
+          if (!login) return { content: [], details: { error: "I don't know your GitHub username yet. Tell me (\"my GitHub username is …\") or set NOVI_PLUGIN_GITHUB_USERNAME in .env." } };
+          const day = /^\d{4}-\d{2}-\d{2}$/.test(String(date || '')) ? date : new Date().toLocaleDateString('en-CA');
+          const { days, total } = await fetchContributions(login, { fetchImpl });
+          const count = days.find((d) => d.date === day)?.count ?? 0;
+          const caption = `${login}: ${count} contribution${count === 1 ? '' : 's'} on ${day} · ${total.toLocaleString('en-US')} in the last year`;
+          if (!api.runtime.showImage) throw new Error("Pictures can't be shown here.");
+          api.runtime.showImage({ svg: graphSvg({ login, days, total, highlight: day }), caption });
+          return { content: [], details: { login, date: day, contributions: count, lastYear: total, instructions: `Sent the graph picture. Say the count for ${day} in one sentence — do not describe the picture or give links.` } };
         },
       });
 

@@ -4,11 +4,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { createWatchWindows } from '../../server/claude/watchWindow.js';
 
-function setup(platform = 'win32') {
+function setup(platform = 'win32', exists = () => true) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'novi-watch-'));
   const runs = [];
   const run = (cmd, args, opts) => { runs.push({ cmd, args, opts }); return { unref() {}, on() {} }; };
-  return { dir, runs, w: createWatchWindows({ dir, run, platform, claudeCommand: 'C:\\Users\\A\\.local\\bin\\claude.exe' }) };
+  return { dir, runs, w: createWatchWindows({ dir, run, platform, exists, claudeCommand: 'C:\\Users\\A\\.local\\bin\\claude.exe' }) };
 }
 
 describe('Claude watch window + take over', () => {
@@ -37,6 +37,14 @@ describe('Claude watch window + take over', () => {
     const { w, runs } = setup();
     w.openTakeOver({ project: 'novi', path: 'C:\\code\\novi', sessionId: 'abc-123' });
     expect(runs[0].args).toEqual(['-w', 'new', '--title', 'Claude · novi', '-d', 'C:\\code\\novi', 'C:\\Users\\A\\.local\\bin\\claude.exe', '--resume', 'abc-123']);
+  });
+
+  it('a project folder that no longer exists: the watch window starts in the log folder, take over says so', () => {
+    const { w, runs, dir } = setup('win32', () => false);
+    w.openWatch({ taskId: 't1', project: 'gone', path: 'C:\\Temp\\gone', instruction: 'x' });
+    expect(runs[0].args.slice(4, 6)).toEqual(['-d', dir]);
+    expect(w.openTakeOver({ project: 'gone', path: 'C:\\Temp\\gone', sessionId: 's' })).toBe(false);
+    expect(runs).toHaveLength(1);
   });
 
   it('does nothing outside Windows and never throws if Windows Terminal is missing', () => {

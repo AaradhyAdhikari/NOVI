@@ -31,7 +31,12 @@ export function warmVad() {
 // mode: 'hold' (until finish()) or 'tap' (ends by itself after the first sentence).
 // onAutoDone(blob|null) runs when tap mode ends on its own.
 export async function startVadRecording({ mode = 'hold', onAutoDone = () => {} } = {}) {
-  const vad = await warmVad();
+  let vad = await warmVad();
+  // A failed first start (e.g. the phone's mic prompt was dismissed) leaves the detector stuck: start over.
+  if (vad.initializationState === 'errored') {
+    shared = null;
+    vad = await warmVad();
+  }
   const utterance = new Utterance(mode);
   let finished = null;
   let heardSpeech = false;
@@ -62,6 +67,9 @@ export async function startVadRecording({ mode = 'hold', onAutoDone = () => {} }
 
   current = me;
   await vad.start();
+  if (vad.initializationState === 'errored') throw new Error(vad.errored || 'Microphone unavailable');
+  // Phones may create the audio engine paused; without this no sound reaches the detector.
+  if (vad._audioContext?.state === 'suspended') await vad._audioContext.resume().catch(() => {});
   if (mode === 'tap') armNoSpeechTimer();
 
   return {

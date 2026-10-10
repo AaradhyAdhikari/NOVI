@@ -119,10 +119,11 @@ export function createNovi(config, overrides = {}) {
       // A phone notification only (fixed, private-free text per kind; see server/push.js).
       notify: ({ kind } = {}) => notify(kind),
       // A picture (screenshot) for whoever asked. Only the caption is kept in the transcript.
-      showImage: ({ png, caption = '' }) => {
+      showImage: ({ png, svg, caption = '' }) => {
         const at = new Date().toISOString();
         transcript.push({ role: 'novi', text: caption, at, device: deviceKey(active) });
-        sendTo(active, { type: 'chat', entry: { role: 'novi', text: caption, at, image: `data:image/png;base64,${Buffer.from(png).toString('base64')}` } });
+        const image = svg ? `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}` : `data:image/png;base64,${Buffer.from(png).toString('base64')}`;
+        sendTo(active, { type: 'chat', entry: { role: 'novi', text: caption, at, image } });
       },
       dataDir: config.dataDir, logger: console },
   });
@@ -146,7 +147,7 @@ export function createNovi(config, overrides = {}) {
     return handed;
   }
   plugins.register(wrapRegistryAsPlugin({ id: 'coding', name: 'Coding tasks', registry: createNoviTools({ memory, tasks, coder: defaultCoder, alternativeAvailable: defaultCoder === 'claude' || claudeInstalled, takeOver: claudeInstalled ? takeOverTask : null }) }));
-  plugins.register(wrapRegistryAsPlugin({ id: 'laptop', name: 'Laptop basics', registry: addLaptopTools(new ToolRegistry(), overrides.laptop) }));
+  plugins.register(wrapRegistryAsPlugin({ id: 'laptop', name: 'Laptop basics', registry: addLaptopTools(new ToolRegistry(), { askedFromPhone, ...overrides.laptop }) }));
   plugins.register(wrapRegistryAsPlugin({
     id: 'accounts',
     name: 'Accounts and Gmail',
@@ -233,6 +234,21 @@ export function createNovi(config, overrides = {}) {
     if (msg.type === 'speak' && msg.text && !reached && key !== 'local') missed.add(key, msg.text);
   };
   const isOpen = (key) => [...clients].some((ws) => viewerKey(ws) === key);
+  // Videos and links asked for from a phone with Novi open go to that phone (in the chat), not the laptop.
+  function askedFromPhone() {
+    const to = active;
+    const key = deviceKey(to);
+    if (key === 'local' || !isOpen(key)) return null;
+    const post = (text, extra) => {
+      const at = new Date().toISOString();
+      transcript.push({ role: 'novi', text, at, device: key, ...extra });
+      sendTo(to, { type: 'chat', entry: { role: 'novi', text, at, ...extra } });
+    };
+    return {
+      showVideo: ({ videoId, title }) => post(title, { video: videoId }),
+      showLink: ({ url, label }) => post(label, { link: url }),
+    };
+  }
   // Phone notification for the device used last, only when Novi isn't open there.
   const notify = (kind, to = active) => {
     const key = deviceKey(to);
@@ -255,7 +271,8 @@ export function createNovi(config, overrides = {}) {
   let wakeWord = 'browser';
   const snapshot = (viewer = 'local') => ({
     type: 'snapshot',
-    wakeWord,
+    // The laptop-mic wake word only helps pages on the laptop; a phone listens for itself.
+    wakeWord: viewer === 'local' ? wakeWord : 'browser',
     transcript: transcript.filter((e) => e.device === viewer).map(({ device, ...e }) => e),
     task: tasks.status(),
     approvals: approvals.pending(),
