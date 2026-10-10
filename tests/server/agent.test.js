@@ -366,3 +366,38 @@ describe('agent.firstStep (dry run for the understanding test)', () => {
     expect(router.calls).toHaveLength(1);
   });
 });
+
+describe('GitHub contribution graph by voice (no AI call)', () => {
+  const ghSetup = (out = { login: 'octo', date: 'D', contributions: 2, lastYear: 222 }) => {
+    const ran = [];
+    const tools = new ToolRegistry()
+      .add({ name: 'github_graph', description: 'g', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'g', run: async (a) => { ran.push(a); return { ...out, date: a.date }; } });
+    const agent = new Agent({ router: scriptedRouter([]), tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) }, logger: { log() {} } });
+    return { agent, ran };
+  };
+  const day = (offset) => { const d = new Date(); d.setDate(d.getDate() + offset); return d.toLocaleDateString('en-CA'); };
+
+  it('sends the graph for yesterday or today, in English, Hinglish and Hindi', async () => {
+    for (const [text, offset] of [
+      ["Can you give me the screenshot of my Github's contribution yesterday? The whole graph?", -1],
+      ['mere kal ke github contribution ka screenshot de', -1],
+      ['मेरे कल के GitHub contribution का ss दे', -1],
+      ['show my github contribution graph', 0],
+    ]) {
+      const { agent, ran } = ghSetup();
+      const reply = await agent.handle(text);
+      expect(ran, text).toEqual([{ date: day(offset) }]);
+      expect(reply).toBe(`You made 2 contributions ${offset ? 'yesterday' : 'today'}.`);
+    }
+  });
+
+  it('"open my GitHub" is a different thing (goes to the brain), and errors are said plainly', async () => {
+    const { agent, ran } = ghSetup();
+    agent.router.chat = async () => reply('Opening it.');
+    await agent.handle('open my github contributions page');
+    expect(ran).toEqual([]);
+    const bad = ghSetup({ error: "I don't know your GitHub username yet." });
+    expect(await bad.agent.handle('github contribution ss')).toBe("I don't know your GitHub username yet.");
+  });
+});
+

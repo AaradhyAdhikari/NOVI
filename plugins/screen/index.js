@@ -136,7 +136,7 @@ export function createScreenPlugin({ driver = windowsDriver } = {}) {
       });
       api.registerTool({
         name: 'screen_page',
-        description: 'Send the user a screenshot (picture) of a web page, e.g. "show me a screenshot of my GitHub contributions" → https://github.com/<username>. Opens it in a hidden browser that is not signed in. Read-only.',
+        description: 'Send the user a screenshot (picture) of a web page. Opens it in a hidden browser that is not signed in. Read-only. For GitHub contributions use github_graph instead.',
         parameters: obj({ url: str('The full web address, starting with https://') }, ['url']),
         async execute(_id, { url } = {}) {
           let parsed;
