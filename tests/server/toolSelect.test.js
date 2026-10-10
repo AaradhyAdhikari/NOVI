@@ -125,3 +125,9 @@ describe('selectTools: Claude by voice', () => {
     for (const text of ["I'm back, I'll take over", 'main sambhal leta hun', 'takeover']) expect(names(text), text).toContain('code_take_over');
   });
 });
+
+describe('selectTools: Hinglish reminders', () => {
+  it('"utha dena", "yaad dila", "jaga dena" offer the reminder tools', () => {
+    for (const text of ['kal subah 7 baje utha dena', 'mujhe 5 baje yaad dila dena', 'subah jaga dena']) expect(names(text), text).toContain('reminder_add');
+  });
+});

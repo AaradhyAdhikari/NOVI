@@ -16,7 +16,7 @@ const WORDS = {
   weather: 'weather temperature rain raining forecast hot cold humid humidity sunny umbrella climate',
   gmail: 'gmail email emails mail mails inbox reply unread',
   youtube: 'youtube video videos song songs music play playing lofi watch',
-  reminder: 'remind reminder reminders timer timers alarm alarms wake',
+  reminder: 'remind reminder reminders timer timers alarm alarms wake utha uthana uthade jaga jagana jagade yaad',
   github: 'github repo repos repository issue issues pr prs pull notification notifications commit commits contribution contributions',
   ide: 'cursor vscode antigravity kiro editor ide claude',
   projects: 'project projects folder leave left progress far continue',
