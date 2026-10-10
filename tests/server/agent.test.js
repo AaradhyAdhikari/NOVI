@@ -480,3 +480,15 @@ describe('deny by voice', () => {
   });
 });
 
+describe('answering a waiting question by voice (what speech-to-text writes)', () => {
+  it('"Allow." / "A low" approve, "Nay." denies, "always" grants — no AI call', async () => {
+    const { agent, approvals, router } = setup([]);
+    for (const [said, allowed, reply] of [['Allow.', true, 'Approved.'], ['A low', true, 'Approved.'], ['Nay.', false, 'Okay, denied.'], ['haan kar do', true, 'Approved.']]) {
+      const pending = approvals.request({ title: 'Click "New Project"', tier: 'medium', source: 'novi' });
+      expect(await agent.handle(said), said).toBe(reply);
+      expect(await pending, said).toBe(allowed);
+    }
+    expect(router.calls).toHaveLength(0);
+  });
+});
+
