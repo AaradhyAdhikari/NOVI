@@ -3,6 +3,7 @@ import { selectTools, isQuickTurn, ALWAYS } from './toolSelect.js';
 import { classifyApproval } from '../grants.js';
 import { UserFacingError } from '../errors.js';
 import { firstSentence } from '../narrator.js';
+import { answerKind } from './answers.js';
 
 const MAX_ROUNDS = 10; // screen tasks: open the app, look, click, type, …
 const MAX_HISTORY = 40;
@@ -70,8 +71,6 @@ export function codeCommand(text) {
 }
 
 const QUESTION = /^(?:what|whats|what's|how|why|who|when|where|which|is|are|can|could|do|does|kya|kaise|kab|kaun|kahan|kitna)\b/i;
-
-const DENY_HEARD = /^(?:dino|deno|deni|denny|deanie|dinah|deni it|denny it|dinah it|the nye|deny)$/;
 
 // Short spoken replies Novi handles without calling the AI (stop, yes/no, "use Claude instead", status).
 export function quickCommand(text) {
@@ -142,9 +141,10 @@ export class Agent {
 
   // from: 'local' (the laptop) or { deviceId } — approvals answered by voice check it (server/remoteTrust.js).
   async handle(text, { from = 'local' } = {}) {
-    // While Novi waits for a yes/no, sound-alikes of "deny" ("Dino", "Denny") are a deny — never a song.
+    // While Novi waits for a yes/no, short answers the way they're said and heard ("A low", "Nay",
+    // "Dino", "haan kar do") answer it — never a song, never the AI.
     const waiting = Boolean(this.approvals.latest?.({ excludeTier: 'high' }));
-    const quick = waiting && DENY_HEARD.test(text.trim().toLowerCase().replace(/[.!?।,]+/g, '')) ? 'deny' : quickCommand(text);
+    const quick = (waiting && answerKind(text)) || quickCommand(text);
     if (quick) {
       const quickReply = await this._quick(quick, from);
       if (quickReply) return this._remember(text, quickReply);
