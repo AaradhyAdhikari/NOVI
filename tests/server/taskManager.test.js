@@ -163,3 +163,40 @@ describe('TaskManager.takeOver ("I\'m back, I\'ll take over")', () => {
     await expect(tm.takeOver()).rejects.toThrow(/Novi Coder/);
   });
 });
+
+describe('the coder\'s plan ("what\'s the progress" / "what\'s next")', async () => {
+  const { EventEmitter } = await import('node:events');
+  const planManager = () => {
+    const sent = [];
+    let session;
+    const tm = new TaskManager({
+      memory,
+      approvals: new ApprovalQueue(),
+      narratorIntervalMs: 10,
+      createSession: () => {
+        session = Object.assign(new EventEmitter(), { exited: false, send: (t) => sent.push(t), stop: async () => {}, close: () => {} });
+        return session;
+      },
+    });
+    return { tm, sent, emit: (e) => session.emit('event', e) };
+  };
+
+  it('keeps the latest plan and edited files in the status', async () => {
+    const { tm, sent, emit } = planManager();
+    tm.start('portfolio', 'add login');
+    expect(sent[0]).toBe('add login');
+    emit({ kind: 'tool_use', name: 'TodoWrite', input: { todos: [
+      { content: 'Create the login page', activeForm: 'Creating the login page', status: 'completed' },
+      { content: 'Add form validation', activeForm: 'Adding form validation', status: 'in_progress' },
+      { content: 'Write tests', activeForm: 'Writing tests', status: 'pending' },
+    ] } });
+    emit({ kind: 'tool_use', name: 'Write', input: { file_path: path.join(tm.task.path, 'src', 'login.html') } });
+    expect(tm.status().plan).toEqual([
+      { step: 'Create the login page', doing: 'Creating the login page', status: 'completed' },
+      { step: 'Add form validation', doing: 'Adding form validation', status: 'in_progress' },
+      { step: 'Write tests', doing: 'Writing tests', status: 'pending' },
+    ]);
+    expect(tm.status().files).toEqual([path.join(tm.task.path, 'src', 'login.html')]);
+    await tm.shutdown();
+  });
+});

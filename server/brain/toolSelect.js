@@ -21,7 +21,7 @@ const WORDS = {
   ide: 'cursor vscode antigravity kiro editor ide claude',
   projects: 'project projects folder leave left progress far continue',
   // "claude" is in both ide and code: "open X in Claude and do Y" may open it and start a task.
-  code: 'fix bug bugs build implement refactor tests coding coder feature claude back takeover sambhal add bana banao karwa karwao change mode page button',
+  code: 'code html css javascript jsx fix bug bugs build implement refactor tests coding coder feature claude back takeover sambhal add bana banao karwa karwao change mode page button',
   memory: 'remember forget memory memories told yesterday earlier talked said ago',
   backup: 'backup backups drive',
   sheets: 'study studied studying log logged hours sheet sheets spreadsheet',
@@ -39,7 +39,7 @@ for (const [g, list] of Object.entries(WORDS)) {
   for (const w of list.split(' ')) WORD_GROUP.set(w, [...(WORD_GROUP.get(w) || []), g]);
 }
 // Words in tool names too generic to pick a group on their own.
-const GENERIC = new Set('get read add list status now set open search start stop connect cancel create mark comment rename default allow edits message task app send'.split(' '));
+const GENERIC = new Set('get read add list status now set open search start stop connect cancel create mark comment rename default allow edits message task app send show'.split(' '));
 
 // \p{M}: Hindi / Marathi vowel signs (ा, े) are part of the word, not a break.
 const words = (text) => String(text || '').toLowerCase().match(/[\p{L}\p{M}\p{N}]+/gu) || [];

@@ -122,3 +122,97 @@ describe('code_take_over', () => {
     expect(createNoviTools({ memory: s.memory, tasks: s.tasks }).get('code_take_over')).toBeFalsy();
   });
 });
+
+describe('code_new_project (new project from the phone, built by Claude Code)', () => {
+  const newSetup = () => {
+    const s = setup();
+    const projectsDir = path.join(s.dir, 'Projects');
+    const started = [];
+    s.tasks.start = (p, i, o) => { started.push([p, i, o]); return { active: true, project: p, status: 'running' }; };
+    return { ...s, projectsDir, started, tools: createNoviTools({ memory: s.memory, tasks: s.tasks, coder: 'claude', alternativeAvailable: true, projectsDir }) };
+  };
+
+  it('makes the folder with a README (name + description), remembers it, and starts the coder on the prompt', async () => {
+    const { tools, memory, projectsDir, started } = newSetup();
+    const tool = tools.get('code_new_project');
+    expect(tool.tier).toBe('medium');
+    const args = { name: 'Sample Project', description: 'A to-do app for my college work', instruction: 'Build a React to-do app with dark mode' };
+    expect(tool.prompt(args)).toMatch(/new project "Sample Project".*Claude Code.*Build a React to-do app with dark mode/s);
+    const out = await tool.run(args);
+    const folder = path.join(projectsDir, 'Sample Project');
+    expect(fs.readFileSync(path.join(folder, 'README.md'), 'utf8')).toBe('# Sample Project\n\nA to-do app for my college work\n');
+    expect(memory.findProject('sample project').path).toBe(folder);
+    expect(started).toEqual([['sample project', 'Build a React to-do app with dark mode\n\nThis is a new, empty project called "Sample Project": A to-do app for my college work. Start from scratch in this folder.', { agent: undefined }]]);
+    expect(out).toMatchObject({ created: folder, started: true });
+  });
+
+  it('a brand-new folder has nothing to lose: file edits there don\'t ask each time (commands still do), and the yes/no says so', async () => {
+    const { tools, calls } = newSetup();
+    const args = { name: 'Fresh', instruction: 'Build a landing page' };
+    expect(tools.get('code_new_project').prompt(args)).toMatch(/won't ask before each file edit/);
+    await tools.get('code_new_project').run(args);
+    expect(calls).toContainEqual(['allowEdits', true]);
+  });
+
+  it('finds Documents\\Projects (OneDrive first)', async () => {
+    const { defaultProjectsDir } = await import('../../server/tools/noviTools.js');
+    const home = path.join('H');
+    expect(defaultProjectsDir(home, (d) => d === path.join(home, 'OneDrive', 'ドキュメント'))).toBe(path.join(home, 'OneDrive', 'ドキュメント', 'Projects'));
+    expect(defaultProjectsDir(home, () => false)).toBe(path.join(home, 'Documents', 'Projects'));
+  });
+
+  it('works without a prompt or description, keeps names safe for Windows, and never overwrites a project', async () => {
+    const { tools, projectsDir, started } = newSetup();
+    const out = await tools.get('code_new_project').run({ name: 'My: App?' });
+    expect(out.created).toBe(path.join(projectsDir, 'My App'));
+    expect(started).toEqual([]);
+    fs.writeFileSync(path.join(projectsDir, 'My App', 'index.js'), 'x');
+    await expect(tools.get('code_new_project').run({ name: 'My App' })).rejects.toThrow(/already exists/);
+    await expect(tools.get('code_new_project').run({ name: ' ../ ' })).rejects.toThrow(/name/);
+  });
+
+  it('is only offered when Novi knows where projects live', () => {
+    expect(setup().tools.get('code_new_project')).toBeFalsy();
+  });
+});
+
+describe('code_show ("show me the html code")', () => {
+  it('finds the code in the current task\'s project and sends it as a picture', async () => {
+    const s = setup();
+    const folder = path.join(s.dir, 'site');
+    fs.mkdirSync(folder);
+    fs.writeFileSync(path.join(folder, 'index.html'), '<html>\n<button>Go</button>\n</html>\n');
+    s.memory.rememberProject('site', folder);
+    s.tasks.status = () => ({ active: true, project: 'site', path: folder, files: [path.join(folder, 'index.html')] });
+    const shown = [];
+    const tools = createNoviTools({ memory: s.memory, tasks: s.tasks, showImage: (img) => shown.push(img) });
+    const tool = tools.get('code_show');
+    expect(tool.tier).toBe('low');
+    const out = await tool.run({ what: 'the html code' });
+    expect(out).toMatchObject({ file: 'index.html', lines: '1–4' });
+    expect(shown[0].svg).toContain('&lt;button&gt;Go&lt;/button&gt;');
+    expect(shown[0].caption).toBe('site · index.html · lines 1–4');
+    await expect(tool.run({ what: 'the rust code' })).rejects.toThrow(/couldn't find/);
+  });
+
+  it('asks which project when there is no task', async () => {
+    const s = setup();
+    const tools = createNoviTools({ memory: s.memory, tasks: s.tasks, showImage: () => {} });
+    await expect(tools.get('code_show').run({ what: 'html' })).rejects.toThrow(/Which project/);
+  });
+});
+
+describe('changes while the coder works ("make the button blue", "add dark mode")', () => {
+  it('asks a spoken yes / no / cancel first, then sends the change to the same task', async () => {
+    const s = setup();
+    const tool = s.tools.get('code_send_message');
+    expect(tool.tier).toBe('medium');
+    expect(tool.prompt({ instruction: 'make the button blue' })).toBe("I'll tell Novi Coder: make the button blue. Okay? Say yes, no or cancel.");
+    expect(tool.description).toMatch(/dark mode/);
+    s.tasks.status = () => ({ active: true, status: 'running', agent: 'Claude' });
+    expect(tool.prompt({ instruction: 'add dark mode' })).toBe("I'll tell Claude: add dark mode. Okay? Say yes, no or cancel.");
+    const out = await tool.run({ instruction: 'make the button blue' });
+    expect(s.calls).toContainEqual(['send', 'make the button blue']);
+    expect(out.note).toMatch(/after/);
+  });
+});

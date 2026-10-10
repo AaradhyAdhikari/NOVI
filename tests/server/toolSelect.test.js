@@ -145,3 +145,14 @@ describe('selectTools: Hinglish coding requests reach the coder', () => {
     }
   });
 });
+
+describe('selectTools: a new project by voice', () => {
+  const t = (name) => ({ type: 'function', function: { name, description: '', parameters: { type: 'object', properties: {} } } });
+  it('"make a new project called X" offers code_new_project', () => {
+    const tools = [t('code_new_project'), t('code_start_task'), t('weather_get')];
+    for (const text of ['make a new project called Sample Project with description todo app', 'naya project bana jiska naam Flexr hai']) {
+      expect(selectTools(tools, { text }).map((x) => x.function.name), text).toContain('code_new_project');
+    }
+  });
+});
+
