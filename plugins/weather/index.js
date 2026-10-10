@@ -32,7 +32,7 @@ export function createWeatherPlugin({ fetchImpl = fetch } = {}) {
     register(api) {
       api.registerTool({
         name: 'weather_get',
-        description: 'Get the current weather and the forecast for a city. Omit place to use the home city. days = how many days of forecast (1 = today only, max 7).',
+        description: 'Get the current weather and the forecast for a city (any language: weather, mausam, हवामान). Always call this for weather — never guess or answer it from memory. Omit place to use the home city. days = how many days of forecast (1 = today only, max 7).',
         parameters: {
           type: 'object',
           properties: {

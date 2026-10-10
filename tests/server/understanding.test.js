@@ -30,3 +30,12 @@ describe('understanding test scoring', () => {
     expect(fs.existsSync('tools/my-commands.json')).toBe(true);
   });
 });
+
+describe('understanding test output', () => {
+  it('shows errors in full (so rate-limit numbers are visible) but keeps normal replies short', async () => {
+    const { describeStep } = await import('../../tools/understanding-benchmark.mjs');
+    const long = 'x'.repeat(200);
+    expect(describeStep({ quick: null, calls: [], reply: `ERROR ${long}` })).toBe(`said: "ERROR ${long}"`);
+    expect(describeStep({ quick: null, calls: [], reply: long }).length).toBeLessThan(80);
+  });
+});

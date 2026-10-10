@@ -78,3 +78,11 @@ describe('projects plugin: where you left off', () => {
     expect(matchesProject('NOVI CONTEXT - File Explorer', 'NOVI CONTEXT')).toBe(false);
   });
 });
+
+describe('project_next: no "which project?"', () => {
+  it('tells the brain to use the last project instead of asking', () => {
+    const { host } = setup();
+    const d = host.schemas().find((s) => s.function.name === 'project_next').function.description;
+    expect(d).toMatch(/don't ask|do not ask|never ask/i);
+  });
+});

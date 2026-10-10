@@ -13,7 +13,7 @@ const groupOf = (name) => GROUP[name] || name.split('_')[0];
 
 // Everyday words → tool groups.
 const WORDS = {
-  weather: 'weather temperature rain raining forecast hot cold humid humidity sunny umbrella climate',
+  weather: 'weather temperature rain raining forecast hot cold humid humidity sunny umbrella climate mausam mosam barish baarish havaman हवामान मौसम पाऊस बारिश तापमान',
   gmail: 'gmail email emails mail mails inbox reply unread',
   youtube: 'youtube video videos song songs music play playing lofi watch',
   reminder: 'remind reminder reminders timer timers alarm alarms wake utha uthana uthade jaga jagana jagade yaad',
@@ -21,7 +21,7 @@ const WORDS = {
   ide: 'cursor vscode antigravity kiro editor ide claude',
   projects: 'project projects folder leave left progress far continue',
   // "claude" is in both ide and code: "open X in Claude and do Y" may open it and start a task.
-  code: 'fix bug bugs build implement refactor tests coding coder feature claude back takeover sambhal',
+  code: 'fix bug bugs build implement refactor tests coding coder feature claude back takeover sambhal add bana banao karwa karwao change mode page button',
   memory: 'remember forget memory memories told yesterday earlier talked said ago',
   backup: 'backup backups drive',
   sheets: 'study studied studying log logged hours sheet sheets spreadsheet',
@@ -40,7 +40,8 @@ for (const [g, list] of Object.entries(WORDS)) {
 // Words in tool names too generic to pick a group on their own.
 const GENERIC = new Set('get read add list status now set open search start stop connect cancel create mark comment rename default allow edits message task app send'.split(' '));
 
-const words = (text) => String(text || '').toLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
+// \p{M}: Hindi / Marathi vowel signs (ा, े) are part of the word, not a break.
+const words = (text) => String(text || '').toLowerCase().match(/[\p{L}\p{M}\p{N}]+/gu) || [];
 
 function groupsFor(text, nameWords) {
   const found = new Set();
