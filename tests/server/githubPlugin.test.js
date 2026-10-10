@@ -7,6 +7,21 @@ import { AccountRegistry } from '../../server/accounts/registry.js';
 import { resolveAccount, askNote } from '../../server/accounts/resolve.js';
 import { createGithubPlugin } from '../../plugins/github/index.js';
 import { pollForToken } from '../../plugins/github/github.js';
+import { parseContributions, graphSvg } from '../../plugins/github/contributions.js';
+
+// A slice of github.com/users/<login>/contributions (2025 markup).
+const CONTRIB_HTML = `<h2 id="js-contribution-activity-description" class="f4 text-normal mb-2">
+      1,234
+      contributions
+      in the last year
+  </h2><table><tbody><tr>
+<td tabindex="0" data-ix="0" aria-selected="false" style="width: 10px" data-date="2026-10-04" id="contribution-day-component-0-0" data-level="0" role="gridcell" class="ContributionCalendar-day"></td>
+<tool-tip id="tooltip-a" for="contribution-day-component-0-0" popover="manual" class="sr-only">No contributions on October 4th.</tool-tip>
+<td tabindex="0" data-ix="1" style="width: 10px" data-date="2026-10-09" id="contribution-day-component-5-1" data-level="3" role="gridcell" class="ContributionCalendar-day"></td>
+<tool-tip id="tooltip-b" for="contribution-day-component-5-1" popover="manual" class="sr-only">12 contributions on October 9th.</tool-tip>
+<td tabindex="0" data-ix="2" style="width: 10px" data-date="2026-10-10" id="contribution-day-component-6-1" data-level="1" role="gridcell" class="ContributionCalendar-day"></td>
+<tool-tip id="tooltip-c" for="contribution-day-component-6-1" popover="manual" class="sr-only">1 contribution on October 10th.</tool-tip>
+</tr></tbody></table>`;
 
 function memorySecrets() {
   const map = new Map();
@@ -23,12 +38,13 @@ function fakeFetch(routes) {
     if (!route) throw new Error(`no route for ${method} ${url}`);
     const out = typeof route.reply === 'function' ? route.reply(String(url), init, calls) : route.reply;
     const status = out.status || 200;
+    if (typeof out.html === 'string') return new Response(out.html, { status });
     return new Response(status === 204 || status === 205 ? null : JSON.stringify(out.body ?? out), { status });
   };
   return { fetchImpl, calls };
 }
 
-async function setup({ routes = [], logins = ['octo'], clientId = 'Ov23liTEST', defaultLogin } = {}) {
+async function setup({ routes = [], logins = ['octo'], clientId = 'Ov23liTEST', defaultLogin, username } = {}) {
   const accounts = new AccountRegistry(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'novi-gh-')), 'a.json'));
   const secrets = memorySecrets();
   for (const login of logins) {
@@ -38,10 +54,11 @@ async function setup({ routes = [], logins = ['octo'], clientId = 'Ov23liTEST', 
   if (defaultLogin) accounts.setDefault('github', accounts.list('github').find((a) => a.email === defaultLogin).id);
   const opened = [];
   const spoken = [];
+  const shown = [];
   const { fetchImpl, calls } = fakeFetch(routes);
   const host = new PluginHost({
     logger: { warn() {} },
-    env: clientId ? { NOVI_PLUGIN_GITHUB_CLIENT_ID: clientId } : {},
+    env: { ...(clientId ? { NOVI_PLUGIN_GITHUB_CLIENT_ID: clientId } : {}), ...(username ? { NOVI_PLUGIN_GITHUB_USERNAME: username } : {}) },
     runtime: {
       accounts,
       secrets,
@@ -49,10 +66,11 @@ async function setup({ routes = [], logins = ['octo'], clientId = 'Ov23liTEST', 
       speak: (t) => { spoken.push(t); },
       resolveAccount: (provider, requested, opts) => resolveAccount(accounts, provider, requested, opts),
       askNote,
+      showImage: (img) => { shown.push(img); },
     },
   });
   expect(host.register(createGithubPlugin({ fetchImpl, sleep: async () => {} }))).toBe(true);
-  return { host, accounts, secrets, opened, spoken, calls };
+  return { host, accounts, secrets, opened, spoken, calls, shown };
 }
 
 const repo = (fullName, isPrivate = false) => ({ match: new RegExp(`/repos/${fullName}$`), reply: { full_name: fullName, private: isPrivate } });
@@ -206,6 +224,45 @@ describe('github plugin', () => {
   it('explains missing repos', async () => {
     const { host } = await setup({ routes: [{ match: /\/repos\/octo\/nope$/, reply: { status: 404, body: { message: 'Not Found' } } }] });
     await expect(host.get('github_issues').run({ repo: 'nope' })).rejects.toThrow(/couldn't find octo\/nope/);
+  });
+});
+
+describe('contribution graph (public, no sign-in)', () => {
+  it('reads days, counts and the yearly total', () => {
+    const { days, total } = parseContributions(CONTRIB_HTML);
+    expect(total).toBe(1234);
+    expect(days).toEqual([
+      { date: '2026-10-04', level: 0, count: 0 },
+      { date: '2026-10-09', level: 3, count: 12 },
+      { date: '2026-10-10', level: 1, count: 1 },
+    ]);
+  });
+
+  it('draws the graph as a picture with the asked-for day marked', () => {
+    const svg = graphSvg({ login: 'octo<', ...parseContributions(CONTRIB_HTML), highlight: '2026-10-09' });
+    expect(svg).toMatch(/^<svg /);
+    expect(svg).toContain('octo&lt; · 1,234 contributions in the last year');
+    expect(svg.match(/<rect x=/g)).toHaveLength(3);
+    expect(svg).toMatch(/fill="#30a14e" stroke="#f78166"/);
+  });
+
+  it('github_graph sends the picture and returns the day\'s count — no account needed', async () => {
+    const { host, shown, calls } = await setup({ logins: [], username: 'AaradhyAdhikari', routes: [{ match: /github\.com\/users\/AaradhyAdhikari\/contributions$/, reply: { html: CONTRIB_HTML } }] });
+    expect(await host.get('github_graph').gate({})).toEqual({});
+    const out = await host.get('github_graph').run({ date: '2026-10-09' });
+    expect(out).toMatchObject({ login: 'AaradhyAdhikari', date: '2026-10-09', contributions: 12, lastYear: 1234 });
+    expect(out.instructions).toMatch(/do not describe/i);
+    expect(shown).toHaveLength(1);
+    expect(shown[0].svg).toMatch(/^<svg /);
+    expect(shown[0].caption).toBe('AaradhyAdhikari: 12 contributions on 2026-10-09 · 1,234 in the last year');
+    expect(calls[0].url).toBe('https://github.com/users/AaradhyAdhikari/contributions');
+  });
+
+  it('uses the connected account, or asks for the username', async () => {
+    const one = await setup({ routes: [{ match: /users\/octo\/contributions$/, reply: { html: CONTRIB_HTML } }] });
+    expect((await one.host.get('github_graph').run({})).login).toBe('octo');
+    const none = await setup({ logins: [] });
+    expect((await none.host.get('github_graph').run({})).error).toMatch(/GitHub username/);
   });
 });
 

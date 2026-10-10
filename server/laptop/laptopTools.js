@@ -13,25 +13,34 @@ export function addLaptopTools(registry, {
   searchYouTube = defaultSearchYouTube,
   catalog = new AppCatalog(),
   launchApp = defaultLaunchApp,
+  // The phone that asked (with Novi open), or null: { showVideo({ videoId, title }), showLink({ url, label }) }.
+  askedFromPhone = () => null,
 } = {}) {
+  const ON = { type: 'string', enum: ['here', 'laptop'], description: '"laptop" only when the user says on the laptop; default "here" (the device they asked from)' };
+  const phoneFor = (on) => (on === 'laptop' ? null : askedFromPhone());
   let last = null; // { query, results } from the latest YouTube search, for "play the 5th one"
 
   return registry
     .add({
       name: 'open_website',
-      description: 'Open a website in the laptop\'s browser. Pass a full https URL when you know the site (e.g. https://github.com), otherwise a search phrase (opens Google).',
-      parameters: obj({ target: str('URL, domain, or search phrase') }, ['target']),
+      description: 'Open a website right away, on the device the user is using (the laptop, or a tap-to-open link on their phone). Pass a full https URL when you know the site (e.g. https://github.com, https://youtube.com), otherwise a search phrase (opens Google).',
+      parameters: obj({ target: str('URL, domain, or search phrase'), on: ON }, ['target']),
       tier: 'low',
       describe: ({ target }) => `Open ${target}`,
-      run: async ({ target }) => {
+      run: async ({ target, on }) => {
         const url = toUrl(target);
+        const phone = phoneFor(on);
+        if (phone) {
+          phone.showLink({ url, label: new URL(url).hostname.replace(/^www\./, '') });
+          return { opened: url, on: 'phone' };
+        }
         await openUrl(url);
-        return { opened: url };
+        return { opened: url, on: 'laptop' };
       },
     })
     .add({
       name: 'youtube_search',
-      description: 'Search YouTube and list the top results with their positions, so the user can pick one (e.g. "play the 5th one").',
+      description: 'List YouTube results — ONLY when the user asks to see or choose from the options. To watch or play something ("show me valorant", "play X"), use play_youtube instead.',
       parameters: obj({ query: str('What to search for') }, ['query']),
       tier: 'low',
       describe: ({ query }) => `Search YouTube for ${query}`,
@@ -48,15 +57,20 @@ export function addLaptopTools(registry, {
     })
     .add({
       name: 'play_youtube',
-      description: 'Play a YouTube video on the laptop. With a query, searches and plays the result at `position` (default 1, the top result). Without a query, plays `position` from the most recent youtube_search.',
-      parameters: obj({ query: str('What to search for (omit to pick from the last search)'), position: { type: 'integer', description: '1-based position in the results, default 1' } }),
+      description: 'Play a YouTube video right away on the device the user is using ("play/show/watch X", "X lagao"). With a query, plays the top result (or `position`). Without a query, plays `position` from the most recent youtube_search. Then just say the title in a few words — never list results.',
+      parameters: obj({ query: str('What to search for (omit to pick from the last search)'), position: { type: 'integer', description: '1-based position in the results, default 1' }, on: ON }),
       tier: 'low',
       describe: ({ query, position }) => `Play YouTube ${query || 'result'} #${position || 1}`,
-      run: async ({ query, position = 1 }) => {
+      run: async ({ query, position = 1, on }) => {
+        const phone = phoneFor(on);
         if (query) {
           try {
             last = { query, results: await searchYouTube(query) };
           } catch {
+            if (phone) {
+              phone.showLink({ url: searchUrl(query), label: `YouTube: ${query}` });
+              return { opened: searchUrl(query), on: 'phone', note: "I couldn't read the results, so I sent you the YouTube search instead." };
+            }
             await openUrl(searchUrl(query));
             return { opened: searchUrl(query), note: "I couldn't read the results, so I opened the YouTube search page instead." };
           }
@@ -65,8 +79,12 @@ export function addLaptopTools(registry, {
         }
         const pick = last.results[Number(position) - 1];
         if (!pick) throw new UserFacingError(`There are only ${last.results.length} results for "${last.query}".`);
+        if (phone) {
+          phone.showVideo({ videoId: pick.videoId, title: pick.title });
+          return { playing: summary(pick), on: 'phone' };
+        }
         await openUrl(watchUrl(pick.videoId));
-        return { playing: summary(pick) };
+        return { playing: summary(pick), on: 'laptop' };
       },
     })
     .add({

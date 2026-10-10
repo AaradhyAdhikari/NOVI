@@ -114,7 +114,63 @@ describe('systemPrompt', () => {
     const p = systemPrompt({ projects: [], task: { active: false } });
     for (const name of ['open_website', 'play_youtube', 'youtube_search', 'open_app']) expect(p).toContain(name);
     expect(p).toMatch(/position/);
-    expect(p).toMatch(/read out the top 5/i);
+    expect(p).toMatch(/never read out a list/i);
+    expect(p).toMatch(/screen_look/);
+  });
+});
+
+describe('YouTube by voice: open it now, then say what to play', () => {
+  const ytSetup = (results = { playing: { title: 'Valorant Champions Final' }, on: 'phone' }) => {
+    const router = scriptedRouter([]);
+    const ran = [];
+    const tools = new ToolRegistry()
+      .add({ name: 'open_website', description: 'o', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'o', run: async (a) => { ran.push(['open', a]); return { opened: 'https://www.youtube.com/', on: 'laptop' }; } })
+      .add({ name: 'play_youtube', description: 'p', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'p', run: async (a) => { ran.push(['play', a]); return results; } })
+      .add({ name: 'weather_get', description: 'w', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'w', run: async () => ({}) });
+    const agent = new Agent({ router, tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
+    return { agent, router, ran };
+  };
+
+  it('"open YouTube" opens it at once (no AI call) and asks what to play; the next answer plays it', async () => {
+    const { agent, router, ran } = ytSetup();
+    expect(await agent.handle('Open YouTube.')).toBe("YouTube's open. What should I play?");
+    expect(ran).toEqual([['open', { target: 'https://www.youtube.com' }]]);
+    expect(await agent.handle('Valorant')).toBe('Playing Valorant Champions Final.');
+    expect(ran[1]).toEqual(['play', { query: 'Valorant' }]);
+    expect(router.calls).toHaveLength(0);
+  });
+
+  it('plays straight away when the video is named in the same breath (English or Hinglish)', async () => {
+    for (const [text, query] of [
+      ['open youtube and show valorant', 'valorant'],
+      ['play lofi on youtube', 'lofi'],
+      ['youtube pe bgmi news lagao', 'bgmi news'],
+      ['youtube kholo aur arijit singh chalao', 'arijit singh'],
+      ['youtube open karke bgmi news sunna', 'bgmi news'],
+    ]) {
+      const { agent, ran } = ytSetup();
+      await agent.handle(text);
+      expect(ran).toEqual([['play', { query }]]);
+    }
+  });
+
+  it('after "open YouTube", a different request still goes to the brain', async () => {
+    const { agent, router, ran } = ytSetup();
+    router.chat = async (req) => { router.calls.push(req); return reply('Sunny, 31 degrees.'); };
+    await agent.handle('open youtube');
+    expect(await agent.handle("what's the weather")).toBe('Sunny, 31 degrees.');
+    expect(ran).toHaveLength(1);
+  });
+
+  it('the dry run (understanding test) reports the direct YouTube play', async () => {
+    const { agent, ran } = ytSetup();
+    expect(await agent.firstStep('play lofi on youtube')).toEqual({ quick: null, calls: [{ name: 'play_youtube', args: { query: 'lofi' } }], reply: null, provider: 'direct' });
+    expect(ran).toEqual([]);
+  });
+
+  it('says what went wrong instead of pretending to play', async () => {
+    const { agent } = ytSetup({ error: "I couldn't read YouTube's results right now." });
+    expect(await agent.handle('play lofi on youtube')).toBe("I couldn't read YouTube's results right now.");
   });
 });
 

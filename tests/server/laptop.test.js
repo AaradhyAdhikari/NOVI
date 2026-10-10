@@ -111,7 +111,7 @@ describe('apps', () => {
 });
 
 describe('laptop tools', () => {
-  function setup({ fetchOk = true } = {}) {
+  function setup({ fetchOk = true, phone = null } = {}) {
     const opened = [];
     const launched = [];
     let fetches = 0;
@@ -124,6 +124,7 @@ describe('laptop tools', () => {
       },
       catalog: { all: async () => APPS },
       launchApp: async (appId) => { launched.push(appId); },
+      askedFromPhone: () => phone,
     });
     return { tools, opened, launched, fetches: () => fetches };
   }
@@ -154,6 +155,22 @@ describe('laptop tools', () => {
     const { tools, opened } = setup();
     await tools.get('play_youtube').run({ query: 'lofi' });
     expect(opened).toEqual([watchUrl('v1')]);
+  });
+
+  it('asked from the phone: the video plays on the phone (in Novi), links open there; "on the laptop" still uses the laptop', async () => {
+    const shown = [];
+    const phone = { showVideo: (v) => shown.push(['video', v]), showLink: (l) => shown.push(['link', l]) };
+    const { tools, opened } = setup({ phone });
+    const out = await tools.get('play_youtube').run({ query: 'valorant' });
+    expect(opened).toEqual([]);
+    expect(shown[0]).toEqual(['video', { videoId: 'v1', title: 'Study Session (valorant)' }]);
+    expect(out).toMatchObject({ playing: { title: 'Study Session (valorant)' }, on: 'phone' });
+    const site = await tools.get('open_website').run({ target: 'youtube.com' });
+    expect(shown[1]).toEqual(['link', { url: 'https://youtube.com/', label: 'youtube.com' }]);
+    expect(site.on).toBe('phone');
+    const laptop = await tools.get('play_youtube').run({ query: 'valorant', on: 'laptop' });
+    expect(opened).toEqual([watchUrl('v1')]);
+    expect(laptop.on).toBe('laptop');
   });
 
   it('play_youtube falls back to the search page when results cannot be read', async () => {

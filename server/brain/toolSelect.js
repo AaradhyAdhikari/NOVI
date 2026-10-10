@@ -27,7 +27,8 @@ const WORDS = {
   sheets: 'study studied studying log logged hours sheet sheets spreadsheet',
   clock: 'announce announcement',
   accounts: 'account accounts',
-  screen: 'screen click type press key button window whatsapp notepad look see showing tab screenshot screenshots ss picture photo image snapshot capture',
+  // "make a project named X in Claude": doing things inside an app = screen control.
+  screen: 'screen click type press key button window whatsapp notepad look see showing tab screenshot screenshots ss picture photo image snapshot capture make create named inside',
   briefing: 'briefing brief morning agenda summary day',
   calendar: 'calendar meeting meetings event events schedule free busy appointment lecture class classes plans',
   tasks: 'task tasks todo todos to-do list lists done complete finished',

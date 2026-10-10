@@ -9,7 +9,11 @@ export default function Transcript({ entries, thinking }) {
       {entries.map((e, i) => (
         <div key={`${e.at}-${i}`} className={`bubble ${e.role}`}>
           {e.image && <a href={e.image} target="_blank" rel="noreferrer"><img className="shot" src={e.image} alt={e.text || 'Screenshot'} /></a>}
-          {e.text}
+          {e.video && (
+            <iframe className="video" src={`https://www.youtube-nocookie.com/embed/${encodeURIComponent(e.video)}?autoplay=1&playsinline=1`}
+              title={e.text || 'YouTube video'} allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowFullScreen />
+          )}
+          {e.link ? <a className="open-link" href={e.link} target="_blank" rel="noreferrer">Open {e.text}</a> : e.text}
         </div>
       ))}
       {thinking && <div className="bubble novi thinking"><span /><span /><span /></div>}
