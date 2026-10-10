@@ -411,12 +411,14 @@ describe('progress and next step by voice (from the coder\'s plan)', async () =>
   const running = { active: true, agent: 'Claude', status: 'running', project: 'portfolio', recent: ['Editing a.js'], plan };
 
   it('"what\'s the progress" says the step it is on, very short', () => {
-    expect(describeStatus(running)).toBe('Step 2 of 3: adding form validation.');
+    expect(describeStatus(running)).toBe('Claude is on step 2 of 3 for portfolio: adding form validation. Done so far: create the login page; right now: Editing a.js.');
     for (const t of ["what's the progress", 'progress?', 'progress kya hai', 'kitna hua', 'status']) expect(quickCommand(t), t).toBe('status');
   });
 
   it('"what\'s next" says the next planned step', () => {
-    expect(describeNext(running)).toBe('Next: write tests.');
+    expect(describeNext(running)).toBe('Next, Claude will write tests. That finishes the plan.');
+    const longer = [...plan, { step: 'Deploy it', doing: 'Deploying', status: 'pending' }, { step: 'Add a README', doing: 'Adding a README', status: 'pending' }];
+    expect(describeNext({ ...running, plan: longer })).toBe('Next, Claude will write tests, then deploy it. 1 more step after that.');
     expect(describeNext({ ...running, plan: plan.map((p) => ({ ...p, status: p.status === 'pending' ? 'in_progress' : 'completed' })).slice(0, 3) })).toBe('That\'s the last step: writing tests.');
     expect(describeNext({ ...running, plan: [] })).toBe("Claude hasn't shared a plan yet. Latest: Editing a.js.");
     expect(describeNext({ active: false })).toBeNull();
@@ -449,7 +451,7 @@ describe('"cancel" while Novi is asking something', () => {
     let stopped = false;
     agent.tasks.stop = async () => { stopped = true; return true; };
     const pending = approvals.request({ title: 'Tell Claude: add dark mode', tier: 'medium', source: 'novi' });
-    expect(await agent.handle('cancel')).toBe('Okay, cancelled.');
+    expect(await agent.handle('cancel')).toBe('Okay, cancelled. What do you want instead? Tell me.');
     expect(await pending).toBe(false);
     expect(stopped).toBe(false);
     expect(await agent.handle('cancel')).toBe('Okay, I stopped the coding task.');

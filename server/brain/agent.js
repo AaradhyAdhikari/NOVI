@@ -91,8 +91,11 @@ const lower = (t) => String(t).charAt(0).toLowerCase() + String(t).slice(1).repl
 export function describeNext(s) {
   if (!s.active) return null;
   const plan = s.plan || [];
-  const next = plan.find((p) => p.status === 'pending');
-  if (next) return `Next: ${lower(next.step)}.`;
+  const pending = plan.filter((p) => p.status === 'pending');
+  if (pending.length) {
+    const more = pending.length - 2;
+    return `Next, ${s.agent || 'Claude'} will ${lower(pending[0].step)}${pending[1] ? `, then ${lower(pending[1].step)}` : ''}. ${more > 0 ? `${more} more step${more === 1 ? '' : 's'} after that.` : 'That finishes the plan.'}`;
+  }
   const doing = plan.find((p) => p.status === 'in_progress');
   if (doing) return `That's the last step: ${lower(doing.doing)}.`;
   if (plan.length) return s.status === 'running' ? 'All planned steps are done; it is finishing up.' : describeStatus(s);
@@ -106,7 +109,13 @@ export function describeStatus(s) {
   if (s.status === 'running') {
     const plan = s.plan || [];
     const at = plan.findIndex((p) => p.status === 'in_progress');
-    if (at >= 0) return `Step ${at + 1} of ${plan.length}: ${lower(plan[at].doing)}.`;
+    if (at >= 0) {
+      // Two short sentences (that's what gets spoken): where it is, then what's done and what it's doing right now.
+      const done = plan.filter((p) => p.status === 'completed').slice(-2).map((p) => lower(p.step));
+      const now = (s.recent || []).at(-1);
+      const extra = [done.length ? `Done so far: ${done.join(', ')}` : '', now ? `right now: ${now.replace(/[.!]+$/, '')}` : ''].filter(Boolean).join('; ');
+      return `${who} is on step ${at + 1} of ${plan.length} for ${s.project}: ${lower(plan[at].doing)}.${extra ? ` ${extra.charAt(0).toUpperCase()}${extra.slice(1)}.` : ''}`;
+    }
     const latest = (s.recent || []).at(-1);
     return `${who} is working on ${s.project}.${latest ? ` Latest: ${latest}.` : ''}`;
   }
@@ -260,7 +269,7 @@ export class Agent {
       const asking = this.approvals.latest({ excludeTier: 'high' });
       if (asking) {
         this.approvals.resolve(asking.id, false, 'voice', null, { from });
-        return 'Okay, cancelled.';
+        return 'Okay, cancelled. What do you want instead? Tell me.';
       }
       return (await this.tasks.stop()) ? 'Okay, I stopped the coding task.' : 'Nothing is running right now.';
     }
