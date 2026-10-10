@@ -50,6 +50,17 @@ export function youtubeCommand(text, { awaiting = false } = {}) {
   m = new RegExp(`^${PLAY_VERB} (.+)$`, 'iu').exec(t) || new RegExp(`^(.+?) ${HI_VERB}$`, 'iu').exec(t);
   return m ? { play: m[1] } : { maybe: t };
 }
+// "Show my GitHub contributions (yesterday)" → the graph picture, without the AI. "Open my GitHub" is not this.
+export function githubGraphCommand(text, now = new Date()) {
+  const t = String(text || '').toLowerCase();
+  if (!/github|गिटहब/.test(t) || !/contri|graph|ss\b|screenshot|photo|picture|कॉन्ट्रि/.test(t)) return null;
+  if (/\b(?:open|khol\w*)\b|खोल/.test(t)) return null;
+  const d = new Date(now);
+  const yesterday = /yesterday|\bkal\b|कल/.test(t);
+  if (yesterday) d.setDate(d.getDate() - 1);
+  return { date: d.toLocaleDateString('en-CA'), when: yesterday ? 'yesterday' : 'today' };
+}
+
 const QUESTION = /^(?:what|whats|what's|how|why|who|when|where|which|is|are|can|could|do|does|kya|kaise|kab|kaun|kahan|kitna)\b/i;
 
 // Short spoken replies Novi handles without calling the AI (stop, yes/no, "use Claude instead", status).
@@ -100,6 +111,12 @@ export class Agent {
     }
     const yt = await this._youtube(text);
     if (yt) return this._remember(text, yt);
+    const gh = this.tools.get('github_graph') ? githubGraphCommand(text) : null;
+    if (gh) {
+      const { output } = await this._runTool({ id: `gh-${Date.now()}`, function: { name: 'github_graph', arguments: JSON.stringify({ date: gh.date }) } });
+      const n = output?.contributions;
+      return this._remember(text, output?.error || `You made ${n} contribution${n === 1 ? '' : 's'} ${gh.when}.`);
+    }
 
     const { extra, messages, offered, purpose } = await this._prepare(text);
     const notes = [];
@@ -166,6 +183,8 @@ export class Agent {
     if (quick) return { quick, calls: [], reply: null, provider: null };
     const yt = this.tools.get('play_youtube') ? youtubeCommand(text) : null;
     if (yt?.play) return { quick: null, calls: [{ name: 'play_youtube', args: { query: yt.play } }], reply: null, provider: 'direct' };
+    const gh = this.tools.get('github_graph') ? githubGraphCommand(text) : null;
+    if (gh) return { quick: null, calls: [{ name: 'github_graph', args: { date: gh.date } }], reply: null, provider: 'direct' };
     const { extra, messages, offered, purpose } = await this._prepare(text);
     const res = await this.router.chat({ messages, tools: offered, purpose, only: extra.sensitive ? this.privateProviders[0] : undefined });
     const calls = (res.message.tool_calls || []).map((c) => {

@@ -1,3 +1,4 @@
+import { mergeTranscript } from './transcript.js';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getItem, setItem } from './storage.js';
 import { pairCodeFromHash, deviceName, tryAutoPair } from './pairing.js';
@@ -24,7 +25,7 @@ export function useNovi({ onSpeak }) {
       switch (msg.type) {
         case 'snapshot': {
           const { type, ...rest } = msg;
-          setState((s) => ({ ...s, ...rest }));
+          setState((s) => ({ ...s, ...rest, transcript: mergeTranscript(s.transcript, rest.transcript) }));
           break;
         }
         case 'chat': setState((s) => ({ ...s, transcript: [...s.transcript, msg.entry].slice(-100) })); break;
