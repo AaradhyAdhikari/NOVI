@@ -23,7 +23,7 @@ describe('createNoviTools', () => {
   it('exposes OpenAI-format schemas for all tools', () => {
     const { tools } = setup();
     const names = tools.schemas().map((s) => s.function.name);
-    expect(names).toEqual(['list_projects', 'remember_project', 'forget_project', 'code_start_task', 'code_send_message', 'code_status', 'code_stop', 'code_allow_edits']);
+    expect(names).toEqual(['list_projects', 'remember_project', 'forget_project', 'rename_project', 'code_start_task', 'code_send_message', 'code_status', 'code_stop', 'code_allow_edits']);
     for (const s of tools.schemas()) {
       expect(s.type).toBe('function');
       expect(s.function.parameters.type).toBe('object');
@@ -214,5 +214,35 @@ describe('changes while the coder works ("make the button blue", "add dark mode"
     const out = await tool.run({ instruction: 'make the button blue' });
     expect(s.calls).toContainEqual(['send', 'make the button blue']);
     expect(out.note).toMatch(/after/);
+  });
+});
+
+describe('rename_project', () => {
+  it('renames the folder and what Novi remembers, after one yes', async () => {
+    const s = setup();
+    const folder = path.join(s.dir, 'Sample Project');
+    fs.mkdirSync(folder);
+    fs.writeFileSync(path.join(folder, 'README.md'), '# Sample Project\n');
+    s.memory.rememberProject('sample project', folder);
+    const tool = s.tools.get('rename_project');
+    expect(tool.tier).toBe('medium');
+    expect(tool.prompt({ name: 'Sample Project', newName: 'Calculator Maker' })).toBe('I\'ll rename Sample Project to Calculator Maker. Okay? Say yes or no.');
+    const out = await tool.run({ name: 'sample project', newName: 'Calculator Maker' });
+    const moved = path.join(s.dir, 'Calculator Maker');
+    expect(fs.existsSync(path.join(moved, 'README.md'))).toBe(true);
+    expect(fs.existsSync(folder)).toBe(false);
+    expect(s.memory.findProject('calculator maker').path).toBe(moved);
+    expect(s.memory.findProject('sample project')).toBeNull();
+    expect(out).toMatchObject({ renamed: moved });
+  });
+
+  it('refuses unknown projects, taken names and a project the coder is working in', async () => {
+    const s = setup();
+    const a = path.join(s.dir, 'A'); fs.mkdirSync(a); s.memory.rememberProject('a', a);
+    fs.mkdirSync(path.join(s.dir, 'B'));
+    await expect(s.tools.get('rename_project').run({ name: 'zzz', newName: 'x' })).rejects.toThrow(/don't know/);
+    await expect(s.tools.get('rename_project').run({ name: 'a', newName: 'B' })).rejects.toThrow(/already/);
+    s.tasks.status = () => ({ active: true, status: 'running', project: 'a' });
+    await expect(s.tools.get('rename_project').run({ name: 'a', newName: 'C' })).rejects.toThrow(/working/);
   });
 });

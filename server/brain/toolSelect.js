@@ -7,7 +7,7 @@ const GROUP = {
   play_youtube: 'youtube', youtube_search: 'youtube',
   open_project: 'ide', list_projects: 'projects', remember_project: 'projects', forget_project: 'projects',
   timer_set: 'reminder', conversation_history: 'memory',
-  project_next: 'projects', study_log: 'sheets', sheets_log_link: 'sheets',
+  project_next: 'projects', rename_project: 'projects', study_log: 'sheets', sheets_log_link: 'sheets',
 };
 const groupOf = (name) => GROUP[name] || name.split('_')[0];
 
@@ -19,7 +19,7 @@ const WORDS = {
   reminder: 'remind reminder reminders timer timers alarm alarms wake utha uthana uthade jaga jagana jagade yaad',
   github: 'github repo repos repository issue issues pr prs pull notification notifications commit commits contribution contributions',
   ide: 'cursor vscode antigravity kiro editor ide claude',
-  projects: 'project projects folder leave left progress far continue',
+  projects: 'project projects folder leave left progress far continue rename',
   // "claude" is in both ide and code: "open X in Claude and do Y" may open it and start a task.
   code: 'code html css javascript jsx fix bug bugs build implement refactor tests coding coder feature claude back takeover sambhal add bana banao karwa karwao change mode page button',
   memory: 'remember forget memory memories told yesterday earlier talked said ago',

@@ -56,6 +56,28 @@ export function createNoviTools({ memory, tasks, coder = 'novi-coder', alternati
       run: async ({ name }) => ({ forgotten: memory.forgetProject(name) }),
     })
     .add({
+      name: 'rename_project',
+      description: 'Rename a project: its folder on the laptop and the name Novi knows it by ("rename Sample Project to Calculator Maker").',
+      parameters: obj({ name: str('Current project name'), newName: str('New name') }, ['name', 'newName']),
+      tier: 'medium',
+      describe: ({ name, newName }) => `Rename project "${name}" to "${folderName(newName)}"`,
+      prompt: ({ name, newName }) => `I'll rename ${name} to ${folderName(newName)}. Okay? Say yes or no.`,
+      run: async ({ name, newName }) => {
+        const project = memory.findProject(name);
+        if (!project) throw new UserFacingError(`I don't know a project called ${name}.`);
+        const clean = folderName(newName);
+        if (!clean) throw new UserFacingError('Tell me the new name.');
+        const st = tasks.status();
+        if (st.active && st.status === 'running' && st.project === project.name) throw new UserFacingError(`The coder is working in ${project.name} right now. Rename it when it's done.`);
+        const target = path.join(path.dirname(project.path), clean);
+        if (fs.existsSync(target)) throw new UserFacingError(`There's already a folder called ${clean} there.`);
+        fs.renameSync(project.path, target);
+        memory.forgetProject(project.name);
+        const renamed = memory.rememberProject(clean, target);
+        return { renamed: target, project: renamed.name, note: `Renamed it to ${clean}.` };
+      },
+    })
+    .add({
       name: 'code_start_task',
       description: 'Start the coding agent on a known project with a complete coding instruction. Progress is narrated to the user automatically.',
       parameters: obj({
