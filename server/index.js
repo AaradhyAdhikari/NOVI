@@ -10,6 +10,7 @@ import { startKeepAwake } from './laptop/keepAwake.js';
 import { checkClaude } from './claude/check.js';
 import { startWakeWordService } from './voice/wakeword/service.js';
 import { createLocalSpeaker } from './voice/localSpeaker.js';
+import { rememberOwnProject } from './ownProject.js';
 import { createEdgeTts, DEFAULT_VOICES } from './voice/edgeTts.js';
 import { createLogBuffer } from './logBuffer.js';
 
@@ -33,6 +34,7 @@ const localSpeaker = createLocalSpeaker({ synth: createEdgeTts({ voices: edgeVoi
 localSpeaker?.(''); // warm up the Windows voice now so the first reply isn't 2.5 s late
 const novi = createNovi(config, { lanUrls, localSpeaker, logBuffer, system, tsName: ts?.name || null });
 await novi.plugins.loadDirectory(path.resolve('plugins'));
+rememberOwnProject(novi.memory, process.cwd());
 await novi.plugins.startServices();
 // Self-signed for localhost / LAN IPs; the real Tailscale certificate when the phone asks for the ts.net name (SNI).
 let tsContext = ts && tls.createSecureContext({ key: ts.key, cert: ts.cert });

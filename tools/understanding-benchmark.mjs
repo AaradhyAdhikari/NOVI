@@ -24,6 +24,7 @@ async function main() {
   const { createNovi } = await import('../server/app.js');
   const novi = createNovi(loadConfig());
   await novi.plugins.loadDirectory(path.resolve('plugins'));
+  (await import('../server/ownProject.js')).rememberOwnProject(novi.memory, process.cwd()); // as server/index.js does
   const only = (process.argv.find((a) => a.startsWith('--only=')) || '').slice(7).toLowerCase();
   const commands = loadCommands().filter((c) => !only || c.say.toLowerCase().includes(only));
   const results = [];
