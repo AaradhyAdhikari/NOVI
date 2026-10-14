@@ -548,9 +548,9 @@ describe('direct project commands (no free AI in the middle)', async () => {
 describe('a few seconds of "busy" are waited out, not said', () => {
   it('any turn waits up to 5 s once instead of answering "try again in 1 seconds"', async () => {
     const waits = [];
-    const router = scriptedRouter([new AllProvidersUnavailableError(1000), reply('Done.')]);
+    const router = scriptedRouter([new AllProvidersUnavailableError(1000), reply('A joke.')]);
     const agent = new Agent({ router, tools: new ToolRegistry(), approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) }, sleep: async (ms) => { waits.push(ms); }, logger: { log() {} } });
-    expect(await agent.handle('tell me a joke')).toBe('Done.');
+    expect(await agent.handle('tell me a joke')).toBe('A joke.');
     expect(waits).toEqual([1000]);
   });
 });
@@ -630,3 +630,37 @@ describe('file commands go straight to the file tools (no AI in the middle)', as
   });
 });
 
+
+describe('the AI may not claim an action it never ran', () => {
+  it('pushes back once, and the AI then runs the tool', async () => {
+    const { agent, router, ran } = setup([
+      reply('Opened the C language folder for you.'),
+      { message: { role: 'assistant', content: '', tool_calls: [toolCall('code_start_task', { project: 'portfolio' })] }, provider: 'groq', model: 'm' },
+      reply('Claude is working on it.'),
+    ], { autoAnswer: true });
+    await agent.handle('do the thing in portfolio');
+    expect(ran).toHaveLength(1);
+    expect(JSON.stringify(router.calls[1].messages)).toMatch(/did not run any tool/);
+  });
+
+  it('says so honestly when the AI claims it again', async () => {
+    const { agent } = setup([reply('Opened the C language folder for you.'), reply('Done, opened it.')]);
+    const out = await agent.handle('open the c language folder');
+    expect(out).not.toMatch(/^Opened/);
+    expect(out).toMatch(/couldn't|didn't/i);
+  });
+
+  it('leaves ordinary answers alone', async () => {
+    const { agent, router } = setup([reply('It is 25 degrees and sunny.')]);
+    expect(await agent.handle('weather?')).toBe('It is 25 degrees and sunny.');
+    expect(router.calls).toHaveLength(1);
+  });
+});
+
+describe('folders and "in my laptop" go straight to the file tools', async () => {
+  const { fileCommand } = await import('../../server/brain/agent.js');
+  it('opens a folder', () => {
+    expect(fileCommand('Open C language folder in my laptop.')).toEqual({ tool: 'file_open', args: { query: 'Open C language folder' } });
+    expect(fileCommand('open my DBMS folder on laptop')).toEqual({ tool: 'file_open', args: { query: 'open my DBMS folder' } });
+  });
+});
