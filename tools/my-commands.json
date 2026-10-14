@@ -218,5 +218,37 @@
     "expect": {
       "quick": "deny"
     }
+  },
+  {
+    "say": "open my DBMS notes pdf",
+    "expect": {
+      "tools": [
+        "file_open"
+      ]
+    }
+  },
+  {
+    "say": "summarize the sales analysis sheet",
+    "expect": {
+      "tools": [
+        "file_summary"
+      ]
+    }
+  },
+  {
+    "say": "take all the PDFs about DBMS and put them in a folder",
+    "expect": {
+      "tools": [
+        "file_gather"
+      ]
+    }
+  },
+  {
+    "say": "DBMS ki notes wali file kholo",
+    "expect": {
+      "tools": [
+        "file_open"
+      ]
+    }
   }
 ]

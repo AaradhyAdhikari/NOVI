@@ -596,3 +596,28 @@ describe('"also …" adds to the job', async () => {
   });
 });
 
+describe('file commands go straight to the file tools (no AI in the middle)', async () => {
+  const { fileCommand } = await import('../../server/brain/agent.js');
+  it('open / summarize / gather / undo', () => {
+    expect(fileCommand('open my DBMS notes pdf')).toEqual({ tool: 'file_open', args: { query: 'open my DBMS notes pdf' } });
+    expect(fileCommand('DBMS ki notes wali file kholo')).toEqual({ tool: 'file_open', args: { query: 'DBMS ki notes wali file kholo' } });
+    expect(fileCommand('summarize the sales analysis sheet')).toEqual({ tool: 'file_summary', args: { query: 'the sales analysis sheet' } });
+    expect(fileCommand('give me a summary of my budget google sheet')).toEqual({ tool: 'file_summary', args: { query: 'my budget google sheet', where: 'google' } });
+    expect(fileCommand('take all the PDFs about DBMS and put them in a folder')).toEqual({ tool: 'file_gather', args: { topic: 'DBMS', kind: 'pdf' } });
+    expect(fileCommand('move all my documents on operating systems into a folder called OS notes')).toEqual({ tool: 'file_gather', args: { topic: 'operating systems', kind: 'doc', folder: 'OS notes' } });
+    expect(fileCommand('undo that')).toEqual({ tool: 'file_undo_move', args: {} });
+  });
+
+  it('leaves everything else alone', () => {
+    for (const t of ['open youtube', 'open Novi in Cursor', 'open Claude on my laptop', 'open my project folder in vs code', "what's the weather", 'summarize my day']) expect(fileCommand(t), t).toBeNull();
+  });
+
+  it('runs the tool and says its note', async () => {
+    const ran = [];
+    const tools = new ToolRegistry().add({ name: 'file_open', description: 'f', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'f', run: async (a) => { ran.push(a); return { opened: 'DBMS Notes.pdf' }; } });
+    const agent = new Agent({ router: scriptedRouter([]), tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) }, logger: { log() {} } });
+    expect(await agent.handle('open my DBMS notes pdf')).toBe('Opened DBMS Notes.pdf.');
+    expect(ran).toEqual([{ query: 'open my DBMS notes pdf' }]);
+  });
+});
+

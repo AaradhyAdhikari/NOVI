@@ -95,3 +95,15 @@ describe('files plugin', () => {
     expect(decodeURIComponent(calls[0])).toContain("name contains 'sales' and name contains 'analysis'");
   });
 });
+
+describe('files plugin during the first scan', () => {
+  it('says it is still listing the files instead of "not found"', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'novi-fp-'));
+    const host = new PluginHost({ logger: { warn() {} }, env: {}, runtime: { dataDir: path.join(root, 'data') } });
+    const plugin = createFilesPlugin({ roots: [root], home: root, openPath: async () => {}, refreshMs: 0, readyWaitMs: 10 });
+    host.register(plugin);
+    // services not started yet = the first scan hasn't finished
+    await expect(host.get('file_open').run({ query: 'dbms notes' })).rejects.toThrow(/still listing your files/);
+    expect((await host.get('file_find').run({ query: 'dbms notes' })).note).toMatch(/still listing your files/);
+  });
+});
