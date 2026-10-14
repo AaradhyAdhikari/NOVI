@@ -33,8 +33,9 @@ export function createWatchWindows({ dir, claudeCommand = 'claude', platform = p
     append,
     openWatch({ taskId, project, path: cwd, instruction }) {
       append(taskId, `Claude Code is working on ${project}: ${instruction}`);
-      // wt.exe refuses to start in a folder that's gone (error 0x8007010b); the log folder always exists.
-      if (!exists(cwd)) cwd = dir;
+      // The window starts in the log folder, never the project: a window open "inside" the project
+      // keeps Windows from renaming it, and wt.exe refuses a folder that's gone (error 0x8007010b).
+      cwd = dir;
       append(taskId, 'Its questions go to your phone. Back at the laptop? Say "I\'m back, I\'ll take over".');
       return open(`Claude · ${project}`, cwd, ['powershell.exe', '-NoExit', '-NoProfile', '-Command', `Get-Content -Wait -Encoding UTF8 -LiteralPath ${psQuote(logPath(taskId))}`]);
     },

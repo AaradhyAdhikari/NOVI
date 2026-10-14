@@ -498,6 +498,9 @@ describe('direct project commands (no free AI in the middle)', async () => {
     expect(renameCommand('Rename my folder named Sample Project to Calculator Maker in Claude.')).toEqual({ name: 'Sample Project', newName: 'Calculator Maker' });
     expect(renameCommand('change the name of sample project to calculator maker')).toEqual({ name: 'sample project', newName: 'calculator maker' });
     expect(renameCommand('rename the project to Calc')).toEqual({ name: null, newName: 'Calc' });
+    expect(renameCommand('rename Sample Project as Calc')).toEqual({ name: 'Sample Project', newName: 'Calc' });
+    expect(renameCommand('sample project ka naam calc kar do')).toEqual({ name: 'sample project', newName: 'calc' });
+    expect(renameCommand('name the project Calc Maker')).toEqual({ name: null, newName: 'Calc Maker' });
     expect(renameCommand('what is the weather')).toBeNull();
   });
 

@@ -81,6 +81,12 @@ export class Memory {
     return task;
   }
 
+  // After a project folder is renamed: its tasks (and Claude conversations to resume) follow it.
+  moveTasks(oldName, oldPath, newName, newPath) {
+    for (const t of this.data.tasks) if (t.project === oldName || t.path === oldPath) Object.assign(t, { project: newName, path: newPath });
+    this.save();
+  }
+
   lastTask() {
     return this.data.tasks[0] || null;
   }

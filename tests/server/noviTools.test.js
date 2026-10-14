@@ -246,3 +246,32 @@ describe('rename_project', () => {
     await expect(s.tools.get('rename_project').run({ name: 'a', newName: 'C' })).rejects.toThrow(/working/);
   });
 });
+
+describe('rename_project on Windows (folder in use)', () => {
+  it('lets go of the finished coder session in that folder first, and moves old tasks to the new path', async () => {
+    const s = setup();
+    const folder = path.join(s.dir, 'Sample Project');
+    fs.mkdirSync(folder);
+    s.memory.rememberProject('sample project', folder);
+    s.memory.addTask({ id: 't1', project: 'sample project', path: folder, sessionId: 'abc' });
+    const released = [];
+    s.tasks.status = () => ({ active: true, status: 'done', project: 'sample project' });
+    s.tasks.release = (name) => { released.push(name); };
+    await s.tools.get('rename_project').run({ name: 'sample project', newName: 'Calc' });
+    expect(released).toEqual(['sample project']);
+    expect(s.memory.lastTask()).toMatchObject({ project: 'calc', path: path.join(s.dir, 'Calc') });
+  });
+
+  it('says plainly when Windows keeps the folder busy', async () => {
+    const s = setup();
+    const folder = path.join(s.dir, 'Busy');
+    fs.mkdirSync(folder);
+    s.memory.rememberProject('busy', folder);
+    const realRename = fs.renameSync;
+    fs.renameSync = () => { const e = new Error('EPERM: operation not permitted'); e.code = 'EPERM'; throw e; };
+    try {
+      await expect(s.tools.get('rename_project').run({ name: 'busy', newName: 'Free' })).rejects.toThrow(/in use.*VS Code/);
+    } finally { fs.renameSync = realRename; }
+    expect(s.memory.findProject('busy').path).toBe(folder);
+  });
+});

@@ -20,14 +20,14 @@ describe('Claude watch window + take over', () => {
     expect(log).toMatch(/\d\d:\d\d:\d\d {2}Reading App.jsx\n.*Editing App.jsx\n$/);
   });
 
-  it('opens a Windows Terminal window in the project that follows the log', () => {
+  it('opens a Windows Terminal window (in the log folder, so the project can be renamed) that follows the log', () => {
     const { w, runs, dir } = setup();
     w.openWatch({ taskId: 't1', project: 'novi', path: 'C:\\code\\novi;x', instruction: 'add dark mode' });
     expect(runs).toHaveLength(1);
     const { cmd, args } = runs[0];
     expect(cmd).toBe('wt.exe');
     expect(args.slice(0, 5)).toEqual(['-w', 'new', '--title', 'Claude · novi', '-d']);
-    expect(args[5]).toBe('C:\\code\\novi\\;x'); // wt treats ; as a command separator
+    expect(args[5]).toBe(dir);
     expect(args).toContain('powershell.exe');
     expect(args.at(-1)).toContain(`Get-Content -Wait -Encoding UTF8 -LiteralPath '${path.join(dir, 't1.log')}'`);
     expect(fs.readFileSync(path.join(dir, 't1.log'), 'utf8')).toMatch(/Claude Code is working on novi: add dark mode/);

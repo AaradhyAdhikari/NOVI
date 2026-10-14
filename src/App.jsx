@@ -1,7 +1,7 @@
 // src/App.jsx
 import { useEffect, useRef, useState } from 'react';
 import { useNovi } from './lib/useNovi.js';
-import { speak, stopSpeaking } from './lib/voice.js';
+import { speak, stopSpeaking, speechEvents } from './lib/voice.js';
 import { HandsFree, handsFreeSupported, chime } from './lib/handsFree.js';
 import { getItem, setItem } from './lib/storage.js';
 import StatusBar from './components/StatusBar.jsx';
@@ -22,12 +22,28 @@ export default function App() {
   mutedRef.current = muted;
   const apiRef = useRef(null);
   // Natural Edge voices from the server (/api/tts); speak() falls back to the browser's voice.
-  const novi = useNovi({ onSpeak: (text) => speak(text, { muted: mutedRef.current, api: apiRef.current }) });
+  // After a yes / no question (an approval), switch the mic on by itself once Novi has asked it.
+  const [answerAt, setAnswerAt] = useState(0);
+  const serverWakeRef = useRef(false);
+  const novi = useNovi({
+    onSpeak: (text, msg = {}) => {
+      if (msg.listen && !serverWakeRef.current) {
+        const done = (e) => {
+          if (e.detail?.text !== text) return;
+          speechEvents.removeEventListener('spoken', done);
+          setAnswerAt(Date.now());
+        };
+        speechEvents.addEventListener('spoken', done);
+      }
+      speak(text, { muted: mutedRef.current, api: apiRef.current });
+    },
+  });
   apiRef.current = novi.api;
   const { state, send } = novi;
   // Voice-first: "Hey Novi" is always listening (no on/off switch). When the server has a
   // wake-word model it listens on the laptop mic (even with this page closed) and the browser stays quiet.
   const serverWake = state.wakeWord === 'server';
+  serverWakeRef.current = serverWake;
   const handsFreeOn = handsFreeSupported && !serverWake;
   const sendText = (text) => send({ type: 'user_message', text });
   const sendRef = useRef(sendText);
@@ -78,7 +94,7 @@ export default function App() {
       </main>
       {novi.isLocal && <PairRequests requests={state.pairRequests} api={novi.api} />}
       <ApprovalCards api={novi.api} approvals={state.approvals} onAnswer={(id, allow, choice, opts = {}) => send({ type: 'approval', id, allow, ...(choice ? { choice } : {}), ...(opts.always ? { always: true } : {}), ...(opts.proof || {}) })} />
-      <TalkButton onText={sendText} api={novi.api} onRecording={(on) => handsFree.current?.enabled && handsFree.current.pause(on)} handsFreeOn={handsFreeOn || serverWake} />
+      <TalkButton onText={sendText} api={novi.api} onRecording={(on) => handsFree.current?.enabled && handsFree.current.pause(on)} handsFreeOn={handsFreeOn || serverWake} answerAt={answerAt} />
       <SettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} projects={state.projects} devices={state.devices} accounts={state.accounts} googleConfigured={state.googleConfigured} api={novi.api} isLocal={novi.isLocal} />
     </div>
   );

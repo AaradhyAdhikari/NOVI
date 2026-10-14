@@ -306,7 +306,12 @@ export function createNovi(config, overrides = {}) {
   approvals.on('added', (approval) => {
     broadcast({ type: 'approval_added', approval });
     notify('approval');
-    sendTo(active, { type: 'speak', text: approval.tier === 'high' ? `High risk: ${approval.title}. Please confirm on screen.` : approval.prompt || `${approval.title}. Should I allow it?` });
+    const text = approval.tier === 'high' ? `High risk: ${approval.title}. Please confirm on screen.` : approval.prompt || `${approval.title}. Should I allow it?`;
+    // A yes / no by voice is possible: the device that asked listens for it right after the question
+    // (its page through `listen`, the laptop mic without "Hey Novi").
+    const listen = approval.tier !== 'high' && !approval.kind;
+    sendTo(active, { type: 'speak', text, ...(listen ? { listen: true } : {}) });
+    if (listen && deviceKey(active) === 'local') wakeTools?.listen?.({ deafMs: isOpen('local') ? 1500 + 70 * text.length : 0, waitMs: 10000 });
   });
   approvals.on('resolved', (r) => broadcast({ type: 'approval_resolved', ...r }));
   // Only the phone that tried hears what is missing.

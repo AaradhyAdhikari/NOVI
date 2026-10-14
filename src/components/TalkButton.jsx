@@ -12,7 +12,8 @@ const TAP_MS = 350; // released faster than this = a tap: keep listening until y
 // Silero VAD keeps only real speech, so silence is never sent to speech-to-text.
 // Falls back to a plain recorder if VAD can't load. Transcription is on the server.
 // (Chrome's own recognizer is left to hands-free mode; two recognizers at once cancel each other.)
-export default function TalkButton({ onText, api, onRecording = () => {}, handsFreeOn = false }) {
+// answerAt: Novi just asked a yes / no question (approval) — listen for the answer without a tap.
+export default function TalkButton({ onText, api, onRecording = () => {}, handsFreeOn = false, answerAt = 0 }) {
   const [phase, setPhase] = useState('idle'); // idle | starting | recording | listening | transcribing
   const [error, setError] = useState(null);
   const recRef = useRef(null); // { finish(): Promise<Blob|null>, switchToTap?() }
@@ -24,9 +25,14 @@ export default function TalkButton({ onText, api, onRecording = () => {}, handsF
   useEffect(() => { loadVad().then((m) => m.warmVad()).catch(() => {}); }, []);
   const micOpenMsRef = useRef(0);
 
+  const autoRef = useRef(false); // this recording was started by Novi (answer to its question)
+
   async function send(blob) {
     recRef.current = null;
     onRecording(false);
+    const auto = autoRef.current;
+    autoRef.current = false;
+    if (!blob && auto) { go('idle'); return; } // no answer: the card still waits for a tap
     if (!blob) {
       setError("I didn't hear any speech. Try again a little louder.");
       go('idle');
@@ -56,6 +62,26 @@ export default function TalkButton({ onText, api, onRecording = () => {}, handsF
       return { finish: stop };
     }
   }
+
+  // Novi asked a yes / no question: open the mic as if the button were tapped (ends when you pause).
+  useEffect(() => {
+    if (!answerAt || phaseRef.current !== 'idle') return;
+    (async () => {
+      autoRef.current = true;
+      setError(null);
+      go('starting');
+      onRecording(true);
+      try {
+        recRef.current = await open();
+      } catch {
+        autoRef.current = false;
+        onRecording(false);
+        go('idle');
+        return;
+      }
+      startListening();
+    })();
+  }, [answerAt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function begin(e) {
     e.preventDefault();

@@ -73,7 +73,9 @@ export function codeCommand(text) {
 // "Rename (my folder / project named) X to Y" → { name | null (= the current project), newName }.
 export function renameCommand(text) {
   const t = String(text || '').trim().replace(/[.!?।]+$/, '').replace(/\s+(?:in|on|with) (?:claude|the laptop|my laptop)$/i, '');
-  const m = /^(?:please )?(?:rename|change the name of)\s+(?:my |the )?(?:(?:folder|project)\s+)?(?:(?:named|called)\s+)?(.+?)\s+to\s+(.+)$/i.exec(t);
+  const m = /^(?:please )?(?:rename|change the name of)\s+(?:my |the )?(?:(?:folder|project)\s+)?(?:(?:named|called)\s+)?(.+?)\s+(?:to|as)\s+(.+)$/i.exec(t)
+    || /^(?:my |the )?(?:(?:folder|project)\s+)?(.+?) ka naam (.+?) (?:kar do|karo|kar de|rakh do|rakho)$/i.exec(t)
+    || /^name (?:the |my |this )?(project|folder|it) (.+)$/i.exec(t);
   if (!m) return null;
   const name = /^(?:(?:my|the|this) )?(?:project|folder|it)$/i.test(m[1]) ? null : m[1];
   return { name, newName: m[2] };

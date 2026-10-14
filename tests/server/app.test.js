@@ -590,6 +590,19 @@ describe('Novi server', () => {
     a.c.ws.close();
   });
 
+  it('after asking for approval, Novi listens for the answer (laptop mic without "Hey Novi"; the page gets listen: true)', async () => {
+    const { novi } = await start();
+    const listened = [];
+    novi.setWakeTools({ listen: (o) => listened.push(o) });
+    const pending = novi.approvals.request({ title: 'Rename project', tier: 'medium', source: 'novi' });
+    expect(listened).toHaveLength(1);
+    expect(listened[0].waitMs).toBeGreaterThanOrEqual(10000);
+    novi.approvals.resolve(novi.approvals.pending()[0].id, true);
+    await pending;
+    novi.approvals.request({ title: 'Delete it', tier: 'high', source: 'novi' });
+    expect(listened).toHaveLength(1); // high risk is confirmed on screen
+  });
+
   it('records "Hey Novi" practice clips through the wake-word mic and applies a trigger level', async () => {
     const { base, novi } = await start();
     expect((await (await fetch(`${base}/api/wake-samples`)).json()).available).toBe(false);
