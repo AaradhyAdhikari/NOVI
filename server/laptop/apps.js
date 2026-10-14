@@ -72,7 +72,7 @@ export function resolveApp(apps, query) {
 
 // Launches by Start-menu AppID, so only installed apps can be started (never arbitrary commands).
 export async function launchApp(appId, { spawnImpl = spawn } = {}) {
-  const child = spawnImpl('explorer.exe', [`shell:AppsFolder\\${appId}`], { detached: true, stdio: 'ignore', windowsHide: true });
+  const child = spawnImpl('explorer.exe', [`shell:AppsFolder\\${appId}`], { detached: true, stdio: 'ignore', windowsHide: false });
   child.on?.('error', () => {});
   child.unref?.();
 }

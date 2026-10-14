@@ -17,9 +17,19 @@ const firstSentences = (text, n = 2) => (String(text).match(/[^.!?]+[.!?]+/g) ||
 function openOnLaptop(p) {
   // explorer.exe opens a file with its default app (or a folder in Explorer); no shell involved.
   const [cmd, args] = process.platform === 'win32' ? ['explorer.exe', [p]] : process.platform === 'darwin' ? ['open', [p]] : ['xdg-open', [p]];
-  const child = spawn(cmd, args, { detached: true, stdio: 'ignore', windowsHide: true });
+  // Not windowsHide: that asks Windows to start the window hidden, so the folder "opened" invisibly.
+  const child = spawn(cmd, args, { detached: true, stdio: 'ignore', windowsHide: false });
   child.on('error', () => {});
   child.unref();
+  if (process.platform === 'win32') {
+    // Novi runs in the background, so Windows may open the window behind the others: bring it forward.
+    // The name goes in an environment variable, never into the command text.
+    const title = path.basename(p, path.extname(p));
+    setTimeout(() => {
+      const ps = spawn('powershell.exe', ['-NoProfile', '-Command', '(New-Object -ComObject WScript.Shell).AppActivate($env:NOVI_OPEN_TITLE) | Out-Null'], { env: { ...process.env, NOVI_OPEN_TITLE: title }, stdio: 'ignore', windowsHide: true });
+      ps.on('error', () => {});
+    }, 1500).unref?.();
+  }
 }
 
 function defaultDocs(home = os.homedir()) {

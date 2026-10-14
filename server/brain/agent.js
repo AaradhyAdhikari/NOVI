@@ -101,11 +101,11 @@ export function alsoCommand(text) {
 }
 
 // File commands without the AI: open / summarize / gather into a folder / undo the gather.
-const FILE_WORD = /\b(?:files?|pdfs?|docs?|docx|documents?|sheets?|excel|csv|notes|ppt|pptx|slides|presentation|assignment|report|resume|cv|spreadsheet)\b/i;
+const FILE_WORD = /\b(?:files?|folders?|pdfs?|docs?|docx|documents?|sheets?|excel|csv|notes|ppt|pptx|slides|presentation|assignment|report|resume|cv|spreadsheet)\b/i;
 const GATHER_KIND = { pdf: 'pdf', document: 'doc', doc: 'doc', sheet: 'sheet', spreadsheet: 'sheet', slide: 'slides', presentation: 'slides', picture: 'image', photo: 'image', image: 'image', file: 'any' };
 // The way it's actually said: "Okay, can you open …", "… on my laptop right now".
 const FILE_LEAD = /^(?:(?:ok(?:ay)?|hey novi|novi|so|now|please|can you|could you|would you|will you|just)[\s,]+)+/i;
-const FILE_TAIL = /(?:[\s,]+(?:on (?:my|the) (?:laptop|computer|pc)|for me|right now|now|please|quickly))+$/i;
+const FILE_TAIL = /(?:[\s,]+(?:(?:on|in) (?:(?:my|the) )?(?:laptop|computer|pc)|for me|right now|now|please|quickly))+$/i;
 
 export function fileCommand(text) {
   const t = String(text || '').trim().replace(/[.!?।]+$/, '').replace(FILE_LEAD, '').replace(FILE_TAIL, '');
@@ -124,6 +124,11 @@ export function fileCommand(text) {
 }
 
 const QUESTION = /^(?:what|whats|what's|how|why|who|when|where|which|is|are|can|could|do|does|kya|kaise|kab|kaun|kahan|kitna)\b/i;
+
+// The AI saying it did something ("Opened the folder", "Playing it now") — only true if a tool ran.
+export function claimsAction(text) {
+  return /^(?:(?:ok(?:ay)?|sure|done|alright)[,.!]?\s*)?(?:i(?:'ve| have| just)?\s+)?(?:opened|opening|launched|launching|started|starting|playing|played|renamed|moved|created|closed|sent|deleted|showing|here it is|it'?s open|done[,.!])/i.test(String(text).trim());
+}
 
 // Short spoken replies Novi handles without calling the AI (stop, yes/no, "use Claude instead", status).
 export function quickCommand(text) {
@@ -233,6 +238,8 @@ export class Agent {
     // Personal context (memories) only goes to providers the user trusts with private data.
     let provider = extra.sensitive ? this.privateProviders[0] : undefined;
     let waited = false;
+    let ranTool = false;
+    let pushedBack = false;
     for (let round = 0; round < MAX_ROUNDS; round++) {
       let res;
       try {
@@ -252,7 +259,18 @@ export class Agent {
       }
       provider = res.provider; // a turn's tool rounds stay on one provider (Gemini thought signatures)
       const calls = res.message.tool_calls || [];
-      if (!calls.length) return this._remember(text, (res.message.content || '').trim() || notes.join(' ') || 'Done.');
+      if (!calls.length) {
+        const content = (res.message.content || '').trim();
+        // "Opened the folder for you." with no tool run means nothing happened: push back once, then be honest.
+        if (!ranTool && claimsAction(content)) {
+          if (pushedBack) return this._remember(text, "Sorry, I couldn't do that: nothing actually ran on the laptop. Try saying it another way.");
+          pushedBack = true;
+          messages.push({ role: 'assistant', content }, { role: 'user', content: 'You did not run any tool, so nothing happened. Call the tool that does it now, or say plainly that you can\'t.' });
+          continue;
+        }
+        return this._remember(text, content || notes.join(' ') || 'Done.');
+      }
+      ranTool = true;
       messages.push(res.message);
       let sensitive = false;
       for (const call of calls) {
