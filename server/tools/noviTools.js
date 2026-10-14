@@ -9,8 +9,16 @@ const obj = (properties = {}, required = []) => ({ type: 'object', properties, r
 const str = (description) => ({ type: 'string', description });
 
 const CODERS = {
-  'novi-coder': { title: 'Novi Coder (free, Groq)', spoken: 'Novi Coder, free on Groq', other: 'claude', otherLabel: 'Use Claude', otherSpoken: 'use Claude instead' },
-  claude: { title: 'Claude Code (your Claude plan)', spoken: 'Claude Code, on your Claude plan', other: 'novi-coder', otherLabel: 'Use Novi Coder', otherSpoken: 'use Novi Coder instead' },
+  'novi-coder': { name: 'Novi Coder', title: 'Novi Coder (free, Groq)', spoken: 'Novi Coder, free on Groq', other: 'claude', otherLabel: 'Use Claude', otherSpoken: 'use Claude instead' },
+  claude: { name: 'Claude', title: 'Claude Code (your Claude plan)', spoken: 'Claude Code, on your Claude plan', other: 'novi-coder', otherLabel: 'Use Novi Coder', otherSpoken: 'use Novi Coder instead' },
+};
+
+// Spoken approvals are short: the task in a few words, then "OK?" (details stay on the card).
+const brief = (text, max = 10) => {
+  const first = String(text || '').trim().replace(/\s+/g, ' ').split(/(?<=[.!?])\s/)[0].replace(/[.!?]+$/, '');
+  const words = first.split(' ');
+  const out = words.length > max ? words.slice(0, max).join(' ') : first;
+  return out.charAt(0).toLowerCase() + out.slice(1);
 };
 
 // Where "make a new project" puts folders: Documents\Projects (OneDrive's Documents when it exists).
@@ -61,7 +69,7 @@ export function createNoviTools({ memory, tasks, coder = 'novi-coder', alternati
       parameters: obj({ name: str('Current project name'), newName: str('New name') }, ['name', 'newName']),
       tier: 'medium',
       describe: ({ name, newName }) => `Rename project "${name}" to "${folderName(newName)}"`,
-      prompt: ({ name, newName }) => `I'll rename ${name} to ${folderName(newName)}. Okay? Say yes or no.`,
+      prompt: ({ name, newName }) => `Rename ${name} to ${folderName(newName)}. OK?`,
       run: async ({ name, newName }) => {
         const project = memory.findProject(name);
         if (!project) throw new UserFacingError(`I don't know a project called ${name}.`);
@@ -100,7 +108,7 @@ export function createNoviTools({ memory, tasks, coder = 'novi-coder', alternati
       }, ['project', 'instruction']),
       tier: 'medium',
       describe: (a) => `Start ${coderFor(a).title} on ${a.project}: "${a.instruction}"`,
-      prompt: (a) => `I'll use ${coderFor(a).spoken}, on ${a.project}: ${String(a.instruction).trim().replace(/[.!?]+$/, '')}. Shall I start? ${alternativeAvailable ? `Say yes, no, or ${coderFor(a).otherSpoken}.` : 'Say yes or no.'}`,
+      prompt: (a) => `${coderFor(a).name} will ${brief(a.instruction)} in ${a.project}. OK?`,
       choices: (a = {}) => (alternativeAvailable ? [{ id: coderFor(a).other, label: coderFor(a).otherLabel, params: { $agent: coderFor(a).other } }] : undefined),
       run: async ({ project, instruction, agent, $agent }) => ({ started: true, task: tasks.start(project, instruction, { agent: $agent || named({ agent }) || undefined }), note: 'The coder is working on it; I will narrate the progress.' }),
     })
@@ -110,7 +118,7 @@ export function createNoviTools({ memory, tasks, coder = 'novi-coder', alternati
       parameters: obj({ instruction: str('What to tell the coding agent, clear and complete') }, ['instruction']),
       tier: 'medium',
       describe: ({ instruction }) => `Tell the coder: "${instruction}"`,
-      prompt: ({ instruction }) => `I'll tell ${tasks.status().agent || (coder === 'claude' ? 'Claude' : 'Novi Coder')}: ${String(instruction).trim().replace(/[.!?]+$/, '')}. Okay? Say yes, no or cancel.`,
+      prompt: ({ instruction }) => `Tell ${tasks.status().agent || c.name}: ${brief(instruction)}. OK?`,
       run: async ({ instruction }) => {
         const running = tasks.status().status === 'running';
         return { sent: true, task: tasks.send(instruction), note: running ? 'Sent. The coder will do it right after the step it is on now.' : 'Sent. The coder is on it.' };
@@ -179,7 +187,7 @@ export function createNoviTools({ memory, tasks, coder = 'novi-coder', alternati
       tier: 'medium',
       describe: (a) => `New project "${folderName(a.name)}"${a.instruction ? ` + ${coderFor(a).title}: "${a.instruction}"` : ''}`,
       detail: (a) => `Folder: ${path.join(projectsDir, folderName(a.name))}${a.description ? `\nDescription: ${a.description}` : ''}`,
-      prompt: (a) => `I'll make a new project "${folderName(a.name)}"${a.instruction ? ` and have ${coderFor(a).spoken} build it: ${String(a.instruction).trim().replace(/[.!?]+$/, '')}. It's a new folder, so it won't ask before each file edit; commands still ask` : ''}. Shall I go ahead? Say yes or no.`,
+      prompt: (a) => `I'll make ${folderName(a.name)}${a.instruction ? `, and ${coderFor(a).name} will ${brief(a.instruction)}` : ''}. OK?`,
       choices: (a = {}) => (alternativeAvailable && a.instruction ? [{ id: coderFor(a).other, label: coderFor(a).otherLabel, params: { $agent: coderFor(a).other } }] : undefined),
       run: async ({ name, description, instruction, agent, $agent }) => {
         const clean = folderName(name);

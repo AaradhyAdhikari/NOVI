@@ -40,3 +40,13 @@ export function answerKind(text) {
 // Speech-to-text hint: while Novi is asking, expect the answer words (Whisper otherwise writes "Allow"
 // as "Hello" or "A low").
 export const answerHint = (base, waiting) => (waiting ? `${base} Yes. No. Allow. Deny. Always allow. Haan. Nahi.` : base);
+
+// What Novi says when it needs an approval: short (details stay on the card), then "OK?".
+const cut = (text, max = 10) => {
+  const words = String(text || '').trim().replace(/\s+/g, ' ').replace(/[.!?]+$/, '').split(' ');
+  return words.length > max ? words.slice(0, max).join(' ') : words.join(' ');
+};
+export function spokenApproval({ title, prompt, tier }) {
+  if (tier === 'high') return `High risk: ${cut(title)}. Please confirm on screen.`;
+  return prompt || `${cut(title)}. OK?`;
+}

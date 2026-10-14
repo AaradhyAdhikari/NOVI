@@ -79,8 +79,8 @@ describe('choosing the coder by voice', () => {
   it('the spoken question names the coder that will run, and a card choice still wins', async () => {
     const { tools, started } = withCoder('claude');
     const start = tools.get('code_start_task');
-    expect(start.prompt({ project: 'site', instruction: 'add login' })).toMatch(/^I'll use Claude Code/);
-    expect(start.prompt({ project: 'site', instruction: 'add login', agent: 'novi-coder' })).toMatch(/^I'll use Novi Coder.*use Claude instead/);
+    expect(start.prompt({ project: 'site', instruction: 'add login' })).toBe('Claude will add login in site. OK?');
+    expect(start.prompt({ project: 'site', instruction: 'add login', agent: 'novi-coder' })).toBe('Novi Coder will add login in site. OK?');
     expect(start.describe({ project: 'site', instruction: 'x', agent: 'novi-coder' })).toMatch(/^Start Novi Coder/);
     expect(start.choices({ project: 'site', instruction: 'x', agent: 'novi-coder' })[0]).toMatchObject({ id: 'claude', params: { $agent: 'claude' } });
     await start.run({ project: 'site', instruction: 'x', agent: 'novi-coder', $agent: 'claude' });
@@ -137,7 +137,7 @@ describe('code_new_project (new project from the phone, built by Claude Code)', 
     const tool = tools.get('code_new_project');
     expect(tool.tier).toBe('medium');
     const args = { name: 'Sample Project', description: 'A to-do app for my college work', instruction: 'Build a React to-do app with dark mode' };
-    expect(tool.prompt(args)).toMatch(/new project "Sample Project".*Claude Code.*Build a React to-do app with dark mode/s);
+    expect(tool.prompt(args)).toBe("I'll make Sample Project, and Claude will build a React to-do app with dark mode. OK?");
     const out = await tool.run(args);
     const folder = path.join(projectsDir, 'Sample Project');
     expect(fs.readFileSync(path.join(folder, 'README.md'), 'utf8')).toBe('# Sample Project\n\nA to-do app for my college work\n');
@@ -146,10 +146,9 @@ describe('code_new_project (new project from the phone, built by Claude Code)', 
     expect(out).toMatchObject({ created: folder, started: true });
   });
 
-  it('a brand-new folder has nothing to lose: file edits there don\'t ask each time (commands still do), and the yes/no says so', async () => {
+  it('a brand-new folder has nothing to lose: file edits there don\'t ask each time (commands still do), and the card says so', async () => {
     const { tools, calls } = newSetup();
     const args = { name: 'Fresh', instruction: 'Build a landing page' };
-    expect(tools.get('code_new_project').prompt(args)).toMatch(/won't ask before each file edit/);
     await tools.get('code_new_project').run(args);
     expect(calls).toContainEqual(['allowEdits', true]);
   });
@@ -207,10 +206,10 @@ describe('changes while the coder works ("make the button blue", "add dark mode"
     const s = setup();
     const tool = s.tools.get('code_send_message');
     expect(tool.tier).toBe('medium');
-    expect(tool.prompt({ instruction: 'make the button blue' })).toBe("I'll tell Novi Coder: make the button blue. Okay? Say yes, no or cancel.");
+    expect(tool.prompt({ instruction: 'make the button blue' })).toBe('Tell Novi Coder: make the button blue. OK?');
     expect(tool.description).toMatch(/dark mode/);
     s.tasks.status = () => ({ active: true, status: 'running', agent: 'Claude' });
-    expect(tool.prompt({ instruction: 'add dark mode' })).toBe("I'll tell Claude: add dark mode. Okay? Say yes, no or cancel.");
+    expect(tool.prompt({ instruction: 'add dark mode' })).toBe('Tell Claude: add dark mode. OK?');
     const out = await tool.run({ instruction: 'make the button blue' });
     expect(s.calls).toContainEqual(['send', 'make the button blue']);
     expect(out.note).toMatch(/after/);
@@ -226,7 +225,7 @@ describe('rename_project', () => {
     s.memory.rememberProject('sample project', folder);
     const tool = s.tools.get('rename_project');
     expect(tool.tier).toBe('medium');
-    expect(tool.prompt({ name: 'Sample Project', newName: 'Calculator Maker' })).toBe('I\'ll rename Sample Project to Calculator Maker. Okay? Say yes or no.');
+    expect(tool.prompt({ name: 'Sample Project', newName: 'Calculator Maker' })).toBe('Rename Sample Project to Calculator Maker. OK?');
     const out = await tool.run({ name: 'sample project', newName: 'Calculator Maker' });
     const moved = path.join(s.dir, 'Calculator Maker');
     expect(fs.existsSync(path.join(moved, 'README.md'))).toBe(true);
