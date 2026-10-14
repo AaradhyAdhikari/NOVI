@@ -15,7 +15,7 @@ const WANTED = new Set([...Object.values(KINDS).flat(), '.json', '.html', '.htm'
 const SKIP = new Set(['windows', 'program files', 'program files (x86)', 'programdata', '$recycle.bin', 'system volume information', 'recovery', 'perflogs', 'msocache', 'appdata', 'application data', 'node_modules', '.git', '.svn', '.hg', 'dist', 'build', '.next', '.nuxt', '.cache', '__pycache__', '.venv', 'venv', 'site-packages', '.gradle', '.m2', '.npm', '.nuget', '.cargo', '.rustup', 'temp', 'tmp', 'coverage', 'target', 'obj', '.vscode', '.idea', 'onedrivetemp', 'intel', 'nvidia', 'amd', '$windows.~bt', '$windows.~ws', 'windows.old']);
 const KIND_WORDS = { sheet: 'sheet sheets excel spreadsheet spreadsheets csv', pdf: 'pdf', doc: 'doc docx document documents word', slides: 'ppt pptx slides presentation deck', image: 'photo photos image images picture pictures pic pics', folder: 'folder folders directory' };
 const KIND_OF = new Map(Object.entries(KIND_WORDS).flatMap(([k, ws]) => ws.split(' ').map((w) => [w, k])));
-const STOP = new Set('open opens show me my the a an please file files read summary summarize summarise check find search for of in on from to that this and wala wali ka ki ke kholo kholna dikhao padho'.split(' '));
+const STOP = new Set('open opens show me my the a an please file files read summary summarize summarise check find search for of in on from to that this and wala wali ka ki ke kholo kholna dikhao padho okay ok hey novi named called name laptop computer pc right now just quickly can could would you want need'.split(' '));
 // "analysis" is only a stop word when other words remain (see queryOf).
 
 const tokens = (s) => String(s).replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);

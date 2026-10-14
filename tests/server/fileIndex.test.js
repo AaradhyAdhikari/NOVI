@@ -67,5 +67,7 @@ describe('file index (whole laptop, smart)', () => {
   it('queryOf drops the command words', () => {
     expect(queryOf('please open my DBMS notes file')).toEqual({ words: ['dbms', 'notes'], kind: null });
     expect(queryOf('summarize the sales analysis sheet')).toEqual({ words: ['sales', 'analysis'], kind: 'sheet' });
+    expect(queryOf('Okay, open a file named Tracebyte Context on my laptop right now.')).toEqual({ words: ['tracebyte', 'context'], kind: null });
+    expect(queryOf('can you open the file called budget 2026 for me')).toEqual({ words: ['budget', '2026'], kind: null });
   });
 });
