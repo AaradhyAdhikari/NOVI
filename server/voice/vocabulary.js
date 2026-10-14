@@ -11,6 +11,11 @@ const MAX_LEN = 40;
 // clearly means the cloud: Google/Azure/AWS cloud, "the cloud", cloud storage/console/…
 const CLAUDE_HEARD = /(?<!\p{L})(?<!(?:google|azure|aws|microsoft|oracle|ibm|the|sound|word|point|tag)\s+)(?:cloud|clod|clawed|claud|clowd|klaud)(?!\p{L})(?!\s+(?:storage|console|platform|run|functions?|drive|servers?|services?|computing|gaming|backup|sync|account|billing))/giu;
 export const fixClaude = (text) => String(text).replace(CLAUDE_HEARD, 'Claude');
+// "C language" heard as "sea / see / si language"; C++ and C# the same way.
+const C_HEARD = /(?<!\p{L})(?:sea|see|si|cee|c)\s+(?:plus\s+plus|\+\+)(?!\p{L})/giu;
+const CSHARP_HEARD = /(?<!\p{L})(?:sea|see|si|cee|c)\s+sharp(?!\p{L})/giu;
+const CLANG_HEARD = /(?<!\p{L})(?:sea|see|si|cee)\s+(language|programming|lang)(?!\p{L})/giu;
+export const fixLanguages = (text) => String(text).replace(C_HEARD, 'C++').replace(CSHARP_HEARD, 'C#').replace(CLANG_HEARD, 'C $1');
 const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 function clean({ words = [], fixes = {} } = {}) {
@@ -54,6 +59,6 @@ export function createVocabulary({ file }) {
       return this.set({ words: saved.words, fixes: { ...saved.fixes, [from]: to } });
     },
     prompt: (base) => (saved.words.length ? `${base} ${saved.words.join(', ')}.` : base),
-    apply: (text) => fixClaude(pattern ? String(text).replace(pattern, (m) => saved.fixes[m.toLowerCase()] ?? m) : String(text)),
+    apply: (text) => fixLanguages(fixClaude(pattern ? String(text).replace(pattern, (m) => saved.fixes[m.toLowerCase()] ?? m) : String(text))),
   };
 }

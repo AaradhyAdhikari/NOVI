@@ -110,6 +110,9 @@ const FILE_TAIL = /(?:[\s,]+(?:(?:on|in) (?:(?:my|the) )?(?:laptop|computer|pc)|
 export function fileCommand(text) {
   const t = String(text || '').trim().replace(/[.!?।]+$/, '').replace(FILE_LEAD, '').replace(FILE_TAIL, '');
   if (/^(?:undo (?:that|it|the move)|put (?:them|it|those) back)$/i.test(t)) return { tool: 'file_undo_move', args: {} };
+  const nf = /^(?:create|make)\s+(?:a\s+|an\s+)?(?:new\s+)?folder\s+(?:called|named|name)\s+(.+?)(?:\s+(?:on|in|inside|into)\s+(?:my\s+|the\s+)?(desktop|downloads|documents|.+?)(?:\s+folder)?)?$/i.exec(t)
+    || /^(.+?)\s+naam\s+ka\s+(?:naya\s+)?folder\s+(?:banao|bana do|banado|bana de)$/i.exec(t);
+  if (nf) return { tool: 'file_new_folder', args: { name: nf[1].trim(), ...(nf[2] ? { where: nf[2].trim() } : {}) } };
   if (/^open (?:up )?(?:my |the )?claude(?: code)?(?: app)?$/i.test(t)) return { tool: 'open_project', args: { editor: 'claude-code' } };
   const g = /^(?:take|move|put|gather|collect|arrange)\s+all\s+(?:the\s+|my\s+)?(pdfs?|documents?|docs?|sheets?|spreadsheets?|slides?|presentations?|pictures?|photos?|images?|files?)\s+(?:about|of|on|for|related to)\s+(.+?)(?:\s+(?:and\s+)?(?:put|move)\s+them)?\s+(?:in|into|to)\s+(?:(?:a|the|one)\s+)?(?:new\s+)?folder(?:\s+(?:called|named)\s+(.+))?$/i.exec(t);
   if (g) {

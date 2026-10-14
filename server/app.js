@@ -48,7 +48,7 @@ import { createVoiceLog } from './voice/voiceLog.js';
 import { createWatchWindows } from './claude/watchWindow.js';
 
 export function createNovi(config, overrides = {}) {
-  const memory = overrides.memory || new Memory(path.join(config.dataDir, 'memory.json'));
+  const memory = overrides.memory || new Memory(path.join(config.dataDir, 'memory.json'), { projectsDir: config.projectsDir });
   const accounts = overrides.accounts || new AccountRegistry(path.join(config.dataDir, 'accounts.json'));
   const secrets = new SecretStore({ file: path.join(config.dataDir, 'secrets.json'), cipher: overrides.cipher || defaultCipher(config.dataDir) });
   const auth = overrides.auth || new GoogleAuth({ clientId: config.googleClientId, clientSecret: config.googleClientSecret, accounts, secrets });

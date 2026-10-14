@@ -294,3 +294,15 @@ describe('rename_project finds a folder Novi never remembered', () => {
     expect(s.memory.findProject('Sample Project').path).toBe(folder);
   });
 });
+
+describe('memory finds project folders it never remembered', () => {
+  it('looks in the Projects folder for open / rename / coding alike', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'novi-mem-'));
+    fs.mkdirSync(path.join(dir, 'Sample-Project'));
+    const memory = new Memory(path.join(dir, 'm.json'), { projectsDir: dir });
+    const found = memory.findProject('sample project');
+    expect(found.path).toBe(path.join(dir, 'Sample-Project'));
+    expect(memory.listProjects().map((p) => p.name)).toContain('sample-project');
+    expect(memory.findProject('nothing here')).toBeNull();
+  });
+});

@@ -185,6 +185,39 @@ export function createFilesPlugin({ roots, home = os.homedir(), docsDir, openPat
         },
       });
 
+      // Where a new folder goes: Documents unless the user names Desktop / Downloads / a folder they have.
+      const placeFor = (where) => {
+        const w = String(where || '').trim().toLowerCase().replace(/^(?:my|the)\s+/, '').replace(/\s+folder$/, '');
+        const known = { '': docs, documents: docs, docs, desktop: path.join(home, 'Desktop'), downloads: path.join(home, 'Downloads') };
+        if (w in known) {
+          const p = known[w];
+          if (w === 'desktop' && !fs.existsSync(p) && fs.existsSync(path.join(home, 'OneDrive', 'Desktop'))) return path.join(home, 'OneDrive', 'Desktop');
+          return p;
+        }
+        const hit = index.search(`${w} folder`, { limit: 1 })[0];
+        return hit?.dir ? hit.path : null;
+      };
+      const placeLabel = (dir) => path.basename(dir);
+      const newFolderPlan = ({ name, where }) => {
+        const clean = safeName(name);
+        const parent = placeFor(where);
+        return { clean, parent, dest: parent && clean ? path.join(parent, clean) : null };
+      };
+      api.registerTool({
+        name: 'file_new_folder',
+        description: 'Make a new, empty folder on the laptop with the name the user says ("make a folder called Hackathon Ideas", "… on my desktop", "… inside my College folder"). Documents unless they name a place. Opens it afterwards.',
+        parameters: obj({ name: str('The folder name, exactly as the user said it'), where: str('Optional: desktop, downloads, documents, or the name of an existing folder to put it in') }, ['name']),
+        async execute(_id, params) {
+          const { clean, parent, dest } = newFolderPlan(params);
+          if (!clean) return reply({ note: 'Tell me what to call the folder.' });
+          if (!parent) return reply({ note: `I couldn't find a folder called ${params.where}.` });
+          if (fs.existsSync(dest)) return reply({ note: `There's already a folder called ${clean} in ${placeLabel(parent)}.` });
+          fs.mkdirSync(dest, { recursive: true });
+          await openPath(dest);
+          return reply({ created: dest, note: `Made the folder ${clean} in ${placeLabel(parent)}.` });
+        },
+      });
+
       const lastMove = () => { try { return JSON.parse(fs.readFileSync(lastMoveFile, 'utf8')); } catch { return null; } };
       api.registerTool({
         name: 'file_undo_move',
@@ -215,6 +248,11 @@ export function createFilesPlugin({ roots, home = os.homedir(), docsDir, openPat
               category: 'files',
             },
           };
+        }
+        if (toolName === 'file_new_folder') {
+          const { clean, parent, dest } = newFolderPlan(params);
+          if (!dest || fs.existsSync(dest)) return undefined;
+          return { requireApproval: { title: `Make a folder called ${clean} in ${placeLabel(parent)}`, description: dest, prompt: `Make a folder called ${clean} in ${placeLabel(parent)}. OK?`, severity: 'warning', category: 'files' } };
         }
         if (toolName === 'file_undo_move') {
           const n = lastMove()?.moves?.length || 0;

@@ -2,8 +2,25 @@
   "id": "files",
   "name": "Files",
   "description": "Find, open, read and summarize files anywhere on the laptop (and Google Sheets); gather files about a topic into a folder.",
-  "categories": ["productivity"],
-  "contracts": { "tools": ["file_find", "file_open", "file_summary", "file_gather", "file_undo_move"] },
-  "activation": { "onStartup": true },
-  "configSchema": { "type": "object", "additionalProperties": false, "properties": {} }
+  "categories": [
+    "productivity"
+  ],
+  "contracts": {
+    "tools": [
+      "file_find",
+      "file_open",
+      "file_summary",
+      "file_gather",
+      "file_undo_move",
+      "file_new_folder"
+    ]
+  },
+  "activation": {
+    "onStartup": true
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
 }

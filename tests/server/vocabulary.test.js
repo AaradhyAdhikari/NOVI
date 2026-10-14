@@ -66,3 +66,23 @@ describe('built-in fix: "cloud" heard for "Claude"', () => {
   });
 });
 
+
+describe('programming language names as speech-to-text writes them', async () => {
+  const { fixLanguages } = await import('../../server/voice/vocabulary.js');
+  it('"sea language" = C language, plus C++ and C#', () => {
+    expect(fixLanguages('Open sea language folder')).toBe('Open C language folder');
+    expect(fixLanguages('open see language notes')).toBe('open C language notes');
+    expect(fixLanguages('open the si programming folder')).toBe('open the C programming folder');
+    expect(fixLanguages('sea plus plus notes')).toBe('C++ notes');
+    expect(fixLanguages('see sharp project')).toBe('C# project');
+    expect(fixLanguages('C language')).toBe('C language');
+  });
+  it('leaves the real sea alone', () => {
+    expect(fixLanguages('play sea waves sounds')).toBe('play sea waves sounds');
+    expect(fixLanguages('I see')).toBe('I see');
+  });
+  it('is part of every fix', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'novi-voc-'));
+    expect(createVocabulary({ file: path.join(dir, 'v.json') }).apply('open sea language folder')).toBe('open C language folder');
+  });
+});
