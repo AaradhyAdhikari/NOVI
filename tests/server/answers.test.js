@@ -31,3 +31,14 @@ describe('speech hint while a question is waiting', async () => {
     expect(answerHint('Hey Novi.', true)).toBe('Hey Novi. Yes. No. Allow. Deny. Always allow. Haan. Nahi.');
   });
 });
+
+describe('spokenApproval (short: the task in a few words, then "OK?")', async () => {
+  const { spokenApproval } = await import('../../server/brain/answers.js');
+  it('says the tool\'s short question, or the title cut to ~10 words + "OK?"', () => {
+    expect(spokenApproval({ title: 'Rename', prompt: 'Rename A to B. OK?', tier: 'medium' })).toBe('Rename A to B. OK?');
+    expect(spokenApproval({ title: 'Claude wants to run: npm install --save express cors dotenv nodemon jest supertest', tier: 'medium' }))
+      .toBe('Claude wants to run: npm install --save express cors dotenv. OK?');
+    expect(spokenApproval({ title: 'Click "New Project" in Claude', tier: 'medium' })).toBe('Click "New Project" in Claude. OK?');
+    expect(spokenApproval({ title: 'Delete the repo', tier: 'high' })).toBe('High risk: Delete the repo. Please confirm on screen.');
+  });
+});

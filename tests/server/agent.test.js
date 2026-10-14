@@ -555,3 +555,44 @@ describe('a few seconds of "busy" are waited out, not said', () => {
   });
 });
 
+describe('"also …" adds to the job', async () => {
+  const { alsoCommand } = await import('../../server/brain/agent.js');
+  it('spots "also X" (English / Hinglish), with or without a yes in front', () => {
+    expect(alsoCommand('also add dark mode')).toBe('add dark mode');
+    expect(alsoCommand('Yes, also make the buttons round.')).toBe('make the buttons round');
+    expect(alsoCommand('okay and also add a history panel')).toBe('add a history panel');
+    expect(alsoCommand('aur dark mode bhi add karo')).toBe('dark mode bhi add karo');
+    expect(alsoCommand('what is also called')).toBeNull();
+    expect(alsoCommand('add dark mode')).toBeNull();
+  });
+
+  const coderSetup = (status = { active: false }) => {
+    const router = scriptedRouter([]);
+    const approvals = new ApprovalQueue();
+    const ran = [];
+    const tools = new ToolRegistry()
+      .add({ name: 'code_start_task', description: 's', parameters: { type: 'object', properties: { project: { type: 'string' }, instruction: { type: 'string' } } }, tier: 'medium', describe: (a) => `Start on ${a.project}`, run: async (a) => { ran.push(['start', a]); return { note: 'Started.' }; } })
+      .add({ name: 'code_send_message', description: 'm', parameters: { type: 'object', properties: { instruction: { type: 'string' } } }, tier: 'medium', describe: () => 'm', run: async (a) => { ran.push(['send', a]); return { note: 'Sent.' }; } });
+    const agent = new Agent({ router, tools, approvals, memory: { listProjects: () => [] }, tasks: { status: () => status }, logger: { log() {} } });
+    return { agent, approvals, ran, router };
+  };
+
+  it('while Novi asks: "also X" = yes, and X is added to the coder\'s instruction', async () => {
+    const { agent, approvals, ran } = coderSetup();
+    const run = agent._runTool({ id: 'c1', function: { name: 'code_start_task', arguments: JSON.stringify({ project: 'calc', instruction: 'build a calculator' }) } });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(approvals.pending()[0].addable).toBe(true);
+    expect(await agent.handle('also add dark mode')).toBe("Okay, I'll add that too.");
+    await run;
+    expect(ran).toEqual([['start', { project: 'calc', instruction: 'build a calculator\n\nAlso: add dark mode' }]]);
+  });
+
+  it('while the coder works (nothing asked): "also X" goes straight to it, no extra question', async () => {
+    const { agent, approvals, ran, router } = coderSetup({ active: true, status: 'running', project: 'calc' });
+    expect(await agent.handle('also make the buttons round')).toBe('Sent.');
+    expect(ran).toEqual([['send', { instruction: 'make the buttons round' }]]);
+    expect(approvals.pending()).toEqual([]);
+    expect(router.calls).toHaveLength(0);
+  });
+});
+

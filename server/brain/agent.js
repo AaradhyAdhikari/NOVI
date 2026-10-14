@@ -92,6 +92,13 @@ export function claudeCommand(text) {
   return m && JOB_VERB.test(m[1]) ? m[1] : null;
 }
 
+// "Also X" (or "yes, also X", "aur X"): X is added to the job Novi is asking about or the coder is doing.
+export function alsoCommand(text) {
+  const t = String(text || '').trim().replace(/[.!?।]+$/, '');
+  const m = /^(?:(?:yes|yeah|ok|okay|haan|sure|allow)[, ]+)?(?:and )?(?:also|plus)[, ]+(.+)$/i.exec(t) || /^aur (?:bhi )?(.+)$/i.exec(t);
+  return m ? m[1].trim() : null;
+}
+
 const QUESTION = /^(?:what|whats|what's|how|why|who|when|where|which|is|are|can|could|do|does|kya|kaise|kab|kaun|kahan|kitna)\b/i;
 
 // Short spoken replies Novi handles without calling the AI (stop, yes/no, "use Claude instead", status).
@@ -163,6 +170,11 @@ export class Agent {
 
   // from: 'local' (the laptop) or { deviceId } — approvals answered by voice check it (server/remoteTrust.js).
   async handle(text, { from = 'local' } = {}) {
+    const also = alsoCommand(text);
+    if (also) {
+      const reply = await this._also(also, from);
+      if (reply) return this._remember(text, reply);
+    }
     // While Novi waits for a yes/no, short answers the way they're said and heard ("A low", "Nay",
     // "Dino", "haan kar do") answer it — never a song, never the AI.
     const waiting = Boolean(this.approvals.latest?.({ excludeTier: 'high' }));
@@ -263,6 +275,31 @@ export class Agent {
       return { name: c.function?.name, args };
     });
     return { quick: null, calls, reply: calls.length ? null : (res.message.content || '').trim(), provider: res.provider };
+  }
+
+  // "Also X": yes + X added to the job being asked about; or, while the coder works, sent straight to it.
+  async _also(addition, from) {
+    const asking = this.approvals.latest?.({ excludeTier: 'high' });
+    if (asking) {
+      if (asking.addable) {
+        this.approvals.resolve(asking.id, true, 'voice', null, { from, addition });
+        return "Okay, I'll add that too.";
+      }
+      this.approvals.resolve(asking.id, true, 'voice', null, { from });
+      return `Approved. ${await this.handle(addition, { from })}`;
+    }
+    const st = this.tasks.status();
+    const send = this.tools.get('code_send_message');
+    if (st.active && st.status === 'running' && send) {
+      // The user already said what they want ("also …"): no second question.
+      try {
+        const out = await send.run({ instruction: addition });
+        return out?.note || 'Sent.';
+      } catch (err) {
+        return err.message;
+      }
+    }
+    return null;
   }
 
   // Rename a project / hand a job to Claude Code without the free AI (it got these wrong or was "busy").
@@ -392,8 +429,10 @@ export class Agent {
           title, detail: detail || '', tier, source: 'novi', prompt,
           choices: choices?.map(({ id, label }) => ({ id, label })),
           category, grantable, ...(gate.approval.kind ? { kind: gate.approval.kind } : {}),
+          addable: typeof args.instruction === 'string',
         });
         if (!decision.allow) return { output: { error: 'The user declined this action.' } };
+        if (decision.addition && typeof args.instruction === 'string') args.instruction += `\n\nAlso: ${decision.addition}`;
         const picked = decision.choice && choices?.find((c) => c.id === decision.choice);
         if (picked?.params) Object.assign(args, picked.params);
       }
@@ -403,8 +442,9 @@ export class Agent {
         if (pre) return { output: pre, note: pre.note };
       }
       if (tool.tier !== 'low') {
-        const allowed = await this.approvals.request({ title: tool.describe(args), detail: tool.detail ? tool.detail(args) : '', tier: tool.tier, source: 'novi' });
-        if (!allowed) return { output: { error: 'The user declined this action.' } };
+        const decision = await this.approvals.decide({ title: tool.describe(args), detail: tool.detail ? tool.detail(args) : '', tier: tool.tier, source: 'novi', addable: typeof args.instruction === 'string' });
+        if (!decision.allow) return { output: { error: 'The user declined this action.' } };
+        if (decision.addition) args.instruction += `\n\nAlso: ${decision.addition}`;
       }
     }
     try {

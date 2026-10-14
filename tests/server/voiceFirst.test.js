@@ -81,7 +81,7 @@ describe('coding task dispatch', () => {
     const turn = agent.handle('add login to playground');
     for (let i = 0; i < 50 && !added.length; i++) await new Promise((r) => setTimeout(r, 2));
     expect(added[0].title).toBe('Start Novi Coder (free, Groq) on playground: "add login"');
-    expect(added[0].prompt).toBe("I'll use Novi Coder, free on Groq, on playground: add login. Shall I start? Say yes, no, or use Claude instead.");
+    expect(added[0].prompt).toBe("Novi Coder will add login in playground. OK?");
     expect(added[0].choices).toEqual([{ id: 'claude', label: 'Use Claude' }]);
     expect(await agent.handle('use Claude instead')).toBe('Okay, using Claude Code.');
     await turn;
@@ -102,7 +102,7 @@ describe('coding task dispatch', () => {
     const turn = agent.handle('x');
     for (let i = 0; i < 50 && !added.length; i++) await new Promise((r) => setTimeout(r, 2));
     expect(added[0].choices).toBeUndefined();
-    expect(added[0].prompt).toBe("I'll use Novi Coder, free on Groq, on playground: x. Shall I start? Say yes or no.");
+    expect(added[0].prompt).toBe("Novi Coder will x in playground. OK?");
     approvals.resolve(added[0].id, true, 'screen');
     await turn;
     expect(started).toEqual([['playground', 'x', { agent: undefined }]]);
@@ -130,6 +130,6 @@ describe('dispatch prompt wording', () => {
   it('does not double the full stop when the instruction ends with one', () => {
     const tools = createNoviTools({ memory: memoryWithProject(), tasks: {}, alternativeAvailable: true });
     expect(tools.get('code_start_task').prompt({ project: 'playground', instruction: 'Create notes.txt.' }))
-      .toBe("I'll use Novi Coder, free on Groq, on playground: Create notes.txt. Shall I start? Say yes, no, or use Claude instead.");
+      .toBe("Novi Coder will create notes.txt in playground. OK?");
   });
 });

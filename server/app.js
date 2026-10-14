@@ -17,7 +17,7 @@ import { createNoviTools } from './tools/noviTools.js';
 import { addLaptopTools } from './laptop/laptopTools.js';
 import { Pairing, isLocalAddress } from './auth.js';
 import { createSpeechEngine } from './voice/speechEngine.js';
-import { answerHint } from './brain/answers.js';
+import { answerHint, spokenApproval } from './brain/answers.js';
 import { createGroqWhisperStt } from './voice/providers/groqWhisper.js';
 import { createGeminiStt } from './voice/providers/geminiStt.js';
 import { createSarvamStt } from './voice/providers/sarvamStt.js';
@@ -306,7 +306,7 @@ export function createNovi(config, overrides = {}) {
   approvals.on('added', (approval) => {
     broadcast({ type: 'approval_added', approval });
     notify('approval');
-    const text = approval.tier === 'high' ? `High risk: ${approval.title}. Please confirm on screen.` : approval.prompt || `${approval.title}. Should I allow it?`;
+    const text = spokenApproval(approval);
     // A yes / no by voice is possible: the device that asked listens for it right after the question
     // (its page through `listen`, the laptop mic without "Hey Novi").
     const listen = approval.tier !== 'high' && !approval.kind;
