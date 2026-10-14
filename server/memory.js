@@ -5,8 +5,10 @@ const MAX_TASKS = 50;
 const empty = () => ({ projects: {}, tasks: [], prefs: {} });
 
 export class Memory {
-  constructor(file) {
+  // projectsDir: where the user's projects live; a folder there is found even if never remembered.
+  constructor(file, { projectsDir = null } = {}) {
     this.file = file;
+    this.projectsDir = projectsDir;
     this.data = this._load();
   }
 
@@ -44,7 +46,17 @@ export class Memory {
     const same = this.listProjects().filter((p) => squash(p.name) === squash(key));
     if (same.length === 1) return same[0];
     const matches = this.listProjects().filter((p) => key.includes(p.name) || p.name.includes(key));
-    return matches.length === 1 ? matches[0] : null;
+    if (matches.length === 1) return matches[0];
+    return this._adoptFolder(key, squash);
+  }
+
+  // "sample project" → <projectsDir>/Sample-Project, remembered from now on.
+  _adoptFolder(key, squash) {
+    if (!this.projectsDir || !squash(key)) return null;
+    let folders = [];
+    try { folders = fs.readdirSync(this.projectsDir, { withFileTypes: true }).filter((e) => e.isDirectory() && squash(e.name.toLowerCase()) === squash(key)); } catch { return null; }
+    if (folders.length !== 1) return null;
+    return this.rememberProject(folders[0].name, path.join(this.projectsDir, folders[0].name));
   }
 
   rememberProject(name, projectPath) {

@@ -5,7 +5,7 @@ const EXPECTED_LANGUAGES = new Set(['english', 'hindi', 'marathi', 'en', 'hi', '
 
 export const DEFAULT_MODEL = 'whisper-large-v3-turbo';
 // Vocabulary hint so Whisper spells Novi's names right instead of "Novey" etc.
-export const DEFAULT_PROMPT = 'Hey Novi. Novi, Novi Coder, Claude, Groq, Gemini, GitHub, LeetCode, YouTube, Gmail.';
+export const DEFAULT_PROMPT = 'Hey Novi. Novi, Novi Coder, Claude, Groq, Gemini, GitHub, LeetCode, YouTube, Gmail, C language, C++, Python, Java.';
 
 // model / prompt: overridable for the speech benchmark (tools/stt-benchmark.mjs); '' = no hint.
 export async function transcribe({ audio, mimeType = 'audio/webm', language, keys, fetchImpl = fetch, model = DEFAULT_MODEL, prompt = DEFAULT_PROMPT, detailed = false }) {
