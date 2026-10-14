@@ -44,9 +44,11 @@ const freeName = (dir, name) => {
   return target;
 };
 
-export function createFilesPlugin({ roots, home = os.homedir(), docsDir, openPath = openOnLaptop, onJob = () => {}, refreshMs = 15 * 60_000 } = {}) {
+export function createFilesPlugin({ roots, home = os.homedir(), docsDir, openPath = openOnLaptop, onJob = () => {}, refreshMs = 15 * 60_000, readyWaitMs = 5000 } = {}) {
   let markReady;
-  const ready = new Promise((r) => { markReady = r; });
+  let isReady = false;
+  const ready = new Promise((r) => { markReady = () => { isReady = true; r(); }; });
+  const STILL = "I'm still listing your files for the first time (it takes a few minutes). Ask me again in a minute.";
   const entry = definePluginEntry({
     id: 'files',
     name: 'Files',
@@ -69,9 +71,11 @@ export function createFilesPlugin({ roots, home = os.homedir(), docsDir, openPat
         },
       });
 
+      const waitReady = () => Promise.race([ready, new Promise((r) => setTimeout(r, readyWaitMs))]);
       const best = async (query) => {
-        await Promise.race([ready, new Promise((r) => setTimeout(r, 5000))]);
+        await waitReady();
         const hit = index.search(query, { limit: 1 })[0];
+        if (!hit && !isReady) throw new Error(STILL);
         if (!hit) throw new Error(`I couldn't find a file like "${query}" on the laptop.`);
         return hit;
       };
@@ -81,9 +85,9 @@ export function createFilesPlugin({ roots, home = os.homedir(), docsDir, openPat
         description: 'Find files or folders anywhere on the laptop by what the user calls them ("my DBMS notes", "the sales sheet"). Lists the best matches. Read-only.',
         parameters: obj({ query: str('What the user said, e.g. "DBMS notes pdf"') }, ['query']),
         async execute(_id, { query }) {
-          await Promise.race([ready, new Promise((r) => setTimeout(r, 5000))]);
+          await waitReady();
           const files = index.search(query, { limit: 5 }).map((f) => ({ name: f.name, folder: path.dirname(f.path), modified: f.modified, folderItself: f.dir || undefined }));
-          return reply({ files, note: files.length ? undefined : `Nothing like "${query}" on the laptop.` });
+          return reply({ files, note: files.length ? undefined : isReady ? `Nothing like "${query}" on the laptop.` : STILL });
         },
       });
 

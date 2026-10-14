@@ -100,6 +100,24 @@ export function alsoCommand(text) {
   return m ? m[1].trim() : null;
 }
 
+// File commands without the AI: open / summarize / gather into a folder / undo the gather.
+const FILE_WORD = /\b(?:files?|pdfs?|docs?|docx|documents?|sheets?|excel|csv|notes|ppt|pptx|slides|presentation|assignment|report|resume|cv|spreadsheet)\b/i;
+const GATHER_KIND = { pdf: 'pdf', document: 'doc', doc: 'doc', sheet: 'sheet', spreadsheet: 'sheet', slide: 'slides', presentation: 'slides', picture: 'image', photo: 'image', image: 'image', file: 'any' };
+export function fileCommand(text) {
+  const t = String(text || '').trim().replace(/[.!?।]+$/, '');
+  if (/^(?:undo (?:that|it|the move)|put (?:them|it|those) back)$/i.test(t)) return { tool: 'file_undo_move', args: {} };
+  const g = /^(?:take|move|put|gather|collect|arrange)\s+all\s+(?:the\s+|my\s+)?(pdfs?|documents?|docs?|sheets?|spreadsheets?|slides?|presentations?|pictures?|photos?|images?|files?)\s+(?:about|of|on|for|related to)\s+(.+?)(?:\s+(?:and\s+)?(?:put|move)\s+them)?\s+(?:in|into|to)\s+(?:(?:a|the|one)\s+)?(?:new\s+)?folder(?:\s+(?:called|named)\s+(.+))?$/i.exec(t);
+  if (g) {
+    const kind = GATHER_KIND[g[1].toLowerCase().replace(/s$/, '')] || 'any';
+    return { tool: 'file_gather', args: { topic: g[2].trim(), kind, ...(g[3] ? { folder: g[3].trim() } : {}) } };
+  }
+  const sum = /^(?:please\s+)?(?:summari[sz]e|give me (?:a\s+)?summary of|read and summari[sz]e)\s+(.+)$/i.exec(t);
+  if (sum && (FILE_WORD.test(sum[1]) || /\bgoogle\b/i.test(sum[1]))) return { tool: 'file_summary', args: { query: sum[1], ...(/\bgoogle\b/i.test(sum[1]) ? { where: 'google' } : {}) } };
+  const opening = /^(?:please\s+)?open\b/i.test(t) || /\b(?:kholo|khol do|open karo)$/i.test(t);
+  if (opening && FILE_WORD.test(t) && !/\b(?:project|youtube|in (?:cursor|vs ?code|vscode|antigravity|kiro|claude))\b/i.test(t)) return { tool: 'file_open', args: { query: t } };
+  return null;
+}
+
 const QUESTION = /^(?:what|whats|what's|how|why|who|when|where|which|is|are|can|could|do|does|kya|kaise|kab|kaun|kahan|kitna)\b/i;
 
 // Short spoken replies Novi handles without calling the AI (stop, yes/no, "use Claude instead", status).
@@ -191,6 +209,11 @@ export class Agent {
       const { output } = await this._runTool({ id: `code-${Date.now()}`, function: { name: 'code_show', arguments: JSON.stringify({ what: code }) } });
       return this._remember(text, output?.error || `Here's ${output?.file}.`);
     }
+    const file = fileCommand(text);
+    if (file && this.tools.get(file.tool)) {
+      const { output } = await this._runTool({ id: `file-${Date.now()}`, function: { name: file.tool, arguments: JSON.stringify(file.args) } });
+      return this._remember(text, output?.error || output?.note || (output?.opened ? `Opened ${output.opened}.` : 'Done.'));
+    }
     const direct = await this._projectCommand(text);
     if (direct) return this._remember(text, direct);
     const gh = this.tools.get('github_graph') ? githubGraphCommand(text) : null;
@@ -268,6 +291,8 @@ export class Agent {
     if (yt?.play) return { quick: null, calls: [{ name: 'play_youtube', args: { query: yt.play } }], reply: null, provider: 'direct' };
     const gh = this.tools.get('github_graph') ? githubGraphCommand(text) : null;
     if (gh) return { quick: null, calls: [{ name: 'github_graph', args: { date: gh.date } }], reply: null, provider: 'direct' };
+    const file = fileCommand(text);
+    if (file && this.tools.get(file.tool)) return { quick: null, calls: [{ name: file.tool, args: file.args }], reply: null, provider: 'direct' };
     const { extra, messages, offered, purpose } = await this._prepare(text);
     const res = await this.router.chat({ messages, tools: offered, purpose, only: extra.sensitive ? this.privateProviders[0] : undefined });
     const calls = (res.message.tool_calls || []).map((c) => {
