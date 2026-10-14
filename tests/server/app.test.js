@@ -624,11 +624,11 @@ describe('Novi server', () => {
       expect(res.count).toBe(i + 1);
     }
     const info = await (await fetch(`${base}/api/wake-samples`)).json();
-    expect(info).toMatchObject({ available: true, count: 10, threshold: 0.35, suggested: 0.2 });
-    const put = await fetch(`${base}/api/wake-samples/threshold`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ threshold: 0.2 }) });
+    expect(info).toMatchObject({ available: true, count: 10, threshold: 0.35, suggested: 0.3 });
+    const put = await fetch(`${base}/api/wake-samples/threshold`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ threshold: 0.4 }) });
     expect(put.status).toBe(200);
-    expect(applied).toEqual([0.2]);
-    expect(novi.wakeThreshold()).toBe(0.2);
+    expect(applied).toEqual([0.4]);
+    expect(novi.wakeThreshold()).toBe(0.4);
   });
 
   it('only the laptop can record wake-word clips', async () => {

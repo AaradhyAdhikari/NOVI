@@ -6,16 +6,17 @@ import { encodeWav } from '../../src/lib/utterance.js';
 // with the score the current model gave it. They tune the trigger level now and are the real-voice
 // positives for retraining the model (upload data/voice-samples/hey-novi to the Colab notebook).
 
-const MIN = 0.02;
+// Never below 0.3: at 0.05 Novi woke up by herself (2026-10-14). An older, lower saved level is
+// raised to this.
+export const MIN = 0.3;
 const MAX = 0.9;
 
-// A level ~80% of the user's clips clear, with margin. Never below 0.05: ordinary speech scored
-// up to 0.014 on the current model (2026-10-07). Needs 10+ clips.
+// A level ~80% of the user's clips clear, with margin, within MIN..0.5. Needs 10+ clips.
 export function suggestThreshold(scores) {
   if (scores.length < 10) return null;
   const sorted = [...scores].sort((a, b) => a - b);
   const p20 = sorted[Math.floor(sorted.length * 0.2)];
-  return Math.round(Math.min(0.5, Math.max(0.05, p20 * 0.8)) * 100) / 100;
+  return Math.round(Math.min(0.5, Math.max(MIN, p20 * 0.8)) * 100) / 100;
 }
 
 export function createWakeSampleStore({ dir, settingsFile }) {
@@ -34,7 +35,7 @@ export function createWakeSampleStore({ dir, settingsFile }) {
       return { count: n, score: scores.at(-1) };
     },
     list: () => ({ count: scores.length, scores: [...scores] }),
-    threshold: () => settings.threshold ?? null,
+    threshold: () => (settings.threshold == null ? null : Math.max(MIN, settings.threshold)),
     setThreshold(value) {
       const v = Number(value);
       if (!(v >= MIN && v <= MAX)) throw new Error(`The trigger level must be between ${MIN} and ${MAX}.`);
