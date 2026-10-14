@@ -103,8 +103,12 @@ export function alsoCommand(text) {
 // File commands without the AI: open / summarize / gather into a folder / undo the gather.
 const FILE_WORD = /\b(?:files?|pdfs?|docs?|docx|documents?|sheets?|excel|csv|notes|ppt|pptx|slides|presentation|assignment|report|resume|cv|spreadsheet)\b/i;
 const GATHER_KIND = { pdf: 'pdf', document: 'doc', doc: 'doc', sheet: 'sheet', spreadsheet: 'sheet', slide: 'slides', presentation: 'slides', picture: 'image', photo: 'image', image: 'image', file: 'any' };
+// The way it's actually said: "Okay, can you open …", "… on my laptop right now".
+const FILE_LEAD = /^(?:(?:ok(?:ay)?|hey novi|novi|so|now|please|can you|could you|would you|will you|just)[\s,]+)+/i;
+const FILE_TAIL = /(?:[\s,]+(?:on (?:my|the) (?:laptop|computer|pc)|for me|right now|now|please|quickly))+$/i;
+
 export function fileCommand(text) {
-  const t = String(text || '').trim().replace(/[.!?।]+$/, '');
+  const t = String(text || '').trim().replace(/[.!?।]+$/, '').replace(FILE_LEAD, '').replace(FILE_TAIL, '');
   if (/^(?:undo (?:that|it|the move)|put (?:them|it|those) back)$/i.test(t)) return { tool: 'file_undo_move', args: {} };
   const g = /^(?:take|move|put|gather|collect|arrange)\s+all\s+(?:the\s+|my\s+)?(pdfs?|documents?|docs?|sheets?|spreadsheets?|slides?|presentations?|pictures?|photos?|images?|files?)\s+(?:about|of|on|for|related to)\s+(.+?)(?:\s+(?:and\s+)?(?:put|move)\s+them)?\s+(?:in|into|to)\s+(?:(?:a|the|one)\s+)?(?:new\s+)?folder(?:\s+(?:called|named)\s+(.+))?$/i.exec(t);
   if (g) {
