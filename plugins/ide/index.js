@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { spawn as nodeSpawn } from 'node:child_process';
 import { definePluginEntry } from '#plugin-sdk';
@@ -15,7 +16,7 @@ export const EDITORS = [
 const findEditor = (name) => EDITORS.find((e) => e.names.includes(String(name || '').trim().toLowerCase()));
 const reply = (text, details = {}) => ({ content: [{ type: 'text', text }], details });
 
-export function createIdePlugin({ spawn = nodeSpawn, exists = fs.existsSync, localAppData = process.env.LOCALAPPDATA || '' } = {}) {
+export function createIdePlugin({ spawn = nodeSpawn, exists = fs.existsSync, localAppData = process.env.LOCALAPPDATA || '', home = os.homedir() } = {}) {
   return definePluginEntry({
     id: 'ide',
     name: 'Open projects in an editor',
@@ -23,17 +24,21 @@ export function createIdePlugin({ spawn = nodeSpawn, exists = fs.existsSync, loc
     register(api) {
       api.registerTool({
         name: 'open_project',
-        description: 'Open one of the user\'s remembered projects on the laptop in an editor: VS Code, Cursor, Antigravity, Kiro, or Claude Code (opens a terminal in the folder with Claude Code started). Use the editor the user names; omit it only if they did not say. If the user also says what to build or fix ("open Novi in Claude and add dark mode"), do NOT call this: call code_start_task instead (it opens a window to watch the work).',
+        description: 'Open one of the user\'s remembered projects on the laptop in an editor: VS Code, Cursor, Antigravity, Kiro, or Claude Code (opens a terminal in the folder with Claude Code started). Use the editor the user names; omit it only if they did not say. "Open Claude Code" with no project: leave project out. If the user also says what to build or fix ("open Novi in Claude and add dark mode"), do NOT call this: call code_start_task instead (it opens a window to watch the work).',
         parameters: {
           type: 'object',
           properties: {
             project: { type: 'string', description: 'Project name as remembered by Novi, e.g. "novi"' },
             editor: { type: 'string', description: 'vscode, cursor, antigravity, kiro or claude-code' },
           },
-          required: ['project'],
         },
         async execute(_toolCallId, { project, editor } = {}) {
           const memory = api.runtime.memory;
+          // "Open Claude Code" with no project: Claude Code in the home folder.
+          if (!project && findEditor(editor)?.id === 'claude-code') {
+            spawn('wt.exe', ['-d', home, 'claude'], { detached: true, stdio: 'ignore', shell: false, windowsHide: false }).unref?.();
+            return reply('Opened Claude Code.', { editor: 'claude-code' });
+          }
           const found = memory.findProject(project);
           if (!found) {
             const known = memory.listProjects().map((p) => p.name);

@@ -34,6 +34,16 @@ const folderName = (name) => String(name || '').replace(/[<>:"/\\|?*\x00-\x1f]/g
 // takeOver: async () => { project } — stops the background Claude run and opens it interactively (laptop).
 // projectsDir: where new projects are made (code_new_project is offered only when set).
 export function createNoviTools({ memory, tasks, coder = 'novi-coder', alternativeAvailable = false, takeOver = null, projectsDir = null, showImage = null }) {
+  // A folder in the Projects folder Novi never remembered ("Sample-Project" for "sample project"):
+  // remember it under its folder name and use it.
+  const adoptFolder = (name) => {
+    if (!projectsDir) return null;
+    const squash = (s) => String(s).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+    let folders = [];
+    try { folders = fs.readdirSync(projectsDir, { withFileTypes: true }).filter((e) => e.isDirectory() && squash(e.name) === squash(name)); } catch { return null; }
+    if (folders.length !== 1) return null;
+    return memory.rememberProject(folders[0].name, path.join(projectsDir, folders[0].name));
+  };
   const c = CODERS[coder] || CODERS['novi-coder'];
   // The coder the user named for this task (only when it isn't the default), and the one that will run.
   const named = ({ agent } = {}) => (CODERS[agent] && agent !== coder ? agent : null);
@@ -71,7 +81,7 @@ export function createNoviTools({ memory, tasks, coder = 'novi-coder', alternati
       describe: ({ name, newName }) => `Rename project "${name}" to "${folderName(newName)}"`,
       prompt: ({ name, newName }) => `Rename ${name} to ${folderName(newName)}. OK?`,
       run: async ({ name, newName }) => {
-        const project = memory.findProject(name);
+        const project = memory.findProject(name) || adoptFolder(name);
         if (!project) throw new UserFacingError(`I don't know a project called ${name}.`);
         const clean = folderName(newName);
         if (!clean) throw new UserFacingError('Tell me the new name.');

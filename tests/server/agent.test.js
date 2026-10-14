@@ -611,11 +611,14 @@ describe('file commands go straight to the file tools (no AI in the middle)', as
   it('takes the way it is actually said: "okay", "hey Novi", "can you", "on my laptop", "right now"', () => {
     expect(fileCommand('Okay, open a file named Tracebyte Context on my laptop right now.')).toEqual({ tool: 'file_open', args: { query: 'open a file named Tracebyte Context' } });
     expect(fileCommand('Hey Novi, can you please open the file called budget 2026')).toEqual({ tool: 'file_open', args: { query: 'open the file called budget 2026' } });
+    expect(fileCommand('Okay, open my Claude Code.')).toEqual({ tool: 'open_project', args: { editor: 'claude-code' } });
+    expect(fileCommand('open claude')).toEqual({ tool: 'open_project', args: { editor: 'claude-code' } });
+    expect(fileCommand('open Claude on my laptop')).toEqual({ tool: 'open_project', args: { editor: 'claude-code' } });
     expect(fileCommand('ok summarize my sales sheet for me')).toEqual({ tool: 'file_summary', args: { query: 'my sales sheet' } });
   });
 
   it('leaves everything else alone', () => {
-    for (const t of ['okay open youtube', 'open youtube', 'open Novi in Cursor', 'open Claude on my laptop', 'open my project folder in vs code', "what's the weather", 'summarize my day']) expect(fileCommand(t), t).toBeNull();
+    for (const t of ['okay open youtube', 'open youtube', 'open Novi in Cursor', 'open my project folder in vs code', "what's the weather", 'summarize my day']) expect(fileCommand(t), t).toBeNull();
   });
 
   it('runs the tool and says its note', async () => {
