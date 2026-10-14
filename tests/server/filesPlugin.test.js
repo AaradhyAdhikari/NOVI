@@ -107,3 +107,27 @@ describe('files plugin during the first scan', () => {
     expect((await host.get('file_find').run({ query: 'dbms notes' })).note).toMatch(/still listing your files/);
   });
 });
+
+describe('file_new_folder', () => {
+  it('makes a folder with the name you say (Documents by default, or Desktop / Downloads / a folder you name), after one OK, and opens it', async () => {
+    const { host, root, opened } = await setup();
+    const gate = await host.get('file_new_folder').gate({ name: 'Hackathon Ideas' });
+    expect(gate.approval.prompt).toBe('Make a folder called Hackathon Ideas in Documents. OK?');
+    const out = await host.get('file_new_folder').run({ name: 'Hackathon Ideas' });
+    expect(fs.statSync(path.join(root, 'Documents', 'Hackathon Ideas')).isDirectory()).toBe(true);
+    expect(out.note).toBe('Made the folder Hackathon Ideas in Documents.');
+    expect(opened).toContain(path.join(root, 'Documents', 'Hackathon Ideas'));
+    await host.get('file_new_folder').run({ name: 'Temp', where: 'desktop' });
+    expect(fs.existsSync(path.join(root, 'Desktop', 'Temp'))).toBe(true);
+    await host.get('file_new_folder').run({ name: 'Unit 2', where: 'college' });
+    expect(fs.existsSync(path.join(root, 'Documents', 'College', 'Unit 2'))).toBe(true);
+  });
+
+  it('cleans unsafe names and never overwrites', async () => {
+    const { host, root } = await setup();
+    await host.get('file_new_folder').run({ name: 'a/b:c?' });
+    expect(fs.existsSync(path.join(root, 'Documents', 'abc'))).toBe(true);
+    const again = await host.get('file_new_folder').run({ name: 'abc' });
+    expect(again.note).toMatch(/already/);
+  });
+});

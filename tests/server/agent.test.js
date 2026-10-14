@@ -664,3 +664,14 @@ describe('folders and "in my laptop" go straight to the file tools', async () =>
     expect(fileCommand('open my DBMS folder on laptop')).toEqual({ tool: 'file_open', args: { query: 'open my DBMS folder' } });
   });
 });
+
+describe('"make a folder called X" goes straight to file_new_folder', async () => {
+  const { fileCommand } = await import('../../server/brain/agent.js');
+  it('name, and an optional place', () => {
+    expect(fileCommand('Create a new folder named Hackathon Ideas')).toEqual({ tool: 'file_new_folder', args: { name: 'Hackathon Ideas' } });
+    expect(fileCommand('okay make a folder called test on my desktop')).toEqual({ tool: 'file_new_folder', args: { name: 'test', where: 'desktop' } });
+    expect(fileCommand('create a folder named Unit 2 inside my College folder')).toEqual({ tool: 'file_new_folder', args: { name: 'Unit 2', where: 'College' } });
+    expect(fileCommand('make a new folder called Notes in downloads on my laptop')).toEqual({ tool: 'file_new_folder', args: { name: 'Notes', where: 'downloads' } });
+    expect(fileCommand('Hackathon naam ka folder banao')).toEqual({ tool: 'file_new_folder', args: { name: 'Hackathon' } });
+  });
+});
