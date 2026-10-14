@@ -22,6 +22,9 @@ export const GOOGLE_SCOPES = [
   'https://www.googleapis.com/auth/tasks',
   // Only files Novi creates or opens: the "Novi backups" folder and the "Novi log" sheet.
   'https://www.googleapis.com/auth/drive.file',
+  // "Summarize my sales sheet": find Google Sheets by name and read them (plugins/files).
+  'https://www.googleapis.com/auth/drive.metadata.readonly',
+  'https://www.googleapis.com/auth/spreadsheets.readonly',
 ];
 
 const b64url = (buf) => Buffer.from(buf).toString('base64url');

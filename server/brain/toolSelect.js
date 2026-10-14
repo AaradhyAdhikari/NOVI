@@ -31,6 +31,7 @@ const WORDS = {
   screen: 'screen click type press key button window whatsapp notepad look see showing tab screenshot screenshots ss picture photo image snapshot capture make create named inside',
   briefing: 'briefing brief morning agenda summary day',
   calendar: 'calendar meeting meetings event events schedule free busy appointment lecture class classes plans',
+  file: 'file files folder folders pdf pdfs doc docs document documents word excel csv spreadsheet notes ppt slides presentation summary summarize summarise read gather arrange organize organise move undo sheet analysis',
   tasks: 'task tasks todo todos to-do list lists done complete finished',
 };
 // A word can pick several groups.

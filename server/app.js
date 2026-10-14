@@ -104,10 +104,11 @@ export function createNovi(config, overrides = {}) {
       // Chat entry + spoken (e.g. a reminder going off), and a folder for plugin data files.
       // kind: what the phone notification says if Novi isn't open there ('reminder', 'briefing');
       // null = no notification. local: on the laptop only (e.g. "last time on NOVI…" when an editor opens).
-      say: (text, { kind = 'reminder', local = false } = {}) => {
+      // spoken: a shorter version to say aloud (e.g. the first lines of a long summary).
+      say: (text, { kind = 'reminder', local = false, spoken = null } = {}) => {
         const to = local ? 'local' : active;
         say('novi', text, to);
-        sendTo(to, { type: 'speak', text: plainText(text) });
+        sendTo(to, { type: 'speak', text: plainText(spoken || text) });
         if (kind) notify(kind, to);
       },
       // One AI answer on the private provider only (Groq) — for plugin summaries of private data.

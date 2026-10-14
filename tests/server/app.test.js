@@ -603,6 +603,16 @@ describe('Novi server', () => {
     expect(listened).toHaveLength(1); // high risk is confirmed on screen
   });
 
+  it('runtime.say can speak a short version while the chat gets the whole text (file summaries)', async () => {
+    const { ws, novi } = await start();
+    const c = connect(ws);
+    await c.waitFor((m) => m.type === 'snapshot');
+    novi.plugins.runtime.say('First point. Second point. A long third point with details.', { kind: null, spoken: 'First point. Second point.' });
+    expect((await c.waitFor((m) => m.type === 'chat')).entry.text).toBe('First point. Second point. A long third point with details.');
+    expect((await c.waitFor((m) => m.type === 'speak')).text).toBe('First point. Second point.');
+    c.ws.close();
+  });
+
   it('records "Hey Novi" practice clips through the wake-word mic and applies a trigger level', async () => {
     const { base, novi } = await start();
     expect((await (await fetch(`${base}/api/wake-samples`)).json()).available).toBe(false);
