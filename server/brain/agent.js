@@ -5,6 +5,10 @@ import { UserFacingError } from '../errors.js';
 import { firstSentence } from '../narrator.js';
 import { answerKind } from './answers.js';
 
+// Asked for directly, these just run even though they can't be "always allowed" in Settings
+// (code_start_task: the user already named Claude). Moving files Novi picked always asks.
+const DIRECT_OK = new Set(['code_start_task', 'code_send_message', 'rename_project', 'file_new_folder', 'open_project', 'file_open']);
+const ASK_ANYWAY = new Set(['file_gather', 'file_undo_move']);
 const MAX_ROUNDS = 10; // screen tasks: open the app, look, click, type, …
 const MAX_HISTORY = 40;
 
@@ -202,6 +206,7 @@ export class Agent {
 
   // from: 'local' (the laptop) or { deviceId } — approvals answered by voice check it (server/remoteTrust.js).
   async handle(text, { from = 'local' } = {}) {
+    this._turnYes = new Set(); // kinds of step the user said yes to in this request
     const also = alsoCommand(text);
     if (also) {
       const reply = await this._also(also, from);
@@ -224,7 +229,7 @@ export class Agent {
     }
     const file = fileCommand(text);
     if (file && this.tools.get(file.tool)) {
-      const { output } = await this._runTool({ id: `file-${Date.now()}`, function: { name: file.tool, arguments: JSON.stringify(file.args) } });
+      const { output } = await this._runTool({ id: `file-${Date.now()}`, function: { name: file.tool, arguments: JSON.stringify(file.args) } }, { direct: true });
       return this._remember(text, output?.error || output?.note || output?.text || (output?.opened ? `Opened ${output.opened}.` : 'Done.'));
     }
     const direct = await this._projectCommand(text);
@@ -357,7 +362,7 @@ export class Agent {
   // Rename a project / hand a job to Claude Code without the free AI (it got these wrong or was "busy").
   async _projectCommand(text) {
     const run = async (name, args) => {
-      const { output } = await this._runTool({ id: `${name}-${Date.now()}`, function: { name, arguments: JSON.stringify(args) } });
+      const { output } = await this._runTool({ id: `${name}-${Date.now()}`, function: { name, arguments: JSON.stringify(args) } }, { direct: true });
       return output?.error || output?.note || 'Okay.';
     };
     const st = this.tasks.status();
@@ -451,14 +456,25 @@ export class Agent {
   }
 
   // One log line per tool run (name + ok or the error; never the arguments, which can be private).
-  async _runTool(call) {
-    const result = await this._runToolInner(call);
+  // direct: the user's own words named exactly this action ("make a folder called X"), so asking
+  // "should I?" again is noise. Big or risky things still ask; see _skipAsking.
+  async _runTool(call, { direct = false } = {}) {
+    const result = await this._runToolInner(call, { direct });
     const err = result.output?.error;
     this.logger?.log?.(`[tool] ${call.function?.name} ${err ? `error: ${String(err).slice(0, 200)}` : 'ok'}`);
     return result;
   }
 
-  async _runToolInner(call) {
+  // No question when the user asked for exactly this, or already said yes to this kind of step in
+  // this request (screen tasks: one yes, not one per click). Never for high risk, sends/deletes/
+  // payments (kind), choices, or moving files Novi picked herself.
+  _skipAsking(name, { tier, kind, grantable, category }, direct) {
+    if (tier === 'high' || kind || ASK_ANYWAY.has(name)) return false;
+    if (direct && (grantable || DIRECT_OK.has(name))) return true;
+    return Boolean(grantable && this._turnYes?.has(category));
+  }
+
+  async _runToolInner(call, { direct = false } = {}) {
     const tool = this.tools.get(call.function?.name);
     if (!tool) return { output: { error: `Unknown tool ${call.function?.name}` } };
     let args;
@@ -477,13 +493,15 @@ export class Agent {
         const { title, detail, tier, prompt, choices } = gate.approval;
         // Which kind of action this is, and whether "always allow" may apply (never for sends/deletes/high risk).
         const { category, grantable } = classifyApproval({ toolName: tool.name, pluginId: tool.pluginId, tier, choices, category: gate.approval.category, grantable: gate.approval.grantable });
-        const decision = await this.approvals.decide({
+        const skip = this._skipAsking(tool.name, { tier, kind: gate.approval.kind, grantable: grantable && !choices?.length, category }, direct);
+        const decision = skip ? { allow: true } : await this.approvals.decide({
           title, detail: detail || '', tier, source: 'novi', prompt,
           choices: choices?.map(({ id, label }) => ({ id, label })),
           category, grantable, ...(gate.approval.kind ? { kind: gate.approval.kind } : {}),
           addable: typeof args.instruction === 'string',
         });
         if (!decision.allow) return { output: { error: 'The user declined this action.' } };
+        this._turnYes?.add(category);
         if (decision.addition && typeof args.instruction === 'string') args.instruction += `\n\nAlso: ${decision.addition}`;
         const picked = decision.choice && choices?.find((c) => c.id === decision.choice);
         if (picked?.params) Object.assign(args, picked.params);
@@ -494,8 +512,11 @@ export class Agent {
         if (pre) return { output: pre, note: pre.note };
       }
       if (tool.tier !== 'low') {
-        const decision = await this.approvals.decide({ title: tool.describe(args), detail: tool.detail ? tool.detail(args) : '', tier: tool.tier, source: 'novi', addable: typeof args.instruction === 'string' });
+        const { category, grantable } = classifyApproval({ toolName: tool.name, tier: tool.tier });
+        const skip = this._skipAsking(tool.name, { tier: tool.tier, grantable, category }, direct);
+        const decision = skip ? { allow: true } : await this.approvals.decide({ title: tool.describe(args), detail: tool.detail ? tool.detail(args) : '', tier: tool.tier, source: 'novi', addable: typeof args.instruction === 'string' });
         if (!decision.allow) return { output: { error: 'The user declined this action.' } };
+        this._turnYes?.add(category);
         if (decision.addition) args.instruction += `\n\nAlso: ${decision.addition}`;
       }
     }
