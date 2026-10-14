@@ -1,0 +1,217 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawn } from 'node:child_process';
+import { definePluginEntry } from '#plugin-sdk';
+import { createFileIndex, defaultRoots, queryOf } from './fileIndex.js';
+import { readFileText } from './readers.js';
+
+const obj = (properties = {}, required = []) => ({ type: 'object', properties, required });
+const str = (description) => ({ type: 'string', description });
+const KIND_EXT = { pdf: ['.pdf'], doc: ['.docx', '.doc', '.odt', '.pdf', '.md', '.txt'], sheet: ['.xlsx', '.xls', '.csv', '.tsv', '.ods'], slides: ['.pptx', '.ppt'], image: ['.png', '.jpg', '.jpeg', '.gif', '.webp'] };
+const KIND_LABEL = { pdf: 'PDFs', doc: 'documents', sheet: 'sheets', slides: 'slide decks', image: 'pictures', any: 'files' };
+const reply = (details) => ({ content: [], details: { sensitive: true, ...details } });
+const safeName = (s) => String(s || '').replace(/[<>:"/\\|?*\x00-\x1f]/g, '').replace(/\s+/g, ' ').trim().replace(/^\.+|\.+$/g, '').slice(0, 60);
+const firstSentences = (text, n = 2) => (String(text).match(/[^.!?]+[.!?]+/g) || [String(text)]).slice(0, n).join(' ').trim();
+
+function openOnLaptop(p) {
+  // explorer.exe opens a file with its default app (or a folder in Explorer); no shell involved.
+  const [cmd, args] = process.platform === 'win32' ? ['explorer.exe', [p]] : process.platform === 'darwin' ? ['open', [p]] : ['xdg-open', [p]];
+  const child = spawn(cmd, args, { detached: true, stdio: 'ignore', windowsHide: true });
+  child.on('error', () => {});
+  child.unref();
+}
+
+function defaultDocs(home = os.homedir()) {
+  return [path.join(home, 'OneDrive', 'ドキュメント'), path.join(home, 'OneDrive', 'Documents'), path.join(home, 'Documents')].find((d) => fs.existsSync(d)) || path.join(home, 'Documents');
+}
+
+// Move that works across drives too (rename fails with EXDEV there).
+function move(from, to) {
+  try {
+    fs.renameSync(from, to);
+  } catch (err) {
+    if (err.code !== 'EXDEV') throw err;
+    fs.copyFileSync(from, to);
+    fs.unlinkSync(from);
+  }
+}
+const freeName = (dir, name) => {
+  const ext = path.extname(name);
+  const base = name.slice(0, name.length - ext.length);
+  let target = path.join(dir, name);
+  for (let i = 2; fs.existsSync(target); i++) target = path.join(dir, `${base} (${i})${ext}`);
+  return target;
+};
+
+export function createFilesPlugin({ roots, home = os.homedir(), docsDir, openPath = openOnLaptop, onJob = () => {}, refreshMs = 15 * 60_000 } = {}) {
+  let markReady;
+  const ready = new Promise((r) => { markReady = r; });
+  const entry = definePluginEntry({
+    id: 'files',
+    name: 'Files',
+    description: 'Find, open, read and summarize files anywhere on the laptop (and Google Sheets); gather files about a topic into a folder.',
+    register(api) {
+      const dataDir = path.join(api.runtime.dataDir || path.join(home, '.novi'), 'files');
+      const index = createFileIndex({ roots: roots || defaultRoots({ home }), home, file: path.join(dataDir, 'index.json') });
+      const lastMoveFile = path.join(dataDir, 'last-move.json');
+      const docs = docsDir || defaultDocs(home);
+
+      api.registerService({
+        id: 'files-index',
+        async start() {
+          index.load();
+          // The first full scan can take a while on a big laptop: answer from the saved list meanwhile.
+          const scan = index.build().catch((err) => api.logger?.warn?.(`[files] scan failed: ${err.message}`));
+          if (index.size()) markReady();
+          else scan.then(markReady); // never blocks Novi's startup
+          if (refreshMs > 0) setInterval(() => index.build().catch(() => {}), refreshMs).unref?.();
+        },
+      });
+
+      const best = async (query) => {
+        await Promise.race([ready, new Promise((r) => setTimeout(r, 5000))]);
+        const hit = index.search(query, { limit: 1 })[0];
+        if (!hit) throw new Error(`I couldn't find a file like "${query}" on the laptop.`);
+        return hit;
+      };
+
+      api.registerTool({
+        name: 'file_find',
+        description: 'Find files or folders anywhere on the laptop by what the user calls them ("my DBMS notes", "the sales sheet"). Lists the best matches. Read-only.',
+        parameters: obj({ query: str('What the user said, e.g. "DBMS notes pdf"') }, ['query']),
+        async execute(_id, { query }) {
+          await Promise.race([ready, new Promise((r) => setTimeout(r, 5000))]);
+          const files = index.search(query, { limit: 5 }).map((f) => ({ name: f.name, folder: path.dirname(f.path), modified: f.modified, folderItself: f.dir || undefined }));
+          return reply({ files, note: files.length ? undefined : `Nothing like "${query}" on the laptop.` });
+        },
+      });
+
+      api.registerTool({
+        name: 'file_open',
+        description: 'Open a file or folder on the laptop by what the user calls it ("open my DBMS notes"). Opens it in its normal app. Read-only.',
+        parameters: obj({ query: str('What the user called the file') }, ['query']),
+        async execute(_id, { query }) {
+          const hit = await best(query);
+          await openPath(hit.path);
+          return reply({ opened: hit.name, folder: path.dirname(hit.path) });
+        },
+      });
+
+      async function summarize(name, text, question) {
+        const ask = question ? `Answer this from the file: ${question}` : 'Summarize it: the main points and any numbers or trends that matter.';
+        const out = await api.runtime.privateComplete(`${ask} Reply in plain sentences (no lists, no markdown), short enough to read aloud first, details after.\nFile: ${name}\n---\n${text.slice(0, 12_000)}`);
+        api.runtime.say(out, { kind: null, spoken: firstSentences(out) });
+      }
+
+      async function googleSheet(query) {
+        const google = api.runtime.google;
+        if (!google?.configured) throw new Error("Google isn't set up yet, so I can't read Google Sheets.");
+        const r = google.resolve();
+        if (r.error) throw new Error(`${r.error} (connect Google in Settings).`);
+        const { words } = queryOf(query);
+        const q = `${words.map((w) => `name contains '${w.replace(/'/g, "\\'")}'`).join(' and ') || "name != ''"} and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false`;
+        const found = await google.call(r.account, `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&orderBy=modifiedTime desc&pageSize=5&fields=files(id,name,modifiedTime)`);
+        const sheet = found.files?.[0];
+        if (!sheet) throw new Error(`I couldn't find a Google Sheet like "${query}".`);
+        const meta = await google.call(r.account, `https://sheets.googleapis.com/v4/spreadsheets/${sheet.id}?fields=sheets.properties.title`);
+        const ranges = (meta.sheets || []).slice(0, 10).map((s) => `ranges=${encodeURIComponent(`'${s.properties.title}'`)}`).join('&');
+        const data = await google.call(r.account, `https://sheets.googleapis.com/v4/spreadsheets/${sheet.id}/values:batchGet?${ranges}`);
+        const text = (data.valueRanges || []).map((v) => `Sheet: ${v.range}\n${(v.values || []).map((row) => row.join('\t')).join('\n')}`).join('\n');
+        return { name: `${sheet.name} (Google Sheet)`, text };
+      }
+
+      api.registerTool({
+        name: 'file_summary',
+        description: 'Read a file on the laptop (Word, PDF, Excel, CSV, PowerPoint, text, code) or a Google Sheet (where: "google") and summarize it, or answer a question about it. Works in the background: answer at once that you are reading it; the summary is spoken when ready, so keep helping with other requests meanwhile.',
+        parameters: obj({ query: str('What the user called the file'), question: str('A question about the file, if any'), where: { type: 'string', enum: ['laptop', 'google'], description: '"google" for Google Sheets; default laptop' } }, ['query']),
+        async execute(_id, { query, question, where }) {
+          let job;
+          let name;
+          if (where === 'google') {
+            name = query;
+            job = googleSheet(query).then((s) => summarize(s.name, s.text, question));
+          } else {
+            const hit = await best(query);
+            name = hit.name;
+            job = readFileText(hit.path).then((text) => summarize(hit.name, text, question));
+          }
+          job = job.catch((err) => api.runtime.say(`I couldn't read ${name}: ${err.message}`, { kind: null }));
+          onJob(job);
+          return reply({ started: true, note: `Reading ${name}. I'll tell you when it's ready; ask me anything meanwhile.` });
+        },
+      });
+
+      // "Take all the PDFs about DBMS and put them in a folder."
+      const plan = ({ topic, kind = 'any', folder }) => {
+        const exts = KIND_EXT[kind];
+        const dest = path.join(docs, safeName(folder || topic));
+        const files = index.search(`${topic} ${kind === 'any' ? '' : kind}`, { limit: 300 })
+          .filter((f) => !f.dir && (!exts || exts.includes(path.extname(f.path).toLowerCase())) && path.dirname(f.path) !== dest);
+        return { dest, files, label: KIND_LABEL[kind] || 'files' };
+      };
+
+      api.registerTool({
+        name: 'file_gather',
+        description: 'Gather files about a topic from anywhere on the laptop into one new folder ("take all the PDFs about DBMS and put them in a folder"). Moves them (undo with file_undo_move). Needs one approval listing the files.',
+        parameters: obj({ topic: str('The topic words to look for in file names'), kind: { type: 'string', enum: ['pdf', 'doc', 'sheet', 'slides', 'image', 'any'], description: 'Which files; default any' }, folder: str('New folder name (default: the topic)') }, ['topic']),
+        async execute(_id, params) {
+          const { dest, files, label } = plan(params);
+          if (!files.length) return reply({ moved: 0, note: `I couldn't find any ${label} about ${params.topic}.` });
+          fs.mkdirSync(dest, { recursive: true });
+          const moves = [];
+          for (const f of files) {
+            const to = freeName(dest, f.name);
+            try { move(f.path, to); moves.push([f.path, to]); } catch { /* in use: skip it */ }
+          }
+          fs.mkdirSync(dataDir, { recursive: true });
+          fs.writeFileSync(lastMoveFile, JSON.stringify({ dest, moves }));
+          openPath(dest);
+          return reply({ moved: moves.length, folder: dest, note: `Moved ${moves.length} ${label} into ${path.basename(dest)}${moves.length < files.length ? ` (${files.length - moves.length} were in use)` : ''}.` });
+        },
+      });
+
+      const lastMove = () => { try { return JSON.parse(fs.readFileSync(lastMoveFile, 'utf8')); } catch { return null; } };
+      api.registerTool({
+        name: 'file_undo_move',
+        description: 'Undo the last file_gather: put the moved files back where they were.',
+        parameters: obj({}),
+        async execute() {
+          const last = lastMove();
+          if (!last?.moves?.length) return reply({ note: 'There is nothing to put back.' });
+          let back = 0;
+          for (const [from, to] of last.moves) {
+            try { fs.mkdirSync(path.dirname(from), { recursive: true }); move(to, from); back += 1; } catch { /* gone or in use */ }
+          }
+          fs.rmSync(lastMoveFile, { force: true });
+          return reply({ restored: back, note: `Put ${back} files back.` });
+        },
+      });
+
+      api.on('before_tool_call', ({ toolName, params }) => {
+        if (toolName === 'file_gather') {
+          const { dest, files, label } = plan(params);
+          if (!files.length) return undefined;
+          return {
+            requireApproval: {
+              title: `Move ${files.length} ${label} about ${params.topic} into ${path.basename(dest)}`,
+              description: files.slice(0, 20).map((f) => f.path).join('\n') + (files.length > 20 ? `\n…and ${files.length - 20} more` : ''),
+              prompt: `Move ${files.length} ${label} about ${params.topic} into ${path.basename(dest)}. OK?`,
+              severity: 'warning',
+              category: 'files',
+            },
+          };
+        }
+        if (toolName === 'file_undo_move') {
+          const n = lastMove()?.moves?.length || 0;
+          if (!n) return undefined;
+          return { requireApproval: { title: `Put ${n} files back`, prompt: `Put ${n} files back where they were. OK?`, severity: 'warning', category: 'files' } };
+        }
+        return undefined;
+      }, { allTools: true });
+    },
+  });
+  return { ...entry, ready };
+}
+
+export default createFilesPlugin();

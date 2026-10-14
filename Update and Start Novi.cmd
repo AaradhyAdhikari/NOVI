@@ -11,6 +11,8 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
+echo Installing anything new Novi needs...
+call npm.cmd install --no-audit --no-fund
 netstat -ano | findstr /r /c:":3001 .*LISTENING" >nul
 if not errorlevel 1 (
   echo Novi is running. Restarting it with the new version...
