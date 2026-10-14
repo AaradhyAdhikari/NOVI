@@ -110,6 +110,7 @@ const FILE_TAIL = /(?:[\s,]+(?:on (?:my|the) (?:laptop|computer|pc)|for me|right
 export function fileCommand(text) {
   const t = String(text || '').trim().replace(/[.!?।]+$/, '').replace(FILE_LEAD, '').replace(FILE_TAIL, '');
   if (/^(?:undo (?:that|it|the move)|put (?:them|it|those) back)$/i.test(t)) return { tool: 'file_undo_move', args: {} };
+  if (/^open (?:up )?(?:my |the )?claude(?: code)?(?: app)?$/i.test(t)) return { tool: 'open_project', args: { editor: 'claude-code' } };
   const g = /^(?:take|move|put|gather|collect|arrange)\s+all\s+(?:the\s+|my\s+)?(pdfs?|documents?|docs?|sheets?|spreadsheets?|slides?|presentations?|pictures?|photos?|images?|files?)\s+(?:about|of|on|for|related to)\s+(.+?)(?:\s+(?:and\s+)?(?:put|move)\s+them)?\s+(?:in|into|to)\s+(?:(?:a|the|one)\s+)?(?:new\s+)?folder(?:\s+(?:called|named)\s+(.+))?$/i.exec(t);
   if (g) {
     const kind = GATHER_KIND[g[1].toLowerCase().replace(/s$/, '')] || 'any';
@@ -216,7 +217,7 @@ export class Agent {
     const file = fileCommand(text);
     if (file && this.tools.get(file.tool)) {
       const { output } = await this._runTool({ id: `file-${Date.now()}`, function: { name: file.tool, arguments: JSON.stringify(file.args) } });
-      return this._remember(text, output?.error || output?.note || (output?.opened ? `Opened ${output.opened}.` : 'Done.'));
+      return this._remember(text, output?.error || output?.note || output?.text || (output?.opened ? `Opened ${output.opened}.` : 'Done.'));
     }
     const direct = await this._projectCommand(text);
     if (direct) return this._remember(text, direct);

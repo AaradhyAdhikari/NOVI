@@ -96,3 +96,15 @@ describe('ide plugin vs coding tasks', () => {
     expect(schema.function.description).toMatch(/code_start_task/);
   });
 });
+
+describe('ide plugin: "open Claude Code" with no project', () => {
+  it('opens Claude Code in the home folder instead of refusing', async () => {
+    const launched = [];
+    const spawn = (cmd, args) => { launched.push({ cmd, args }); return { unref() {}, on() {} }; };
+    const host = new PluginHost({ runtime: { memory }, env: {}, logger: { warn() {} } });
+    host.register(createIdePlugin({ spawn, exists: () => true, localAppData: LOCAL, home: 'C:\\Users\\me' }));
+    const out = await host.get('open_project').run({ editor: 'claude code' });
+    expect(launched[0]).toEqual({ cmd: 'wt.exe', args: ['-d', 'C:\\Users\\me', 'claude'] });
+    expect(out.text).toMatch(/Opened Claude Code/);
+  });
+});

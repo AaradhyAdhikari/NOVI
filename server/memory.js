@@ -39,6 +39,10 @@ export class Memory {
   findProject(name) {
     const key = Memory.key(name);
     if (this.data.projects[key]) return { name: key, ...this.data.projects[key] };
+    // "sample project" = "sample-project" = "Sample_Project" (spoken names have no dashes).
+    const squash = (s) => s.replace(/[^\p{L}\p{N}]+/gu, '');
+    const same = this.listProjects().filter((p) => squash(p.name) === squash(key));
+    if (same.length === 1) return same[0];
     const matches = this.listProjects().filter((p) => key.includes(p.name) || p.name.includes(key));
     return matches.length === 1 ? matches[0] : null;
   }

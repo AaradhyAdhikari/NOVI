@@ -274,3 +274,23 @@ describe('rename_project on Windows (folder in use)', () => {
     expect(s.memory.findProject('busy').path).toBe(folder);
   });
 });
+
+describe('rename_project finds a folder Novi never remembered', () => {
+  it('looks in the Projects folder, ignoring spaces, dashes, underscores and case', async () => {
+    const s = setup();
+    const folder = path.join(s.dir, 'Sample-Project');
+    fs.mkdirSync(folder);
+    const tools = createNoviTools({ memory: s.memory, tasks: s.tasks, projectsDir: s.dir });
+    const out = await tools.get('rename_project').run({ name: 'sample project', newName: 'Calculator Maker' });
+    expect(out.renamed).toBe(path.join(s.dir, 'Calculator Maker'));
+    expect(fs.existsSync(folder)).toBe(false);
+    expect(s.memory.findProject('calculator maker').path).toBe(path.join(s.dir, 'Calculator Maker'));
+  });
+
+  it('memory matches a project however the name is spaced', () => {
+    const s = setup();
+    const folder = path.join(s.dir, 'x'); fs.mkdirSync(folder);
+    s.memory.rememberProject('sample-project', folder);
+    expect(s.memory.findProject('Sample Project').path).toBe(folder);
+  });
+});
