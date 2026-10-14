@@ -35,7 +35,7 @@ export function useNovi({ onSpeak }) {
         case 'approval_needs_proof': setState((s) => ({ ...s, approvals: s.approvals.map((a) => (a.id === msg.id ? { ...a, need: msg.need } : a)) })); break;
         case 'approval_resolved': setState((s) => ({ ...s, approvals: s.approvals.filter((a) => a.id !== msg.id) })); break;
         case 'thinking': setState((s) => ({ ...s, thinking: msg.on, wakeHeardAt: msg.on ? 0 : s.wakeHeardAt })); break;
-        case 'speak': speakRef.current?.(msg.text); break;
+        case 'speak': speakRef.current?.(msg.text, msg); break;
         // Updates spoken while Novi wasn't open on this phone, in order.
         case 'missed': for (const line of msg.lines || []) speakRef.current?.(line); break;
         // The laptop microphone heard "Hey Novi" (server wake word): show it's listening.

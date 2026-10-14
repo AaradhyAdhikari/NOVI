@@ -174,6 +174,14 @@ export class TaskManager extends EventEmitter {
     return allow ? { allow: true } : { allow: false, message: 'The user denied this action. Do not retry it; continue without it or explain what you need.' };
   }
 
+  // Close the (finished) coder session in a project so Windows lets the folder be renamed or moved.
+  release(projectName) {
+    if (!this.task || this.task.project !== projectName || this.task.status === 'running') return false;
+    this._closeSession();
+    this.task = null;
+    return true;
+  }
+
   _closeSession() {
     if (this.session && !this.session.exited) this.session.close();
     this.narrator?.dispose();

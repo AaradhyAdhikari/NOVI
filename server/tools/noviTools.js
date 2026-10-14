@@ -71,9 +71,17 @@ export function createNoviTools({ memory, tasks, coder = 'novi-coder', alternati
         if (st.active && st.status === 'running' && st.project === project.name) throw new UserFacingError(`The coder is working in ${project.name} right now. Rename it when it's done.`);
         const target = path.join(path.dirname(project.path), clean);
         if (fs.existsSync(target)) throw new UserFacingError(`There's already a folder called ${clean} there.`);
-        fs.renameSync(project.path, target);
+        // A finished coder session still "sits" in the folder, and Windows won't rename a folder in use.
+        tasks.release?.(project.name);
+        try {
+          fs.renameSync(project.path, target);
+        } catch (err) {
+          if (['EPERM', 'EBUSY', 'EACCES'].includes(err.code)) throw new UserFacingError(`Windows says ${project.name} is in use. Close VS Code, terminals or Explorer windows open in that folder, then ask me again.`);
+          throw err;
+        }
         memory.forgetProject(project.name);
         const renamed = memory.rememberProject(clean, target);
+        memory.moveTasks?.(project.name, project.path, renamed.name, target);
         return { renamed: target, project: renamed.name, note: `Renamed it to ${clean}.` };
       },
     })

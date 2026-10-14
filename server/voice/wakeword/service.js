@@ -116,6 +116,8 @@ export async function startWakeWordService({ novi, env = process.env, logger = c
       setThreshold: (value) => { level = value; current.listener.setThreshold(value); },
       threshold: level,
       setSpeaking: (on) => current?.listener.setSpeaking(on),
+      // Novi just asked for a yes / no: hear the answer without "Hey Novi".
+      listen: (opts) => { current?.listener.followUp(opts); novi.broadcast({ type: 'wake' }); },
     });
     logger.log(`  Wake word: always on (${path.basename(modelPath)}, level ${level}, mic: ${recorder.getSelectedDevice()}, voice check model: ${voiceCheck})`);
   }
