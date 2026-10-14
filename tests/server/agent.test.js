@@ -675,3 +675,48 @@ describe('"make a folder called X" goes straight to file_new_folder', async () =
     expect(fileCommand('Hackathon naam ka folder banao')).toEqual({ tool: 'file_new_folder', args: { name: 'Hackathon' } });
   });
 });
+
+describe('fewer questions: one thing you asked for directly just runs', () => {
+  const medium = (name, ran) => ({ name, description: name, parameters: { type: 'object', properties: {} }, tier: 'medium', describe: () => name, run: async (a) => { ran.push([name, a]); return { note: `${name} done.` }; } });
+  const make = (steps = []) => {
+    const ran = [];
+    const asked = [];
+    const approvals = new ApprovalQueue();
+    approvals.on('added', (a) => { asked.push(a.title); approvals.resolve(a.id, true); });
+    const tools = new ToolRegistry().add(medium('rename_project', ran)).add(medium('file_gather', ran)).add(medium('screen_click', ran));
+    const agent = new Agent({ router: scriptedRouter(steps), tools, approvals, memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
+    return { agent, ran, asked };
+  };
+
+  it('a direct command runs without asking', async () => {
+    const { agent, ran, asked } = make();
+    await agent._runTool({ id: 'x', function: { name: 'rename_project', arguments: '{}' } }, { direct: true });
+    expect(ran).toHaveLength(1);
+    expect(asked).toEqual([]);
+  });
+
+  it('moving many files Novi picked still asks once', async () => {
+    const { agent, asked } = make();
+    await agent._runTool({ id: 'x', function: { name: 'file_gather', arguments: '{}' } }, { direct: true });
+    expect(asked).toHaveLength(1);
+  });
+
+  it('one yes covers the rest of the same request (no question per click)', async () => {
+    const { agent, ran, asked } = make([
+      { message: { role: 'assistant', content: '', tool_calls: [toolCall('screen_click', {}, 'a')] }, provider: 'groq', model: 'm' },
+      { message: { role: 'assistant', content: '', tool_calls: [toolCall('screen_click', {}, 'b'), toolCall('screen_click', {}, 'c')] }, provider: 'groq', model: 'm' },
+      reply('Made it.'),
+    ]);
+    await agent.handle('make a project named calc inside the claude app');
+    expect(ran).toHaveLength(3);
+    expect(asked).toHaveLength(1);
+  });
+});
+
+describe('spoken approval is only the task', async () => {
+  const { spokenApproval } = await import('../../server/brain/answers.js');
+  it('no "OK?" on the end', () => {
+    expect(spokenApproval({ title: 'x', prompt: 'Rename calc to Calculator. OK?' })).toBe('Rename calc to Calculator.');
+    expect(spokenApproval({ title: 'Click “Send”' })).toBe('Click “Send”.');
+  });
+});

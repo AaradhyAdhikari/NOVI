@@ -48,5 +48,6 @@ const cut = (text, max = 10) => {
 };
 export function spokenApproval({ title, prompt, tier }) {
   if (tier === 'high') return `High risk: ${cut(title)}. Please confirm on screen.`;
-  return prompt || `${cut(title)}. OK?`;
+  // Only the task: the mic opens right after, so no "OK?" / "say yes or no".
+  return `${(prompt || cut(title)).replace(/\s*(?:okay|ok)\?(?:\s*say yes,? no or cancel\.?)?\s*$/i, '').replace(/[.!?]*$/, '')}.`;
 }
