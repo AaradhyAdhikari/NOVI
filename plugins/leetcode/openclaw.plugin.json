@@ -1,0 +1,9 @@
+{
+  "id": "leetcode",
+  "name": "LeetCode",
+  "description": "Today's LeetCode problem and your solved counts, from LeetCode's public data (no browser, no sign-in).",
+  "categories": ["other"],
+  "contracts": { "tools": ["leetcode_today", "leetcode_stats"] },
+  "activation": { "onStartup": true },
+  "configSchema": { "type": "object", "additionalProperties": false, "properties": { "username": { "type": "string", "description": "Your LeetCode username (NOVI_PLUGIN_LEETCODE_USERNAME)" } } }
+}
