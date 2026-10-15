@@ -41,6 +41,14 @@ function ask(toolName, input) {
 async function runTurn(text) {
   turn += 1;
   if (text.includes('HANG')) return; // simulates a long task for stop() tests
+  if (text.includes('ASK')) { // Claude's own questions (AskUserQuestion) come as a permission request
+    const decision = await ask('AskUserQuestion', { questions: [
+      { question: 'Which color theme?', header: 'Theme', options: [{ label: 'Dark', description: 'Black background' }, { label: 'Light' }], multiSelect: false },
+      { question: 'Add a contact form?', header: 'Contact', options: [{ label: 'Yes' }, { label: 'No' }], multiSelect: false },
+    ] });
+    out({ type: 'result', subtype: 'success', is_error: false, result: `Answers: ${JSON.stringify(decision.updatedInput?.answers)}`, session_id: sessionId, num_turns: turn });
+    return;
+  }
   out({ type: 'assistant', message: { content: [{ type: 'thinking', thinking: '' }, { type: 'tool_use', id: 'tu-read', name: 'Read', input: { file_path: 'src/app.js' } }] } });
   out({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'tu-read', content: 'console.log(1)' }] } });
   const decision = await ask('Write', { file_path: 'src/login.js', content: 'x' });

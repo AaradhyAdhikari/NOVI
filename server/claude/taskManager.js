@@ -3,6 +3,9 @@ import { EventEmitter } from 'node:events';
 import { classifyClaudeTool, EDIT_TOOLS } from '../permissions.js';
 import { Narrator } from '../narrator.js';
 import { UserFacingError } from '../errors.js';
+import { spokenQuestion } from './questions.js';
+
+const SKIPPED = 'The user skipped this question; choose sensibly and say what you chose.';
 
 export function permissionTitle(toolName, input = {}, agentName = 'Claude') {
   if (toolName === 'Bash' || toolName === 'PowerShell') return `${agentName} wants to run: ${input.command}`;
@@ -12,8 +15,9 @@ export function permissionTitle(toolName, input = {}, agentName = 'Claude') {
 }
 
 export class TaskManager extends EventEmitter {
-  constructor({ memory, approvals, createSession, agentName = 'Claude', agentLabels = {}, narratorIntervalMs = 8000 }) {
+  constructor({ memory, approvals, createSession, agentName = 'Claude', agentLabels = {}, narratorIntervalMs = 8000, questionReminderMs = 5 * 60_000 }) {
     super();
+    this.questionReminderMs = questionReminderMs;
     this.agentName = agentName; // label of the default coder
     this.agentLabels = agentLabels; // e.g. { 'novi-coder': 'Novi Coder', claude: 'Claude' }
     this.memory = memory;
@@ -165,6 +169,7 @@ export class TaskManager extends EventEmitter {
   }
 
   async _onPermission(task, { toolName, input, description }) {
+    if (toolName === 'AskUserQuestion') return this._askQuestions(input);
     const tier = classifyClaudeTool(toolName, input, task.path);
     if (tier === 'low') return { allow: true };
     if (tier === 'medium' && task.allowEdits && EDIT_TOOLS.has(toolName)) return { allow: true };
@@ -172,6 +177,26 @@ export class TaskManager extends EventEmitter {
     const category = EDIT_TOOLS.has(toolName) ? 'files' : /^(Bash|PowerShell)$/.test(toolName) ? 'commands' : null;
     const allow = await this.approvals.request({ title: permissionTitle(toolName, input, task.agentName || this.agentName), detail: description || '', tier, source: 'claude', category, grantable: Boolean(category) && tier === 'medium' });
     return allow ? { allow: true } : { allow: false, message: 'The user denied this action. Do not retry it; continue without it or explain what you need.' };
+  }
+
+  // Claude's own questions: asked one by one as question cards (spoken with numbered options), no
+  // timeout — Claude waits; one spoken reminder. A skipped question lets Claude choose.
+  async _askQuestions(input = {}) {
+    const answers = {};
+    for (const q of input.questions || []) {
+      if (this.stopping) { answers[q.question] = SKIPPED; continue; } // the task is being stopped: ask nothing more
+      const reminder = setTimeout(() => this.emit('speak', `Claude is still waiting: ${String(q.question).replace(/[?.!]+$/, '')}?`), this.questionReminderMs);
+      try {
+        const decision = await this.approvals.decide({
+          title: `Claude asks: ${q.question}`, tier: 'medium', source: 'claude', prompt: spokenQuestion(q),
+          question: { text: q.question, options: q.options || [], multiSelect: Boolean(q.multiSelect) }, timeoutMs: null,
+        });
+        answers[q.question] = decision.allow && decision.answer ? decision.answer : SKIPPED;
+      } finally {
+        clearTimeout(reminder);
+      }
+    }
+    return { allow: true, updatedInput: { ...input, answers } };
   }
 
   // Close the (finished) coder session in a project so Windows lets the folder be renamed or moved.

@@ -100,7 +100,7 @@ export class ClaudeSession extends EventEmitter {
       decision = { allow: false, message: 'Novi could not get approval for this action.' };
     }
     const response = decision.allow
-      ? { behavior: 'allow', updatedInput: input }
+      ? { behavior: 'allow', updatedInput: decision.updatedInput || input }
       : { behavior: 'deny', message: decision.message || 'The user denied this action.' };
     this._write({ type: 'control_response', response: { subtype: 'success', request_id: raw.request_id, response } });
   }
