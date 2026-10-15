@@ -2,12 +2,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createWakeWordDetector } from './detector.js';
+import { createKwsDetector, kwsAvailable } from './kwsDetector.js';
 import { createWakeListener, normalizeVolume } from './listener.js';
 import { encodeWav } from '../../../src/lib/utterance.js';
 import { spokenText } from '../../narrator.js';
 import { loadSpeakerVerifier } from '../speaker/verifier.js';
 
 const DIR = path.resolve('models/wakeword');
+const KWS_DIR = path.resolve('models/kws');
 const SPEAKER_MODEL = path.resolve('models/speaker/wespeaker_en_voxceleb_resnet34.onnx');
 
 // "Only my voice" + "Hey Novi" interrupts: the listener asks Novi whether a voice is the owner's
@@ -49,17 +51,29 @@ export function micToUse(devices, value) {
   return { index, name: index >= 0 ? devices[index] : 'default' };
 }
 
-export async function startWakeWordService({ novi, env = process.env, logger = console }) {
+// Keyword spotting (models/kws, ships with Novi, no training) unless NOVI_WAKEWORD_ENGINE=model;
+// the trained openWakeWord model (models/wakeword) is the fallback.
+export function pickWakeEngine({ env = process.env, exists = fs.existsSync } = {}) {
   const modelPath = path.resolve(env.NOVI_WAKEWORD_MODEL || path.join(DIR, 'hey_novi.onnx'));
   const shared = [path.join(DIR, 'melspectrogram.onnx'), path.join(DIR, 'embedding_model.onnx')];
-  const missing = [modelPath, ...shared].filter((f) => !fs.existsSync(f));
-  if (missing.length) {
-    logger.log(`  Wake word: browser only (missing ${missing.map((f) => path.relative(process.cwd(), f)).join(', ')})`);
+  const kwsOk = ['encoder.int8.onnx', 'decoder.int8.onnx', 'joiner.int8.onnx', 'tokens.txt', 'keywords.txt'].every((f) => exists(path.join(KWS_DIR, f)));
+  const modelOk = [modelPath, ...shared].every((f) => exists(f));
+  if (kwsOk && env.NOVI_WAKEWORD_ENGINE !== 'model') return { engine: 'kws', dir: KWS_DIR };
+  if (modelOk) return { engine: 'model', modelPath, shared };
+  return { engine: null, missing: [modelPath, ...shared].filter((f) => !exists(f)) };
+}
+
+export async function startWakeWordService({ novi, env = process.env, logger = console }) {
+  const pick = pickWakeEngine({ env });
+  if (!pick.engine) {
+    logger.log(`  Wake word: browser only (missing ${pick.missing.map((f) => path.relative(process.cwd(), f)).join(', ')})`);
     return null;
   }
+  const kws = pick.engine === 'kws';
+  const modelPath = kws ? path.join(KWS_DIR, 'keywords.txt') : pick.modelPath;
 
   const { PvRecorder } = await import('@picovoice/pvrecorder-node');
-  let detector = await createWakeWordDetector({ melspectrogramPath: shared[0], embeddingPath: shared[1], modelPath });
+  let detector = kws ? createKwsDetector({ dir: pick.dir }) : await createWakeWordDetector({ melspectrogramPath: pick.shared[0], embeddingPath: pick.shared[1], modelPath });
   if (env.NOVI_WAKEWORD_DEBUG) detector = withDebugLog(detector, logger);
   const speaker = await loadSpeakerVerifier({ modelPath: path.resolve(env.NOVI_SPEAKER_MODEL || SPEAKER_MODEL) });
   if (speaker.status === 'error') logger.warn(`⚠  Voice check off: the speaker model failed to load (${speaker.error}).`);
@@ -68,7 +82,8 @@ export async function startWakeWordService({ novi, env = process.env, logger = c
 
   // 0.35: the hey_novi model trained on synthetic voices; override with NOVI_WAKEWORD_THRESHOLD.
   // A level chosen in Settings → "Hey Novi" from the user's own clips wins over the default.
-  let level = Number(env.NOVI_WAKEWORD_THRESHOLD || novi.wakeThreshold?.() || 0.35);
+  // Keyword spotting answers heard (1) / not heard (0), so its level is fixed.
+  let level = kws ? 0.5 : Number(env.NOVI_WAKEWORD_THRESHOLD || novi.wakeThreshold?.() || 0.35);
   let current = null; // { recorder, listener } — replaced on every (re)start
 
   // A fresh mic each start: follows whichever mic Windows uses now (earbuds in or out).
@@ -113,13 +128,13 @@ export async function startWakeWordService({ novi, env = process.env, logger = c
     // Settings → "Hey Novi": record practice clips through this mic and change the level live.
     novi.setWakeTools?.({
       capture: (ms) => current.listener.capture(ms),
-      setThreshold: (value) => { level = value; current.listener.setThreshold(value); },
+      setThreshold: (value) => { if (kws) return; level = value; current.listener.setThreshold(value); },
       threshold: level,
       setSpeaking: (on) => current?.listener.setSpeaking(on),
       // Novi just asked for a yes / no: hear the answer without "Hey Novi".
       listen: (opts) => { current?.listener.followUp(opts); novi.broadcast({ type: 'wake' }); },
     });
-    logger.log(`  Wake word: always on (${path.basename(modelPath)}, level ${level}, mic: ${recorder.getSelectedDevice()}, voice check model: ${voiceCheck})`);
+    logger.log(`  Wake word: always on (${kws ? 'keyword spotting, no training' : path.basename(modelPath)}, level ${level}, mic: ${recorder.getSelectedDevice()}, voice check model: ${voiceCheck})`);
   }
 
   const runner = keepRestarting({ start, logger });
