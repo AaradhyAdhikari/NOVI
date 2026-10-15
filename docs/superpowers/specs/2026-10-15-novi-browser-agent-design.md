@@ -17,7 +17,7 @@ User's choices (2026-10-15):
 - **Asks first only for final submits** (submit/send/post/sign up/book/delete/confirm), with a
   summary. **Payments: never** — Novi stops and hands over.
 - **From the phone: screenshots** with every question, pause and task end.
-- Assumed (user didn't answer): WhatsApp = **WhatsApp Web** in that Chrome.
+- WhatsApp: **both WhatsApp Web (in that Chrome) and the WhatsApp desktop app** (user, 2026-10-15).
 
 Success = "LeetCode today's problem" answers in ~1 s; "my LeetCode stats" too; "open leetcode.com
 and show me my submissions" works in Chrome; "send my DBMS notes folder to Rahul on WhatsApp" zips
@@ -26,8 +26,7 @@ on yes; a login page pauses for the password; a CAPTCHA pauses; a "Pay now" butt
 
 ## Out of scope (C1)
 
-Sign-ups with saved profile details and "Sign in with Google" flows (C2), other browsers, the
-WhatsApp desktop app, sending to groups by voice (only one person per send), payments of any kind,
+Sign-ups with saved profile details and "Sign in with Google" flows (C2), other browsers, sending to groups by voice (only one person per send), payments of any kind,
 reading WhatsApp messages aloud (privacy; later if asked), solving CAPTCHAs (never).
 
 ## Parts
@@ -119,6 +118,25 @@ folder):
 WhatsApp Web's page changes over time: selectors live in one table (`WA` in whatsapp.js) with
 text/aria-label fallbacks, so a change is a one-line fix.
 
+### E2. WhatsApp desktop app (same tool `whatsapp_send`, `via: 'app'`)
+
+Uses the laptop-control helper (Part A) and screen look (existing `plugins/screen`, Gemini vision —
+already allowed for screenshots):
+1. Focus the WhatsApp window (start it if it isn't running); Ctrl+F, type the name, read the result
+   list with screen look; same 0 / 1 / ≥2 rules as Web.
+2. Open the chat (Enter), then screen look reads the **chat header**; it must match the name, else
+   stop.
+3. File/folder: put the (zipped) file on the clipboard as a file (`Set-Clipboard -Path`), Ctrl+V in
+   the chat → WhatsApp shows its preview. Text: clipboard paste into the message box.
+4. Same approval as Web (with a screenshot to the phone); yes → Enter; no → Escape (closes the
+   preview) and clears the box.
+5. After sending, screen look checks the last message is there; otherwise "WhatsApp didn't confirm
+   it was sent — please check."
+
+**Which one is used:** the words win ("on the WhatsApp app" / "on WhatsApp web"); otherwise the
+desktop app if its window is open, else WhatsApp Web if the extension is connected, else the app if
+installed, else "Open WhatsApp first." The approval says which one ("…on WhatsApp app?").
+
 ### F. LeetCode (`plugins/leetcode`, plain HTTPS, no browser)
 
 - `leetcode_today {}` → public GraphQL `activeDailyCodingChallengeQuestion` → "Today's LeetCode:
@@ -158,6 +176,6 @@ reading the result back.
 `rules.js` on page-map fixtures (login, signup, checkout, captcha, OTP, plain article, WhatsApp chat)
 · tools with a fake bridge: approvals/blocks/pauses, password/card typing refused, untrusted wrapping,
 `sensitive`, phone screenshots · bridge: loopback only, origin + code checks, one connection, timeout
-· whatsapp flow with a scripted fake bridge (0/1/2 matches, header mismatch, folder zip size, yes/no)
+· whatsapp flow (Web with a scripted fake bridge, app with fake laptop-control + screen look): 0/1/2 matches, header mismatch, folder zip size, yes/no, which-one choice
 · leetcode with a fake fetch · voice routes. The extension itself (`background.js`, `page.js`) runs
 only in Chrome → live checklist.
