@@ -66,7 +66,7 @@ describe('controlCommand: laptop controls without the AI', () => {
 
   it('leaves other requests alone', () => {
     for (const t of ['play despacito on youtube', 'play despacito', 'open youtube', 'switch to novi', 'close it', 'close', 'stop',
-      'search the web for volume', 'lock in the plan', 'what is the battery life of iPhone 18', 'copy']) {
+      'search the web for volume', 'lock in the plan', 'what is the battery life of iPhone 18', 'copy', 'copy the code', 'copy my email address', 'copy the link']) {
       expect(controlCommand(t), t).toBe(null);
     }
   });

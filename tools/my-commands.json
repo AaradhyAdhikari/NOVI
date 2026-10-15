@@ -302,5 +302,45 @@
         "web_search"
       ]
     }
+  },
+  {
+    "say": "volume 30",
+    "expect": {
+      "tools": [
+        "laptop_volume"
+      ]
+    }
+  },
+  {
+    "say": "battery kitni hai",
+    "expect": {
+      "tools": [
+        "laptop_battery"
+      ]
+    }
+  },
+  {
+    "say": "switch to WhatsApp",
+    "expect": {
+      "tools": [
+        "laptop_window"
+      ]
+    }
+  },
+  {
+    "say": "close chrome",
+    "expect": {
+      "tools": [
+        "laptop_window"
+      ]
+    }
+  },
+  {
+    "say": "read what I copied",
+    "expect": {
+      "tools": [
+        "laptop_clipboard"
+      ]
+    }
   }
 ]

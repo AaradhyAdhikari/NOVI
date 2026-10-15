@@ -53,8 +53,9 @@ const RULES = [
   [re('close all (?:the |my )?(.+?)(?: windows| tabs)?'), (m) => app(m[1], (a) => T('laptop_window', { app: a, do: 'close', all: true }))],
   [re('close (?:the )?(.+?)(?: window| app)?'), (m) => app(m[1], (a) => T('laptop_window', { app: a, do: 'close' }))],
   [re('(.+?) (?:band|bandh) (?:karo|kar do)'), (m) => app(m[1], (a) => T('laptop_window', { app: a, do: 'close' }))],
-  // "copy <words>" last, so "copy this" / "copy your answer" win
-  [re('copy (.+)'), (m) => (/\b(?:file|folder|pdf|docs?|to (?:the )?(?:desktop|downloads|documents))\b/i.test(m[1]) ? null : T('laptop_clipboard', { do: 'set', text: m[1] }))],
+  // "copy <words>" last, so "copy this" / "copy your answer" win. "copy the code" / "copy my email"
+  // name something to find, not the words to copy: those go to the AI.
+  [re('copy (.+)'), (m) => (/^(?:the|my|your|a|an|that|this|those|these)\b|\b(?:file|folder|pdf|docs?|to (?:the )?(?:desktop|downloads|documents))\b/i.test(m[1]) ? null : T('laptop_clipboard', { do: 'set', text: m[1] }))],
 ];
 
 function app(name, make) {
