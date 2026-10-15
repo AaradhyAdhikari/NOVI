@@ -69,6 +69,23 @@
       for (const type of ['keydown', 'keypress', 'keyup']) el.dispatchEvent(new KeyboardEvent(type, { key, code: key, bubbles: true, cancelable: true }));
       return {};
     },
+    // Generic helpers by CSS selector (WhatsApp Web's spots come from Novi, so a page change is fixed in Novi).
+    query({ selector }) { return { texts: [...document.querySelectorAll(selector)].filter(visible).map((el) => clean(el.getAttribute('title') || el.innerText)) }; },
+    clickSel({ selector, text }) {
+      const el = [...document.querySelectorAll(selector)].filter(visible).find((x) => !text || clean(x.getAttribute('title') || x.innerText).toLowerCase() === String(text).toLowerCase());
+      if (!el) return { error: 'I could not find that on the page.' };
+      el.scrollIntoView({ block: 'center' });
+      (el.closest('[role=listitem],[role=row],button,[role=button]') || el).click();
+      return {};
+    },
+    typeSel({ selector, text }) {
+      const el = [...document.querySelectorAll(selector)].find(visible);
+      if (!el) return { error: 'I could not find the box to type in.' };
+      if ((el.getAttribute('type') || '').toLowerCase() === 'password') return { error: "I don't type passwords. Type it on the laptop and say done." };
+      el.focus();
+      if (el.isContentEditable) { document.execCommand('selectAll', false); if (text) document.execCommand('insertText', false, text); else document.execCommand('delete', false); } else setValue(el, text);
+      return {};
+    },
     scroll({ dir }) { window.scrollBy(0, (dir === 'up' ? -0.8 : 0.8) * innerHeight); return {}; },
     attach({ selector, name, mime, b64 }) {
       const input = document.querySelector(selector || 'input[type=file]');
