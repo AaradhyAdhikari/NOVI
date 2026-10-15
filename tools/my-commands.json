@@ -342,5 +342,19 @@
         "laptop_clipboard"
       ]
     }
+  },
+  {
+    "say": "how much space is left on D drive",
+    "expect": {
+      "tools": [
+        "laptop_run"
+      ]
+    }
+  },
+  {
+    "say": "what commands did you run today",
+    "expect": {
+      "direct": true
+    }
   }
 ]

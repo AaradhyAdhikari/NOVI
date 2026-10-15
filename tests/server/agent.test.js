@@ -932,3 +932,53 @@ describe('laptop control: direct commands still ask before turning things off', 
     expect(calls.at(-1)).toEqual(['volume', { level: 20 }]);
   });
 });
+
+describe('pin approvals reach the approval queue', () => {
+  it('the agent passes pin: true to approvals.decide', async () => {
+    const { PluginHost } = await import('../../server/plugins/host.js');
+    const { definePluginEntry } = await import('../../server/plugins/sdk.js');
+    const tools = new PluginHost({ logger: { warn() {} } });
+    tools.register(definePluginEntry({ id: 'p', name: 'P', register(api) {
+      api.registerTool({ name: 'p_do', description: 'd', parameters: { type: 'object', properties: {} }, execute: async () => ({ content: [], details: { done: true } }) });
+      api.on('before_tool_call', () => ({ requireApproval: { title: 'Delete it?', severity: 'warning', pin: true } }));
+    } }));
+    const seen = [];
+    const approvals = { decide: async (a) => { seen.push(a); return { allow: false }; }, latest: () => null };
+    const steps = [{ message: { role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'p_do', arguments: '{}' } }] }, provider: 'groq' }, { message: { role: 'assistant', content: 'Okay, I did not.' }, provider: 'groq' }];
+    let i = 0;
+    const agent = new Agent({ router: { chat: async () => steps[i++] }, tools, approvals, memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
+    await agent.handle('delete it');
+    expect(seen[0]).toMatchObject({ title: 'Delete it?', pin: true });
+  });
+});
+
+describe('laptop commands: a direct route never skips the question', () => {
+  it('laptop_run (a change) asks even when run directly', async () => {
+    const { PluginHost } = await import('../../server/plugins/host.js');
+    const { createCommandsPlugin } = await import('../../plugins/commands/index.js');
+    const fs = await import('node:fs');
+    const os = await import('node:os');
+    const path = await import('node:path');
+    const { createHistory } = await import('../../plugins/commands/history.js');
+    const runs = [];
+    const tools = new PluginHost({ logger: { warn() {} } });
+    tools.register(createCommandsPlugin({ runner: { run: async (a) => { runs.push(a); return { ok: true, exitCode: 0, output: '' }; } }, history: createHistory({ file: path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'novi-a-')), 'h.jsonl') }) }));
+    const approvals = new ApprovalQueue();
+    const asked = [];
+    approvals.on('added', (a) => { asked.push(a.title); approvals.resolve(a.id, false); });
+    const agent = new Agent({ router: {}, tools, approvals, memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
+    agent._turnYes = new Set();
+    const { output } = await agent._runTool({ id: 'x', function: { name: 'laptop_run', arguments: JSON.stringify({ command: 'Stop-Process -Name notepad', purpose: 'Close Notepad' }) } }, { direct: true });
+    expect(asked).toEqual(['Close Notepad?']);
+    expect(runs).toEqual([]);
+    expect(output.error).toMatch(/declined/);
+  });
+});
+
+describe('laptop commands: history by voice', () => {
+  it('"what commands did you run today" answers from the history, not the AI', async () => {
+    const tools = new ToolRegistry().add({ name: 'commands_history', description: 'h', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'h', run: async () => ({ note: '2 today. Last: a, b.', entries: [] }) });
+    const agent = new Agent({ router: { chat: async () => { throw new Error('no AI'); } }, tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
+    expect(await agent.handle('what commands did you run today?')).toBe('2 today. Last: a, b.');
+  });
+});

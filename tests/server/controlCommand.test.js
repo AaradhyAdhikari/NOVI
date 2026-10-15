@@ -76,3 +76,13 @@ describe('controlCommand: laptop controls without the AI', () => {
     for (const t of ['cancel my meeting', 'stop the music', 'hello']) expect(isCancelWord(t), t).toBe(false);
   });
 });
+
+describe('historyCommand: the command history by voice', () => {
+  it('today\'s commands; other requests stay', async () => {
+    const { historyCommand } = await import('../../server/brain/controlCommand.js');
+    for (const t of ['what commands did you run today', 'What commands have you run?', 'show me the command history', 'aaj kaun se commands chalaye']) {
+      expect(historyCommand(t), t).toEqual({ tool: 'commands_history', args: { today: true } });
+    }
+    for (const t of ['run a command', 'what did you do today', 'command prompt kholo']) expect(historyCommand(t), t).toBe(null);
+  });
+});

@@ -60,9 +60,10 @@ export function createNovi(config, overrides = {}) {
   const grants = overrides.grants || new PermissionGrants(path.join(config.dataDir, 'permissions.json'));
   // What a phone must prove to allow (voice PIN / passkey); the verifiers are filled in below.
   const proofs = {};
-  const trust = createRemoteTrust({ pin: (...a) => proofs.pin?.(...a), passkey: (...a) => proofs.passkey?.(...a), hasPasskey: (...a) => proofs.hasPasskey?.(...a) });
+  const trust = createRemoteTrust({ pin: (...a) => proofs.pin?.(...a), passkey: (...a) => proofs.passkey?.(...a), hasPasskey: (...a) => proofs.hasPasskey?.(...a), hasPin: () => proofs.hasPin?.() ?? false });
   const remotePin = overrides.remotePin || new RemotePin({ file: path.join(config.dataDir, 'remote-pin.json') });
   proofs.pin = (proof) => remotePin.check(proof.pin).ok;
+  proofs.hasPin = () => remotePin.isSet();
   // Fingerprint / face (passkeys) need the Tailscale name: WebAuthn doesn't work on bare IPs.
   const tsName = overrides.tsName || null;
   const passkeys = overrides.passkeys || (tsName ? new Passkeys({ file: path.join(config.dataDir, 'passkeys.json'), rpId: tsName, origin: `https://${tsName}:${config.port || 3001}` }) : null);
@@ -319,7 +320,7 @@ export function createNovi(config, overrides = {}) {
   });
   approvals.on('resolved', (r) => broadcast({ type: 'approval_resolved', ...r }));
   // Only the phone that tried hears what is missing.
-  const NEED_TEXT = { pin: 'Say your PIN to confirm.', passkey: 'Confirm with your fingerprint or face.', laptop: 'This one needs you at the laptop.' };
+  const NEED_TEXT = { 'no-pin': 'Set a voice PIN in Settings first.', pin: 'Say your PIN to confirm.', passkey: 'Confirm with your fingerprint or face.', laptop: 'This one needs you at the laptop.' };
   remotePin.on('locked', () => {
     broadcast({ type: 'feed', text: 'Wrong PIN 3 times: approvals from phones that need the PIN are locked for 15 minutes.' });
     // A security alert: every device hears it.
@@ -425,6 +426,13 @@ export function createNovi(config, overrides = {}) {
   app.get('/api/wiki/graph', (req, res) => res.json(buildGraph(wikiVault)));
   app.get('/api/wiki/note', (req, res) => tryJson(res, () => readNote(wikiVault, req.query.id)));
   app.get('/api/voice-log', (req, res) => localOnly(req, res) && res.json({ entries: voiceLog.recent(30) }));
+  // Settings → History: commands Novi ran (plugins/commands). Laptop only — output can be private.
+  app.get('/api/commands/history', async (req, res) => {
+    if (!localOnly(req, res)) return;
+    const tool = plugins.get('commands_history');
+    const out = tool ? await tool.run({ limit: 100 }) : { entries: [] };
+    res.json({ entries: out.entries || [] });
+  });
   app.post('/api/voice-log/:id/wrong', (req, res) => localOnly(req, res) && tryJson(res, () => voiceLog.markWrong(req.params.id, req.body?.said)));
 
   // "Only my voice": the owner's voiceprint, learned from the "Hey Novi" practice clips. The

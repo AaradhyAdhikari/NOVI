@@ -218,3 +218,11 @@ describe('before_tool_call knows who asked', () => {
     expect(seen).toEqual([{ deviceId: 'p1' }, 'local']);
   });
 });
+
+describe('requireApproval pin (Novi extension)', () => {
+  it('keeps pin: true on the approval', async () => {
+    const h = host();
+    h.register(echo({ hooks: (api) => api.on('before_tool_call', () => ({ requireApproval: { title: 'Delete?', severity: 'warning', pin: true } })) }));
+    expect((await h.get('echo_say').gate({})).approval).toMatchObject({ title: 'Delete?', tier: 'medium', pin: true });
+  });
+});

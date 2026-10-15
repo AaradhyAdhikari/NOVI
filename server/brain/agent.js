@@ -5,12 +5,12 @@ import { UserFacingError } from '../errors.js';
 import { firstSentence } from '../narrator.js';
 import { answerKind } from './answers.js';
 import { FILE_LEAD, FILE_TAIL } from './phrases.js';
-import { controlCommand, isCancelWord } from './controlCommand.js';
+import { controlCommand, isCancelWord, historyCommand } from './controlCommand.js';
 
 // Asked for directly, these just run even though they can't be "always allowed" in Settings
 // (code_start_task: the user already named Claude). Moving files Novi picked always asks.
 const DIRECT_OK = new Set(['code_start_task', 'code_send_message', 'rename_project', 'file_new_folder', 'open_project', 'file_open', 'file_rename', 'note_write', 'notes_ask', 'note_open']);
-const ASK_ANYWAY = new Set(['file_gather', 'file_undo_move']);
+const ASK_ANYWAY = new Set(['file_gather', 'file_undo_move', 'laptop_run']);
 const MAX_ROUNDS = 10; // screen tasks: open the app, look, click, type, …
 const MAX_HISTORY = 40;
 const SUMMARY_AT = 20; // with a summarizer, history past this many messages folds its oldest 10 into one line
@@ -293,6 +293,11 @@ export class Agent {
     }
     const control = await this._controlCommand(text);
     if (control) return this._remember(text, control);
+    const hist = historyCommand(text);
+    if (hist && this.tools.get(hist.tool)) {
+      const { output } = await this._runTool({ id: `hist-${Date.now()}`, function: { name: hist.tool, arguments: JSON.stringify(hist.args) } }, { direct: true });
+      return this._remember(text, output?.error || output?.note || 'None today.');
+    }
     const yt = await this._youtube(text);
     if (yt) return this._remember(text, yt);
     const code = this.tools.get('code_show') ? codeCommand(text) : null;
@@ -592,7 +597,7 @@ export class Agent {
         const decision = skip ? { allow: true } : await this.approvals.decide({
           title, detail: detail || '', tier, source: 'novi', prompt,
           choices: choices?.map(({ id, label }) => ({ id, label })),
-          category, grantable, ...(gate.approval.kind ? { kind: gate.approval.kind } : {}),
+          category, grantable, ...(gate.approval.kind ? { kind: gate.approval.kind } : {}), ...(gate.approval.pin ? { pin: true } : {}),
           addable: typeof args.instruction === 'string',
         });
         if (!decision.allow) return { output: { error: 'The user declined this action.' } };
