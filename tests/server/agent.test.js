@@ -1067,3 +1067,25 @@ describe("Claude asks: answers by voice (coding control v1)", () => {
     expect(spokenApproval({ title: 'Claude asks: Which color theme?', tier: 'medium', prompt: 'Claude asks: Which color theme? One, Dark. Two, Light.', question: {} })).toBe('Claude asks: Which color theme? One, Dark. Two, Light.');
   });
 });
+
+describe('preview by voice', () => {
+  const tools = (out) => new ToolRegistry()
+    .add({ name: 'preview_show', description: 'p', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'p', run: async () => out })
+    .add({ name: 'code_send_message', description: 'm', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'm', run: async (a) => { sent.push(a); return { note: 'sent' }; } });
+  let sent;
+  const agent = (out, { task = { active: false }, last = { project: 'portfolio' } } = {}) => new Agent({ router: { chat: async () => reply('AI') }, tools: tools(out), approvals: new ApprovalQueue(), memory: { listProjects: () => [], lastTask: () => last }, tasks: { status: () => task } });
+
+  it('"show me the homepage" answers from the preview tool, without the AI', async () => {
+    sent = [];
+    expect(await agent({ note: "Here's the homepage. Tap the link to open it live." }).handle('show me the homepage')).toBe("Here's the homepage. Tap the link to open it live.");
+  });
+  it("no project yet → the AI handles it", async () => {
+    sent = [];
+    expect(await agent({ note: 'x' }, { last: null }).handle('show me the homepage')).toBe('AI');
+  });
+  it("Novi can't run it → Claude is asked to start the site", async () => {
+    sent = [];
+    expect(await agent({ error: "I don't know how to run this project yet.", askClaude: true }).handle('show me the homepage')).toBe('I asked Claude to start the site. Say "show me the homepage" again in a minute.');
+    expect(sent).toEqual([{ message: 'Please start the website so it can be previewed, and write .novi/run.json.' }]);
+  });
+});

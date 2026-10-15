@@ -8,6 +8,7 @@ import { matchAnswer, answerFor } from '../claude/questions.js';
 import { FILE_LEAD, FILE_TAIL } from './phrases.js';
 import { controlCommand, isCancelWord, historyCommand } from './controlCommand.js';
 import { browserCommand, isDoneWord } from './browserCommand.js';
+import { previewCommand } from './previewCommand.js';
 import path from 'node:path';
 
 // Asked for directly, these just run even though they can't be "always allowed" in Settings
@@ -300,6 +301,8 @@ export class Agent {
     if (control) return this._remember(text, control);
     const browse = await this._browserCommand(text);
     if (browse) return this._remember(text, browse);
+    const preview = await this._previewCommand(text);
+    if (preview) return this._remember(text, preview);
     const hist = historyCommand(text);
     if (hist && this.tools.get(hist.tool)) {
       const { output } = await this._runTool({ id: `hist-${Date.now()}`, function: { name: hist.tool, arguments: JSON.stringify(hist.args) } }, { direct: true });
@@ -423,6 +426,8 @@ export class Agent {
     if (mem && this.tools.get(mem.tool)) return { quick: null, calls: [{ name: mem.tool, args: mem.args }], reply: null, provider: 'direct' };
     const ctl = controlCommand(text);
     if (ctl && this.tools.get(ctl.tool)) return { quick: null, calls: [{ name: ctl.tool, args: ctl.args }], reply: null, provider: 'direct' };
+    const pv = this._previewKnown(previewCommand(text));
+    if (pv) return { quick: null, calls: [{ name: pv.tool, args: pv.args }], reply: null, provider: 'direct' };
     const br = browserCommand(text, { lastTo: this._waLastTo });
     if (br && this.tools.get(br.tool)) return { quick: null, calls: [{ name: br.tool, args: br.args }], reply: null, provider: 'direct' };
     const file = fileCommand(text);
@@ -694,6 +699,27 @@ export class Agent {
       if (!out.ready) return out.error || out.note || 'I could not get that ready.';
       const sent = await run('whatsapp_send', {});
       return /declined/i.test(String(sent.error || '')) ? 'Okay, not sent.' : sent.error || sent.note || 'Okay, not sent.';
+    }
+    return out.error || out.note || 'Done.';
+  }
+
+  // A preview needs a project: one named, the running task's, or the last task's. Else the AI asks.
+  _previewKnown(cmd) {
+    if (!cmd || !this.tools.get(cmd.tool)) return null;
+    const known = cmd.args.project || this.tasks?.status?.()?.project || this.memory?.lastTask?.()?.project;
+    return known ? cmd : null;
+  }
+
+  // "Show me the homepage": the preview plugin answers; when it can't tell how to run the project,
+  // Claude is asked to start the site (and write .novi/run.json for next time).
+  async _previewCommand(text) {
+    const cmd = this._previewKnown(previewCommand(text));
+    if (!cmd) return null;
+    const run = async (name, args) => (await this._runTool({ id: `pv-${Date.now()}`, function: { name, arguments: JSON.stringify(args) } }, { direct: true })).output || {};
+    const out = await run(cmd.tool, cmd.args);
+    if (out.askClaude && this.tools.get('code_send_message')) {
+      const sent = await run('code_send_message', { message: 'Please start the website so it can be previewed, and write .novi/run.json.' });
+      if (!sent.error) return 'I asked Claude to start the site. Say "show me the homepage" again in a minute.';
     }
     return out.error || out.note || 'Done.';
   }

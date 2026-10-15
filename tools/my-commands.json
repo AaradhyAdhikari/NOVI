@@ -380,5 +380,29 @@
         "whatsapp_prepare"
       ]
     }
+  },
+  {
+    "say": "show me the homepage",
+    "expect": {
+      "tools": [
+        "preview_show"
+      ]
+    }
+  },
+  {
+    "say": "show me the contact page",
+    "expect": {
+      "tools": [
+        "preview_show"
+      ]
+    }
+  },
+  {
+    "say": "stop the preview",
+    "expect": {
+      "tools": [
+        "preview_stop"
+      ]
+    }
   }
 ]
