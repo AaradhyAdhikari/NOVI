@@ -155,3 +155,9 @@ code { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--m
 .chip.cmd-change { color: var(--cyan); }
 .chip.cmd-danger { color: var(--warn); }
 .chip.cmd-never { color: var(--bad); }
+
+/* Claude's own questions (coding control) */
+.approval.question .question-options { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+.approval.question .question-options .btn { text-align: left; white-space: normal; }
+.approval.question .question-own { display: flex; gap: 6px; flex-wrap: wrap; }
+.approval.question .question-own input { flex: 1 1 160px; min-width: 0; }

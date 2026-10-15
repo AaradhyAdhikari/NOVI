@@ -1,4 +1,5 @@
-import { ShieldAlert, ShieldQuestion } from 'lucide-react';
+import { useState } from 'react';
+import { MessageCircleQuestion, ShieldAlert, ShieldQuestion } from 'lucide-react';
 import PinCapture from './PinCapture.jsx';
 import { confirmWithPasskey } from '../lib/passkey.js';
 
@@ -9,11 +10,38 @@ const NEED_TEXT = {
   laptop: 'This one needs you at the laptop.',
 };
 
+// One of Claude's own questions: tap an option, type an own answer, or skip (voice works too).
+function QuestionCard({ a, onAnswer }) {
+  const [own, setOwn] = useState('');
+  return (
+    <div className="approval question">
+      <div className="approval-title">
+        <MessageCircleQuestion size={18} />
+        <span>{a.title}</span>
+      </div>
+      <div className="question-options">
+        {(a.question.options || []).map((o, i) => (
+          <button key={o.label} className="btn" onClick={() => onAnswer(a.id, true, null, { answer: o.label })}>
+            <strong>{i + 1}. {o.label}</strong>
+            {o.description && <small className="muted"> {o.description}</small>}
+          </button>
+        ))}
+      </div>
+      <form className="question-own" onSubmit={(e) => { e.preventDefault(); if (own.trim()) onAnswer(a.id, true, null, { answer: own.trim() }); }}>
+        <input value={own} onChange={(e) => setOwn(e.target.value)} placeholder="Or type your own answer" aria-label="Your own answer" />
+        <button className="btn primary" type="submit" disabled={!own.trim()}>Send</button>
+        <button className="btn" type="button" onClick={() => onAnswer(a.id, false)}>Skip</button>
+      </form>
+      <p className="muted">Or just say the number.</p>
+    </div>
+  );
+}
+
 export default function ApprovalCards({ approvals, onAnswer, api }) {
   if (!approvals.length) return null;
   return (
     <div className="approvals" role="region" aria-label="Approvals needed">
-      {approvals.map((a) => (
+      {approvals.map((a) => a.question ? <QuestionCard key={a.id} a={a} onAnswer={onAnswer} /> : (
         <div key={a.id} className={`approval ${a.tier}`}>
           <div className="approval-title">
             {a.tier === 'high' ? <ShieldAlert size={18} /> : <ShieldQuestion size={18} />}

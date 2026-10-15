@@ -222,6 +222,17 @@ describe('Novi server', () => {
     expect(exits).toEqual([75]);
   });
 
+  it("a question card answered on screen sends the answer to Claude", async () => {
+    const { base, novi } = await start();
+    const pending = novi.approvals.decide({ title: 'Claude asks: Theme?', tier: 'medium', source: 'claude', question: { text: 'Theme?', options: [{ label: 'Dark' }] }, timeoutMs: null });
+    const card = novi.approvals.pending()[0];
+    const ws = new WebSocket(`${base.replace('http', 'ws')}/ws`);
+    await new Promise((r) => ws.on('open', r));
+    ws.send(JSON.stringify({ type: 'approval', id: card.id, allow: true, answer: 'Dark' }));
+    expect(await pending).toMatchObject({ allow: true, answer: 'Dark' });
+    ws.close();
+  });
+
   it('lists and revokes permission grants, and "always" from a card stores one', async () => {
     const { base, novi } = await start();
     const pending = novi.approvals.decide({ title: 'Open Spotify', tier: 'medium', source: 'novi', category: 'apps', grantable: true });

@@ -712,7 +712,7 @@ export function createNovi(config, overrides = {}) {
         refresh();
       }
     } else if (msg.type === 'approval') {
-      approvals.resolve(msg.id, Boolean(msg.allow), 'screen', typeof msg.choice === 'string' ? msg.choice : null, { always: msg.always === true, from, proof: await approvalProof(msg, from) });
+      approvals.resolve(msg.id, Boolean(msg.allow), 'screen', typeof msg.choice === 'string' ? msg.choice : null, { always: msg.always === true, from, proof: await approvalProof(msg, from), ...(typeof msg.answer === 'string' ? { answer: msg.answer.slice(0, 500) } : {}) });
     } else if (msg.type === 'allow_edits') {
       tasks.setAllowEdits(Boolean(msg.allow));
     } else if (msg.type === 'stop') {
