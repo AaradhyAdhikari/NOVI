@@ -33,6 +33,7 @@ const ALL = [
   tool('wiki_recent', 'What Novi did recently.'),
   tool('web_search', 'Search the web.'),
   tool('web_read', 'Read a web page.'),
+  tool('browser_open', 'o'), tool('browser_read', 'r'), tool('whatsapp_prepare', 'p'), tool('whatsapp_send', 's'), tool('leetcode_today', 't'), tool('leetcode_stats', 's'),
   tool('laptop_run', 'r'), tool('commands_history', 'h'),
   tool('laptop_volume', 'v'), tool('laptop_window', 'w'), tool('laptop_battery', 'b'), tool('laptop_clipboard', 'c'), tool('laptop_power', 'p'),
 ];
@@ -66,6 +67,13 @@ describe('selectTools: send the model only the tools a request needs', () => {
       expect(names(text), text).toContain('laptop_run');
     }
     expect(names("What's the weather in Pune tomorrow?")).not.toContain('laptop_run');
+  });
+
+  it('browser, WhatsApp and LeetCode words bring their tools', () => {
+    expect(names('open leetcode and show my submissions')).toEqual(expect.arrayContaining(['browser_open', 'browser_read', 'leetcode_today']));
+    expect(names('send this to Rahul on whatsapp')).toEqual(expect.arrayContaining(['whatsapp_prepare', 'whatsapp_send']));
+    expect(names('fill the form on this website')).toContain('browser_read');
+    expect(names("What's the weather in Pune tomorrow?")).not.toContain('browser_open');
   });
 
   it('weather question gets the weather tool, not mail or GitHub', () => {

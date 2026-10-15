@@ -6,6 +6,8 @@ import { firstSentence } from '../narrator.js';
 import { answerKind } from './answers.js';
 import { FILE_LEAD, FILE_TAIL } from './phrases.js';
 import { controlCommand, isCancelWord, historyCommand } from './controlCommand.js';
+import { browserCommand, isDoneWord } from './browserCommand.js';
+import path from 'node:path';
 
 // Asked for directly, these just run even though they can't be "always allowed" in Settings
 // (code_start_task: the user already named Claude). Moving files Novi picked always asks.
@@ -293,6 +295,8 @@ export class Agent {
     }
     const control = await this._controlCommand(text);
     if (control) return this._remember(text, control);
+    const browse = await this._browserCommand(text);
+    if (browse) return this._remember(text, browse);
     const hist = historyCommand(text);
     if (hist && this.tools.get(hist.tool)) {
       const { output } = await this._runTool({ id: `hist-${Date.now()}`, function: { name: hist.tool, arguments: JSON.stringify(hist.args) } }, { direct: true });
@@ -416,6 +420,8 @@ export class Agent {
     if (mem && this.tools.get(mem.tool)) return { quick: null, calls: [{ name: mem.tool, args: mem.args }], reply: null, provider: 'direct' };
     const ctl = controlCommand(text);
     if (ctl && this.tools.get(ctl.tool)) return { quick: null, calls: [{ name: ctl.tool, args: ctl.args }], reply: null, provider: 'direct' };
+    const br = browserCommand(text);
+    if (br && this.tools.get(br.tool)) return { quick: null, calls: [{ name: br.tool, args: br.args }], reply: null, provider: 'direct' };
     const file = fileCommand(text);
     if (file && this.tools.get(file.tool)) return { quick: null, calls: [{ name: file.tool, args: file.args }], reply: null, provider: 'direct' };
     const web = webCommand(text);
@@ -642,6 +648,31 @@ export class Agent {
     const { output } = await this._runTool({ id: `laptop-${Date.now()}`, function: { name: ctl.tool, arguments: JSON.stringify(args) } }, { direct: true });
     if (output?.notFound && args.do === 'focus') return null;
     return output?.error || output?.note || 'Done.';
+  }
+
+  // LeetCode / WhatsApp without the AI. A WhatsApp file or folder is found first; sending always
+  // asks (whatsapp_send). "done" after a pause (QR scan) tries the same send again.
+  async _browserCommand(text) {
+    let cmd = browserCommand(text);
+    if (!cmd && this._browserPause && isDoneWord(text)) cmd = this._browserPause;
+    this._browserPause = null;
+    if (!cmd || !this.tools.get(cmd.tool)) return null;
+    const run = async (name, args) => (await this._runTool({ id: `br-${Date.now()}`, function: { name, arguments: JSON.stringify(args) } }, { direct: true })).output || {};
+    const args = { ...cmd.args };
+    if (cmd.find) {
+      if (!this.tools.get('file_find')) return "I can't look for files right now.";
+      const hit = (await run('file_find', { query: `${cmd.find}${cmd.kind && cmd.kind !== 'file' ? ` ${cmd.kind}` : ''}` })).files?.[0];
+      if (!hit) return `I can't find ${cmd.find}.`;
+      args.path = path.join(hit.folder, hit.name);
+    }
+    const out = await run(cmd.tool, args);
+    if (cmd.tool === 'whatsapp_prepare') {
+      if (out.pause) this._browserPause = { tool: cmd.tool, args };
+      if (!out.ready) return out.error || out.note || 'I could not get that ready.';
+      const sent = await run('whatsapp_send', {});
+      return /declined/i.test(String(sent.error || '')) ? 'Okay, not sent.' : sent.error || sent.note || 'Okay, not sent.';
+    }
+    return out.error || out.note || 'Done.';
   }
 
   async _memoryCommand(text) {

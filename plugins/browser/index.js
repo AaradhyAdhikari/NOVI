@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { definePluginEntry } from '#plugin-sdk';
 import { createBridge } from './bridge.js';
-import { loadCode } from './pairing.js';
+import { loadCode, newCode } from './pairing.js';
 import { fileURLToPath } from 'node:url';
 import { createWebDriver, zipForSend } from './whatsapp.js';
 import { createAppDriver } from './whatsappApp.js';
@@ -38,6 +38,11 @@ export function createBrowserPlugin({ bridge = null, showImage = null, webDriver
       if (!link) {
         const file = path.join(api.runtime?.dataDir || 'data', 'browser.json');
         link = createBridge({ port: Number(api.pluginConfig?.port) || 3003, code: loadCode(file), logger: api.logger });
+        // Settings → Browser (laptop-only routes in app.js) read and rotate the pairing code here.
+        if (api.runtime) {
+          api.runtime.browserStatus = () => ({ connected: link.connected(), code: loadCode(file) });
+          api.runtime.browserNewCode = () => { const c = newCode(file); link.setCode(c); return c; };
+        }
         api.registerService({ id: 'browser-bridge', start: () => link.start().catch((err) => api.logger?.warn?.(`[browser] link not started: ${err.message}`)), stop: () => link.stop() });
       }
       const show = (img) => (showImage || api.runtime?.showImage)?.(img);

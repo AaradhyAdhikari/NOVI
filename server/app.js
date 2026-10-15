@@ -426,6 +426,11 @@ export function createNovi(config, overrides = {}) {
   app.get('/api/wiki/graph', (req, res) => res.json(buildGraph(wikiVault)));
   app.get('/api/wiki/note', (req, res) => tryJson(res, () => readNote(wikiVault, req.query.id)));
   app.get('/api/voice-log', (req, res) => localOnly(req, res) && res.json({ entries: voiceLog.recent(30) }));
+  // Settings → Browser: the Novi Chrome extension's status and pairing code (plugins/browser sets
+  // runtime.browserStatus / browserNewCode). Laptop only — the code lets a browser drive Novi's link.
+  const browserInfo = () => plugins.runtime.browserStatus?.() || { connected: false, code: null };
+  app.get('/api/browser', (req, res) => localOnly(req, res) && res.json(browserInfo()));
+  app.post('/api/browser/code', (req, res) => { if (!localOnly(req, res)) return; plugins.runtime.browserNewCode?.(); res.json(browserInfo()); });
   // Settings → History: commands Novi ran (plugins/commands). Laptop only — output can be private.
   app.get('/api/commands/history', async (req, res) => {
     if (!localOnly(req, res)) return;
