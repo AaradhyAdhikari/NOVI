@@ -126,3 +126,31 @@ describe('ApprovalQueue remote trust', () => {
   });
 });
 
+
+describe('ApprovalQueue: Claude question approvals', () => {
+  it('no timeout, answer passed through, never picked by latest()', async () => {
+    vi.useFakeTimers();
+    const q = new ApprovalQueue({ timeoutMs: 1000 });
+    const p = q.decide({ title: 'Claude asks: Theme?', tier: 'medium', source: 'claude', question: { text: 'Theme?', options: [{ label: 'Dark' }] }, timeoutMs: null });
+    vi.advanceTimersByTime(10 * 60_000);
+    expect(q.pending()).toHaveLength(1);
+    expect(q.latest()).toBe(null);
+    expect(q.waitingQuestion().question.text).toBe('Theme?');
+    q.resolve(q.pending()[0].id, true, 'voice', null, { answer: 'Dark' });
+    expect(await p).toEqual({ allow: true, choice: null, answer: 'Dark' });
+    expect(q.waitingQuestion()).toBe(null);
+    vi.useRealTimers();
+  });
+
+  it('an ordinary approval still times out and never carries an answer', async () => {
+    vi.useFakeTimers();
+    const q = new ApprovalQueue({ timeoutMs: 1000 });
+    const p = q.decide({ title: 'Write file', tier: 'medium', source: 'claude' });
+    q.resolve(q.pending()[0].id, true, 'voice', null, { answer: 'x' });
+    expect(await p).toEqual({ allow: true, choice: null });
+    const p2 = q.decide({ title: 'Write file', tier: 'medium', source: 'claude' });
+    vi.advanceTimersByTime(1001);
+    expect((await p2).allow).toBe(false);
+    vi.useRealTimers();
+  });
+});
