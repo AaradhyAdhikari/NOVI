@@ -844,3 +844,21 @@ describe('web search by voice: the agent', () => {
     expect(seen).toEqual([{ query: 'the answer to everything' }]);
   });
 });
+
+describe('plugin approvals know who asked', () => {
+  it('the device that asked reaches before_tool_call', async () => {
+    const { PluginHost } = await import('../../server/plugins/host.js');
+    const { definePluginEntry } = await import('../../server/plugins/sdk.js');
+    const seen = [];
+    const tools = new PluginHost({ logger: { warn() {} } });
+    tools.register(definePluginEntry({ id: 'p', name: 'P', register(api) {
+      api.registerTool({ name: 'p_do', description: 'd', parameters: { type: 'object', properties: {} }, execute: async () => ({ content: [], details: { done: true } }) });
+      api.on('before_tool_call', (e) => { seen.push(e.from); });
+    } }));
+    const steps = [{ message: { role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'p_do', arguments: '{}' } }] }, provider: 'groq' }, { message: { role: 'assistant', content: 'Ok, it ran.' }, provider: 'groq' }];
+    let i = 0;
+    const agent = new Agent({ router: { chat: async () => steps[i++] }, tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
+    await agent.handle('do the thing', { from: { deviceId: 'p1' } });
+    expect(seen).toEqual([{ deviceId: 'p1' }]);
+  });
+});

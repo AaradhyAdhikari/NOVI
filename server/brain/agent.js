@@ -270,6 +270,7 @@ export class Agent {
 
   // from: 'local' (the laptop) or { deviceId } — approvals answered by voice check it (server/remoteTrust.js).
   async handle(text, { from = 'local' } = {}) {
+    this._from = from; // who asked, for plugin approvals (phone warnings)
     this._turnYes = new Set(); // kinds of step the user said yes to in this request
     const also = alsoCommand(text);
     if (also) {
@@ -570,7 +571,7 @@ export class Agent {
     for (const key of Object.keys(args)) if (key.startsWith('$')) delete args[key];
     if (tool.gate) {
       // Plugin tools: approval and blocking come from before_tool_call hooks (OpenClaw shape).
-      const gate = await tool.gate(args, { toolCallId: call.id });
+      const gate = await tool.gate(args, { toolCallId: call.id, from: this._from || 'local' });
       if (gate.block) return { output: { error: gate.blockReason, ...(gate.details || {}) }, note: gate.blockReason };
       if (gate.approval) {
         const { title, detail, tier, prompt, choices } = gate.approval;

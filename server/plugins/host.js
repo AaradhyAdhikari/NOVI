@@ -127,7 +127,8 @@ export class PluginHost {
     };
   }
 
-  async gate(tool, params, { toolCallId } = {}) {
+  // from: who asked — 'local' (the laptop) or { deviceId } (a phone); Novi extension to the event.
+  async gate(tool, params, { toolCallId, from = 'local' } = {}) {
     let approval = null;
     for (const plugin of this.plugins) {
       for (const hook of plugin.hooks) {
@@ -135,7 +136,7 @@ export class PluginHost {
         if (!hook.allTools && plugin.id !== tool.pluginId) continue;
         let result;
         try {
-          result = await hook.handler({ toolName: tool.name, params, toolCallId });
+          result = await hook.handler({ toolName: tool.name, params, toolCallId, from });
         } catch {
           return { block: true, blockReason: 'A plugin check failed, so Novi did not run this.' };
         }
