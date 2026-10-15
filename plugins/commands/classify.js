@@ -59,7 +59,7 @@ const DANGER = new Set(['remove-item', 'clear-content', 'clear-recyclebin', 'set
   'choco', 'msiexec', 'schtasks', 'register-scheduledtask', 'unregister-scheduledtask', 'set-executionpolicy',
   'takeown', 'icacls', 'stop-computer', 'restart-computer', 'invoke-expression', 'invoke-command']);
 const SAFE_TYPES = /^\[(?:math|datetime|system\.math|system\.datetime)\]::|^\[environment\]::getfolderpath\(/i;
-const SAFE_METHODS = new Set(['tostring', 'toupper', 'tolower', 'trim', 'split', 'replace', 'substring', 'contains', 'startswith', 'endswith', 'round', 'equals', 'gettype', 'tostring', 'padleft', 'padright', 'indexof', 'getfolderpath', 'adddays', 'addhours']);
+export const SAFE_METHODS = new Set(['tostring', 'toupper', 'tolower', 'trim', 'split', 'replace', 'substring', 'contains', 'startswith', 'endswith', 'round', 'equals', 'gettype', 'tostring', 'padleft', 'padright', 'indexof', 'getfolderpath', 'adddays', 'addhours']);
 
 function dangerReason(words, raw) {
   for (const w of words) {
