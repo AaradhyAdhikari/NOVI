@@ -1,0 +1,6 @@
+{
+  "comment": "Commands that only look. Any get-* cmdlet also counts (except get-credential). Shared by classify.js and the PowerShell parser check in runner.js.",
+  "cmdlets": ["test-path", "test-connection", "test-netconnection", "measure-object", "select-object", "where-object", "sort-object", "group-object", "format-table", "format-list", "format-wide", "out-string", "convertto-json", "convertto-csv", "select-string", "resolve-path", "split-path", "join-path", "foreach-object", "write-output"],
+  "programs": ["ipconfig", "systeminfo", "whoami", "hostname", "tasklist", "netstat", "nslookup", "ping", "where", "driverquery", "wmic"],
+  "notLook": ["get-credential"]
+}
