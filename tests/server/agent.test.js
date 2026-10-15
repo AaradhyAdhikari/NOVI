@@ -720,3 +720,18 @@ describe('spoken approval is only the task', async () => {
     expect(spokenApproval({ title: 'Click “Send”' })).toBe('Click “Send”.');
   });
 });
+
+describe('after_tool_call', () => {
+  it('the agent tells plugins about each tool run, with its result or error', async () => {
+    const events = [];
+    const tools = new ToolRegistry()
+      .add({ name: 'ok', description: 'o', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'o', run: async () => ({ created: '/x' }) })
+      .add({ name: 'bad', description: 'b', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'b', run: async () => { throw new Error('nope'); } });
+    tools.afterToolCall = async (e) => { events.push(e); };
+    const agent = new Agent({ router: scriptedRouter([]), tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
+    await agent._runTool({ id: '1', function: { name: 'ok', arguments: '{"a":1}' } });
+    await agent._runTool({ id: '2', function: { name: 'bad', arguments: '{}' } });
+    expect(events[0]).toMatchObject({ toolName: 'ok', params: { a: 1 }, result: { created: '/x' } });
+    expect(events[1]).toMatchObject({ toolName: 'bad', error: 'nope' });
+  });
+});

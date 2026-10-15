@@ -193,6 +193,14 @@ describe('prompt and turn hooks (OpenClaw before_prompt_build / agent_end)', () 
     expect(seen).toEqual([{ messages: [{ role: 'user', content: 'hi' }], success: true }]);
   });
 
+  it('after_tool_call: plugins hear about every finished tool run; a failing handler is ignored', async () => {
+    const h = host();
+    const seen = [];
+    h.register({ id: 'a', name: 'A', register(api) { api.on('after_tool_call', (e) => { seen.push(e); }); api.on('after_tool_call', () => { throw new Error('ignored'); }); } });
+    await h.afterToolCall({ toolName: 'file_new_folder', params: { name: 'x' }, result: { created: '/x' } });
+    expect(seen).toEqual([{ toolName: 'file_new_folder', params: { name: 'x' }, result: { created: '/x' } }]);
+  });
+
   it('prompt hooks do not run as tool gates', async () => {
     const h = host();
     h.register({ id: 'a', name: 'A', register(api) { api.registerTool({ name: 't', execute: async () => ({}) }); api.on('before_prompt_build', () => ({ prependContext: 'x' })); } });

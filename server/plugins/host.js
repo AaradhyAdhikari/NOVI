@@ -7,7 +7,7 @@ import { definePluginEntry, SEVERITY_TIER } from './sdk.js';
 const RANK = { low: 0, medium: 1, high: 2 };
 // OpenClaw hook names. before_prompt_build results may also carry `sensitive: true` (Novi extension:
 // the added context is private, so the turn stays on a private AI provider).
-const SUPPORTED_HOOKS = new Set(['before_tool_call', 'before_prompt_build', 'agent_end']);
+const SUPPORTED_HOOKS = new Set(['before_tool_call', 'after_tool_call', 'before_prompt_build', 'agent_end']);
 
 // OpenClaw tool result → the object Novi feeds back to the model.
 export function mapResult(result) {
@@ -186,6 +186,13 @@ export class PluginHost {
   async agentEnd(event) {
     for (const { plugin, hook } of this._hooks('agent_end')) {
       try { await hook.handler(event); } catch (err) { this.logger.warn?.(`Plugin "${plugin.id}" agent_end hook failed: ${err.message}`); }
+    }
+  }
+
+  // after_tool_call: plugins hear about every finished tool run (e.g. to keep an actions log).
+  async afterToolCall(event) {
+    for (const { plugin, hook } of this._hooks('after_tool_call')) {
+      try { await hook.handler(event); } catch (err) { this.logger.warn?.(`Plugin "${plugin.id}" after_tool_call hook failed: ${err.message}`); }
     }
   }
 

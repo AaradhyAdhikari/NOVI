@@ -461,6 +461,9 @@ export class Agent {
   async _runTool(call, { direct = false } = {}) {
     const result = await this._runToolInner(call, { direct });
     const err = result.output?.error;
+    let params = {};
+    try { params = JSON.parse(call.function?.arguments || '{}'); } catch { /* bad JSON: reported by the run */ }
+    Promise.resolve(this.tools.afterToolCall?.({ toolName: call.function?.name, params, result: result.output, ...(err ? { error: err } : {}) })).catch(() => {});
     this.logger?.log?.(`[tool] ${call.function?.name} ${err ? `error: ${String(err).slice(0, 200)}` : 'ok'}`);
     return result;
   }
