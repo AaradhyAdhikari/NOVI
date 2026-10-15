@@ -27,10 +27,21 @@ const ALL = [
   tool('sheets_log_link', 'Link to the Novi log sheet.'),
   tool('project_next', 'Where the user left off on a project.'),
   tool('open_project', 'Open a project in an editor.'),
+  tool('note_write', 'Write a note.'),
+  tool('notes_ask', 'Answer from notes.'),
+  tool('note_open', 'Open a note.'),
+  tool('wiki_recent', 'What Novi did recently.'),
 ];
 const names = (text, opts) => selectTools(ALL, { text, ...opts }).map((t) => t.function.name);
 
 describe('selectTools: send the model only the tools a request needs', () => {
+  it('notes: any of the note tools brings all of them, and "what did you do" brings the actions log', () => {
+    const n = names('check my notes about the DBMS exam');
+    for (const t of ['note_write', 'notes_ask', 'note_open', 'wiki_recent']) expect(n).toContain(t);
+    expect(names('what did you do today?')).toContain('wiki_recent');
+    expect(names("What's the weather in Pune tomorrow?")).not.toContain('notes_ask');
+  });
+
   it('weather question gets the weather tool, not mail or GitHub', () => {
     const n = names("What's the weather in Pune tomorrow?");
     expect(n).toContain('weather_get');
