@@ -1,0 +1,78 @@
+import { describe, it, expect } from 'vitest';
+import { controlCommand, isCancelWord } from '../../server/brain/controlCommand.js';
+
+const T = (tool, args) => ({ tool, args });
+const cases = [
+  ['volume 40', T('laptop_volume', { level: 40 })],
+  ['Set the volume to 40 percent.', T('laptop_volume', { level: 40 })],
+  ['volume up', T('laptop_volume', { change: 'up' })],
+  ['turn up the volume', T('laptop_volume', { change: 'up' })],
+  ['louder', T('laptop_volume', { change: 'up' })],
+  ['awaaz badhao', T('laptop_volume', { change: 'up' })],
+  ['awaaz kam karo', T('laptop_volume', { change: 'down' })],
+  ['quieter please', T('laptop_volume', { change: 'down' })],
+  ['mute', T('laptop_volume', { mute: true })],
+  ['unmute the laptop', T('laptop_volume', { mute: false })],
+  ['brightness 70', T('laptop_brightness', { level: 70 })],
+  ['brightness kam karo', T('laptop_brightness', { change: 'down' })],
+  ['increase the brightness', T('laptop_brightness', { change: 'up' })],
+  ['pause', T('laptop_media', { key: 'pause' })],
+  ['play', T('laptop_media', { key: 'play' })],
+  ['resume', T('laptop_media', { key: 'play' })],
+  ['next song', T('laptop_media', { key: 'next' })],
+  ['agla gaana', T('laptop_media', { key: 'next' })],
+  ['previous song', T('laptop_media', { key: 'previous' })],
+  ['how much battery', T('laptop_battery', {})],
+  ['how much battery is left?', T('laptop_battery', {})],
+  ['battery kitni hai', T('laptop_battery', {})],
+  ['turn wifi off', T('laptop_radio', { kind: 'wifi', on: false })],
+  ['turn off the wi-fi', T('laptop_radio', { kind: 'wifi', on: false })],
+  ['wifi band karo', T('laptop_radio', { kind: 'wifi', on: false })],
+  ['turn bluetooth on', T('laptop_radio', { kind: 'bluetooth', on: true })],
+  ['bluetooth chalu karo', T('laptop_radio', { kind: 'bluetooth', on: true })],
+  ['lock the laptop', T('laptop_power', { action: 'lock' })],
+  ['lock my screen', T('laptop_power', { action: 'lock' })],
+  ['put the laptop to sleep', T('laptop_power', { action: 'sleep' })],
+  ['shut down', T('laptop_power', { action: 'shutdown' })],
+  ['shutdown the laptop', T('laptop_power', { action: 'shutdown' })],
+  ['restart the laptop', T('laptop_power', { action: 'restart' })],
+  ['log out', T('laptop_power', { action: 'signout' })],
+  ['cancel the shutdown', T('laptop_power', { action: 'cancel' })],
+  ['switch to WhatsApp', T('laptop_window', { app: 'WhatsApp', do: 'focus' })],
+  ['go to whatsapp', T('laptop_window', { app: 'whatsapp', do: 'focus' })],
+  ['minimize chrome', T('laptop_window', { app: 'chrome', do: 'minimize' })],
+  ['maximize VS Code', T('laptop_window', { app: 'VS Code', do: 'maximize' })],
+  ['close chrome', T('laptop_window', { app: 'chrome', do: 'close' })],
+  ['close all chrome windows', T('laptop_window', { app: 'chrome', do: 'close', all: true })],
+  ['chrome band karo', T('laptop_window', { app: 'chrome', do: 'close' })],
+  ['read what I copied', T('laptop_clipboard', { do: 'read' })],
+  ["what's on my clipboard", T('laptop_clipboard', { do: 'read' })],
+  ['kya copy kiya', T('laptop_clipboard', { do: 'read' })],
+  ['copy this', T('laptop_clipboard', { do: 'copy' })],
+  ['copy hello world', T('laptop_clipboard', { do: 'set', text: 'hello world' })],
+  ['paste it into whatsapp', T('laptop_clipboard', { do: 'paste', app: 'whatsapp' })],
+  ['Okay, paste it in WhatsApp', T('laptop_clipboard', { do: 'paste', app: 'WhatsApp' })],
+];
+
+describe('controlCommand: laptop controls without the AI', () => {
+  it('understands everyday phrases (English + Hinglish)', () => {
+    for (const [text, want] of cases) expect(controlCommand(text), text).toEqual(want);
+  });
+
+  it('"copy your answer" asks the agent for Novi\'s last reply', () => {
+    expect(controlCommand('copy your answer')).toEqual({ tool: 'laptop_clipboard', args: { do: 'set' }, lastReply: true });
+    expect(controlCommand('copy that answer')).toEqual({ tool: 'laptop_clipboard', args: { do: 'set' }, lastReply: true });
+  });
+
+  it('leaves other requests alone', () => {
+    for (const t of ['play despacito on youtube', 'play despacito', 'open youtube', 'switch to novi', 'close it', 'close', 'stop',
+      'search the web for volume', 'lock in the plan', 'what is the battery life of iPhone 18', 'copy', 'copy the code', 'copy my email address', 'copy the link']) {
+      expect(controlCommand(t), t).toBe(null);
+    }
+  });
+
+  it('isCancelWord: cancel / stop / ruko, not other cancels', () => {
+    for (const t of ['cancel', 'Cancel.', 'stop', 'ruko', 'rok do', 'stop the shutdown', 'cancel the restart', 'mat karo']) expect(isCancelWord(t), t).toBe(true);
+    for (const t of ['cancel my meeting', 'stop the music', 'hello']) expect(isCancelWord(t), t).toBe(false);
+  });
+});

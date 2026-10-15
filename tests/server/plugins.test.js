@@ -207,3 +207,14 @@ describe('prompt and turn hooks (OpenClaw before_prompt_build / agent_end)', () 
     expect(await h.get('t').gate({})).toEqual({});
   });
 });
+
+describe('before_tool_call knows who asked', () => {
+  it('passes from (a phone or the laptop) to the hook, laptop by default', async () => {
+    const seen = [];
+    const h = host();
+    h.register(echo({ hooks: (api) => api.on('before_tool_call', (e) => { seen.push(e.from); }) }));
+    await h.get('echo_say').gate({}, { from: { deviceId: 'p1' } });
+    await h.get('echo_say').gate({});
+    expect(seen).toEqual([{ deviceId: 'p1' }, 'local']);
+  });
+});

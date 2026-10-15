@@ -844,3 +844,91 @@ describe('web search by voice: the agent', () => {
     expect(seen).toEqual([{ query: 'the answer to everything' }]);
   });
 });
+
+describe('plugin approvals know who asked', () => {
+  it('the device that asked reaches before_tool_call', async () => {
+    const { PluginHost } = await import('../../server/plugins/host.js');
+    const { definePluginEntry } = await import('../../server/plugins/sdk.js');
+    const seen = [];
+    const tools = new PluginHost({ logger: { warn() {} } });
+    tools.register(definePluginEntry({ id: 'p', name: 'P', register(api) {
+      api.registerTool({ name: 'p_do', description: 'd', parameters: { type: 'object', properties: {} }, execute: async () => ({ content: [], details: { done: true } }) });
+      api.on('before_tool_call', (e) => { seen.push(e.from); });
+    } }));
+    const steps = [{ message: { role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'p_do', arguments: '{}' } }] }, provider: 'groq' }, { message: { role: 'assistant', content: 'Ok, it ran.' }, provider: 'groq' }];
+    let i = 0;
+    const agent = new Agent({ router: { chat: async () => steps[i++] }, tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
+    await agent.handle('do the thing', { from: { deviceId: 'p1' } });
+    expect(seen).toEqual([{ deviceId: 'p1' }]);
+  });
+});
+
+describe('laptop control by voice', () => {
+  const make = (outputs = {}) => {
+    const ran = [];
+    const tools = new ToolRegistry();
+    for (const name of ['laptop_volume', 'laptop_power', 'laptop_clipboard', 'laptop_window', 'laptop_media']) {
+      tools.add({ name, description: name, parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => name, run: async (a) => { ran.push([name, a]); return (outputs[name] || (() => ({ note: 'ok.' })))(a); } });
+    }
+    const router = { chat: async () => ({ message: { role: 'assistant', content: 'The answer is 42.' }, provider: 'groq' }) };
+    const stopped = [];
+    const agent = new Agent({ router, tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }), stop: async () => { stopped.push(true); return true; } } });
+    return { agent, ran, stopped, router };
+  };
+
+  it('"volume 30" runs directly and says the note (the AI is not asked)', async () => {
+    const { agent, ran, router } = make({ laptop_volume: () => ({ level: 30, note: 'Volume 30.' }) });
+    router.chat = async () => { throw new Error('no AI'); };
+    expect(await agent.handle('volume 30')).toBe('Volume 30.');
+    expect(ran).toEqual([['laptop_volume', { level: 30 }]]);
+  });
+
+  it('"copy your answer" copies Novi\'s last reply; with none, says so', async () => {
+    const { agent, ran } = make({ laptop_clipboard: () => ({ note: 'Copied.' }) });
+    expect(await agent.handle('copy your answer')).toBe("There's nothing to copy yet.");
+    await agent.handle('what is six times seven');
+    expect(await agent.handle('copy your answer')).toBe('Copied.');
+    expect(ran.at(-1)).toEqual(['laptop_clipboard', { do: 'set', text: 'The answer is 42.' }]);
+  });
+
+  it('"cancel" during a shut down countdown cancels the shut down, not a coding task', async () => {
+    const { agent, ran, stopped } = make({ laptop_power: (a) => (a.action === 'shutdown' ? { note: 'Shutting down in 15 seconds. Say cancel to stop.', countdownUntil: Date.now() + 15_000 } : { note: 'Okay, cancelled.' }) });
+    expect(await agent.handle('shut down the laptop')).toBe('Shutting down in 15 seconds. Say cancel to stop.');
+    expect(await agent.handle('cancel')).toBe('Okay, cancelled.');
+    expect(ran.at(-1)).toEqual(['laptop_power', { action: 'cancel' }]);
+    expect(stopped).toEqual([]);
+    await agent.handle('cancel'); // already cancelled: "cancel" means what it did before
+    await agent.handle('shut down');
+    agent._countdown.until = Date.now() - 1; // countdown over
+    await agent.handle('cancel');
+    expect(ran.filter(([, a]) => a.action === 'cancel')).toHaveLength(1);
+  });
+
+  it('"go to X" with no such window goes on to the AI (it may be a website)', async () => {
+    const { agent, ran } = make({ laptop_window: () => ({ error: "I don't see a window for youtube.", notFound: true }) });
+    expect(await agent.handle('go to youtube')).toBe('The answer is 42.');
+    expect(ran).toEqual([['laptop_window', { app: 'youtube', do: 'focus' }]]);
+  });
+});
+
+describe('laptop control: direct commands still ask before turning things off', () => {
+  it('"close chrome" and "lock the laptop" ask even when said directly; "no" leaves them alone', async () => {
+    const { PluginHost } = await import('../../server/plugins/host.js');
+    const { createLaptopControlPlugin } = await import('../../plugins/laptop-control/index.js');
+    const calls = [];
+    const worker = { run: async (cmd, args) => { calls.push([cmd, args]); return cmd === 'windows' ? { windows: [{ id: 3, title: 'Gmail - Google Chrome', process: 'chrome' }] } : {}; } };
+    const tools = new PluginHost({ logger: { warn() {} } });
+    tools.register(createLaptopControlPlugin({ worker, platform: 'win32', pause: async () => {} }));
+    const approvals = new ApprovalQueue();
+    const asked = [];
+    approvals.on('added', (a) => { asked.push(a.title); approvals.resolve(a.id, false); });
+    const agent = new Agent({ router: { chat: async () => { throw new Error('no AI'); } }, tools, approvals, memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
+    await agent.handle('close chrome');
+    await agent.handle('lock the laptop');
+    expect(asked).toEqual(['Close Chrome?', 'Lock the laptop?']);
+    expect(calls.filter(([c]) => c === 'window' || c === 'lock')).toEqual([]);
+    await agent.handle('volume 20');
+    expect(asked).toHaveLength(2);
+    expect(calls.at(-1)).toEqual(['volume', { level: 20 }]);
+  });
+});
