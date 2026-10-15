@@ -12,7 +12,8 @@
       "file_summary",
       "file_gather",
       "file_undo_move",
-      "file_new_folder"
+      "file_new_folder",
+      "file_rename"
     ]
   },
   "activation": {
