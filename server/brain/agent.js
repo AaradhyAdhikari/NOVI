@@ -5,7 +5,7 @@ import { UserFacingError } from '../errors.js';
 import { firstSentence } from '../narrator.js';
 import { answerKind } from './answers.js';
 import { FILE_LEAD, FILE_TAIL } from './phrases.js';
-import { controlCommand, isCancelWord } from './controlCommand.js';
+import { controlCommand, isCancelWord, historyCommand } from './controlCommand.js';
 
 // Asked for directly, these just run even though they can't be "always allowed" in Settings
 // (code_start_task: the user already named Claude). Moving files Novi picked always asks.
@@ -293,6 +293,11 @@ export class Agent {
     }
     const control = await this._controlCommand(text);
     if (control) return this._remember(text, control);
+    const hist = historyCommand(text);
+    if (hist && this.tools.get(hist.tool)) {
+      const { output } = await this._runTool({ id: `hist-${Date.now()}`, function: { name: hist.tool, arguments: JSON.stringify(hist.args) } }, { direct: true });
+      return this._remember(text, output?.error || output?.note || 'None today.');
+    }
     const yt = await this._youtube(text);
     if (yt) return this._remember(text, yt);
     const code = this.tools.get('code_show') ? codeCommand(text) : null;

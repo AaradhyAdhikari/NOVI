@@ -426,6 +426,13 @@ export function createNovi(config, overrides = {}) {
   app.get('/api/wiki/graph', (req, res) => res.json(buildGraph(wikiVault)));
   app.get('/api/wiki/note', (req, res) => tryJson(res, () => readNote(wikiVault, req.query.id)));
   app.get('/api/voice-log', (req, res) => localOnly(req, res) && res.json({ entries: voiceLog.recent(30) }));
+  // Settings → History: commands Novi ran (plugins/commands). Laptop only — output can be private.
+  app.get('/api/commands/history', async (req, res) => {
+    if (!localOnly(req, res)) return;
+    const tool = plugins.get('commands_history');
+    const out = tool ? await tool.run({ limit: 100 }) : { entries: [] };
+    res.json({ entries: out.entries || [] });
+  });
   app.post('/api/voice-log/:id/wrong', (req, res) => localOnly(req, res) && tryJson(res, () => voiceLog.markWrong(req.params.id, req.body?.said)));
 
   // "Only my voice": the owner's voiceprint, learned from the "Hey Novi" practice clips. The

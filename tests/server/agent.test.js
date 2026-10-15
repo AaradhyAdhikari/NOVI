@@ -974,3 +974,11 @@ describe('laptop commands: a direct route never skips the question', () => {
     expect(output.error).toMatch(/declined/);
   });
 });
+
+describe('laptop commands: history by voice', () => {
+  it('"what commands did you run today" answers from the history, not the AI', async () => {
+    const tools = new ToolRegistry().add({ name: 'commands_history', description: 'h', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'h', run: async () => ({ note: '2 today. Last: a, b.', entries: [] }) });
+    const agent = new Agent({ router: { chat: async () => { throw new Error('no AI'); } }, tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
+    expect(await agent.handle('what commands did you run today?')).toBe('2 today. Last: a, b.');
+  });
+});

@@ -789,3 +789,21 @@ describe('Settings → Memory API', () => {
     expect((await fetch(`${base}/api/wiki/note?id=${encodeURIComponent('../.env')}`)).status).toBe(400);
   });
 });
+
+describe('Settings → History API', () => {
+  it('lists the command history on the laptop; a paired phone gets 403', async () => {
+    const { createCommandsPlugin } = await import('../../plugins/commands/index.js');
+    const { createHistory } = await import('../../plugins/commands/history.js');
+    let local = true;
+    const { novi, base } = await start({ isLocalAddress: () => local });
+    const history = createHistory({ file: path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'novi-h-')), 'h.jsonl') });
+    history.add({ level: 'look', purpose: 'Check free space', command: 'Get-PSDrive D', ran: true, ok: true });
+    novi.plugins.register(createCommandsPlugin({ runner: { run: async () => ({ ok: true, exitCode: 0, output: '' }) }, history }));
+    const res = await fetch(`${base}/api/commands/history`);
+    expect(res.status).toBe(200);
+    expect((await res.json()).entries[0]).toMatchObject({ purpose: 'Check free space', command: 'Get-PSDrive D' });
+    local = false;
+    const { token } = novi.pairing.issue('Phone');
+    expect((await fetch(`${base}/api/commands/history`, { headers: { Authorization: `Bearer ${token}` } })).status).toBe(403);
+  });
+});

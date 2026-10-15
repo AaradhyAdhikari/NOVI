@@ -75,3 +75,10 @@ export function controlCommand(text) {
 
 // During a shut down / restart countdown, these words cancel it first.
 export const isCancelWord = (text) => /^(?:cancel|stop|abort|ruko|ruk jao|rok do|rok|mat karo)(?: (?:it|that|the (?:shut ?down|restart|reboot)))?$/i.test(clean(text));
+
+// "What commands did you run today?" → the command history (plugins/commands), without the AI.
+export function historyCommand(text) {
+  const t = clean(text);
+  return /^(?:what (?:commands|command) (?:did|have) (?:you|u) (?:run|ran)(?: today)?|(?:show|read)(?: me)? (?:the |my )?command history|(?:aaj )?kaun se commands? chala(?:ye|ya|e)(?: hai)?)$/i.test(t)
+    ? { tool: 'commands_history', args: { today: true } } : null;
+}
