@@ -6,6 +6,8 @@ describe('understanding test scoring', () => {
   it('quick replies must match exactly', () => {
     expect(scoreStep({ quick: 'approve', calls: [] }, { quick: 'approve' })).toBe('pass');
     expect(scoreStep({ quick: null, calls: [], reply: 'ok' }, { quick: 'approve' })).toBe('fail');
+    expect(scoreStep({ quick: null, calls: [], reply: 'Nothing yet today.', provider: 'direct' }, { direct: true })).toBe('pass');
+    expect(scoreStep({ quick: null, calls: [], reply: 'I did stuff', provider: 'groq' }, { direct: true })).toBe('fail');
   });
 
   it('a tool command passes when one of the expected tools is called with matching arguments', () => {
@@ -25,7 +27,7 @@ describe('understanding test scoring', () => {
     expect(commands.length).toBeGreaterThanOrEqual(20);
     for (const c of commands) {
       expect(typeof c.say, JSON.stringify(c)).toBe('string');
-      expect(Boolean(c.expect.quick || c.expect.tools?.length || c.expect.notBuilt), c.say).toBe(true);
+      expect(Boolean(c.expect.quick || c.expect.tools?.length || c.expect.notBuilt || c.expect.direct), c.say).toBe(true);
     }
     expect(fs.existsSync('tools/my-commands.json')).toBe(true);
   });

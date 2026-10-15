@@ -13,6 +13,7 @@ export const loadCommands = (file = COMMANDS) => JSON.parse(fs.readFileSync(file
 export function scoreStep(step, want) {
   if (want.notBuilt) return 'not built';
   if (want.quick) return step.quick === want.quick ? 'pass' : 'fail';
+  if (want.direct) return step.provider === 'direct' && step.reply ? 'pass' : 'fail'; // answered without the AI
   const argsMatch = (args) => Object.entries(want.args || {}).every(([k, pattern]) => new RegExp(pattern, 'i').test(String(args?.[k] ?? '')));
   return (step.calls || []).some((c) => want.tools.includes(c.name) && argsMatch(c.args)) ? 'pass' : 'fail';
 }

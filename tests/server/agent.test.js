@@ -748,6 +748,10 @@ describe('memory by voice: "it", "what did you do", notes', async () => {
   ];
 
   it('"rename it to X" renames the newest thing with a path; a project goes through rename_project', () => {
+    expect(memoryCommand('rename it to demo', null)).toEqual({ needsRecent: true });
+    expect(memoryCommand('what did you do today?', null)).toEqual({ needsRecent: true });
+    expect(memoryCommand('open spotify', null)).toBe(null);
+    expect(memoryCommand('note that the exam is on 3 Nov', null)).toMatchObject({ tool: 'note_write' });
     expect(memoryCommand('Okay, rename it to demo', recent, NOW)).toEqual({ tool: 'file_rename', args: { path: 'C:\\D\\test', newName: 'demo' } });
     expect(memoryCommand('rename that folder as demo two', recent, NOW)).toEqual({ tool: 'file_rename', args: { path: 'C:\\D\\test', newName: 'demo two' } });
     expect(memoryCommand('rename it to calculator', [recent[2]], NOW)).toEqual({ tool: 'rename_project', args: { name: 'calc', newName: 'calculator' } });

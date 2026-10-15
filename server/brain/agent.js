@@ -140,10 +140,16 @@ export function claimsAction(text) {
 
 // Memory by voice, without the AI: "rename it", "open the folder you just made", "what did you do
 // today" (from Novi's actions log) and notes ("note that …", "check my notes about X").
-// recent = wiki_recent actions, newest first.
+// recent = wiki_recent actions, newest first; null = not read yet → { needsRecent: true } when the
+// words need them (so the log is read only for "rename it" / "open that" / "what did you do").
 const isPath = (a) => a.path && !/^https?:/i.test(a.path);
+const NEEDS_RECENT = /^(?:rename (?:it|that|this)\b|open (?:it|that|the (?:folder|file|project|one) (?:you|u)\b)|what (?:all )?(?:did|have) (?:you|u)\b|(?:tumne )?aaj kya kiya)/i;
 export function memoryCommand(text, recent = [], now = new Date()) {
   const t = String(text || '').trim().replace(/[.!?।]+$/, '').replace(FILE_LEAD, '').replace(FILE_TAIL, '');
+  if (recent === null) {
+    if (NEEDS_RECENT.test(t)) return { needsRecent: true };
+    recent = [];
+  }
   const target = recent.find(isPath);
   const ren = /^rename (?:it|that|this)(?: (?:folder|file|project|one))? (?:to|as) (.+)$/i.exec(t);
   if (ren) {
@@ -265,7 +271,7 @@ export class Agent {
       const { output } = await this._runTool({ id: `code-${Date.now()}`, function: { name: 'code_show', arguments: JSON.stringify({ what: code }) } });
       return this._remember(text, output?.error || `Here's ${output?.file}.`);
     }
-    const mem = this.tools.get('wiki_recent') ? memoryCommand(text, await this._recentActions()) : null;
+    const mem = this.tools.get('wiki_recent') ? await this._memoryCommand(text) : null;
     if (mem?.reply) return this._remember(text, mem.reply);
     if (mem && this.tools.get(mem.tool)) {
       const { output } = await this._runTool({ id: `mem-${Date.now()}`, function: { name: mem.tool, arguments: JSON.stringify(mem.args) } }, { direct: true });
@@ -366,7 +372,7 @@ export class Agent {
     if (yt?.play) return { quick: null, calls: [{ name: 'play_youtube', args: { query: yt.play } }], reply: null, provider: 'direct' };
     const gh = this.tools.get('github_graph') ? githubGraphCommand(text) : null;
     if (gh) return { quick: null, calls: [{ name: 'github_graph', args: { date: gh.date } }], reply: null, provider: 'direct' };
-    const mem = this.tools.get('wiki_recent') ? memoryCommand(text, await this._recentActions()) : null;
+    const mem = this.tools.get('wiki_recent') ? await this._memoryCommand(text) : null;
     if (mem?.reply) return { quick: null, calls: [], reply: mem.reply, provider: 'direct' };
     if (mem && this.tools.get(mem.tool)) return { quick: null, calls: [{ name: mem.tool, args: mem.args }], reply: null, provider: 'direct' };
     const file = fileCommand(text);
@@ -576,6 +582,11 @@ export class Agent {
     } catch (err) {
       return { output: { error: err.message }, note: err instanceof UserFacingError ? err.message : undefined };
     }
+  }
+
+  async _memoryCommand(text) {
+    const first = memoryCommand(text, null);
+    return first?.needsRecent ? memoryCommand(text, await this._recentActions()) : first;
   }
 
   async _recentActions() {

@@ -250,5 +250,41 @@
         "file_open"
       ]
     }
+  },
+  {
+    "say": "make a folder called test",
+    "expect": {
+      "tools": [
+        "file_new_folder"
+      ]
+    }
+  },
+  {
+    "say": "rename it to demo",
+    "expect": {
+      "direct": true
+    }
+  },
+  {
+    "say": "what did you do today",
+    "expect": {
+      "direct": true
+    }
+  },
+  {
+    "say": "note that the DBMS exam is on 3 November",
+    "expect": {
+      "tools": [
+        "note_write"
+      ]
+    }
+  },
+  {
+    "say": "check my notes about DBMS",
+    "expect": {
+      "tools": [
+        "notes_ask"
+      ]
+    }
   }
 ]
