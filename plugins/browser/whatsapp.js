@@ -59,16 +59,31 @@ export function zipForSend(target, { tmpDir = path.join(os.tmpdir(), 'Novi'), ma
 }
 
 // Who "Rahul" means among visible chat names: an exact name wins; else every word must match.
+// One letter more or less ("Isha" heard, "Ishaa" saved, or the other way round) — not a different
+// letter, so "Ishaa" never becomes "Ishan".
+const oneOff = (a, b) => {
+  if (Math.abs(a.length - b.length) !== 1 || Math.min(a.length, b.length) < 3) return false;
+  const [s, l] = a.length < b.length ? [a, b] : [b, a];
+  for (let i = 0; i < l.length; i += 1) if (l.slice(0, i) + l.slice(i + 1) === s) return true;
+  return false;
+};
+
 export function pickContact(names, to) {
   const want = String(to).trim().toLowerCase();
   const list = [...new Set(names.map((n) => String(n).trim()).filter(Boolean))];
   const exact = list.filter((n) => n.toLowerCase() === want);
   if (exact.length === 1) return { name: exact[0] };
   const words = want.split(/\s+/);
-  const close = list.filter((n) => words.every((w) => n.toLowerCase().split(/\s+/).some((p) => p.startsWith(w))));
+  const parts = (n) => n.toLowerCase().split(/\s+/);
+  let close = list.filter((n) => words.every((w) => parts(n).some((p) => p.startsWith(w))));
+  if (!close.length) close = list.filter((n) => words.every((w) => parts(n).some((p) => p.startsWith(w) || oneOff(p, w))));
   if (!close.length) return { none: true };
   return close.length === 1 ? { name: close[0] } : { choose: close.slice(0, 3) };
 }
+
+// What goes in WhatsApp's search box: the first 4 letters of the first name, so "Isha" also lists
+// "Ishaa" (pickContact then chooses).
+export const searchWord = (to) => String(to).trim().toLowerCase().split(/\s+/)[0].slice(0, 4);
 
 export function createWebDriver({ bridge, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), sendWaitMs = 20_000 } = {}) {
   const q = async (selector) => (await bridge.request('query', { selector })).texts || [];
@@ -80,7 +95,7 @@ export function createWebDriver({ bridge, sleep = (ms) => new Promise((r) => set
       else await bridge.request('open', { url: 'https://web.whatsapp.com/', newTab: true });
       await bridge.request('waitFor', { selector: WA.ready, ms: 20_000 });
       if ((await q(WA.qr)).length) return { pause: 'qr', note: 'Scan the QR code in WhatsApp on your phone, then say done.' };
-      await bridge.request('typeSel', { selector: WA.search, text: to });
+      await bridge.request('typeSel', { selector: WA.search, text: searchWord(to) });
       await sleep(800);
       const pick = pickContact(await q(WA.chatTitles), to);
       if (pick.none) return { error: `I can't find ${to} on WhatsApp.` };
