@@ -93,9 +93,10 @@ export function createBrowserPlugin({ bridge = null, showImage = null, webDriver
       // chat and attaches; send asks "Send X to <checked name>?" and only then presses Send.
       let worker = null;
       const controlWorker = () => (worker ||= createControlWorker({ script: path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'laptop-control', 'control.ps1') }));
-      const web = webDriver || createWebDriver({ bridge: link });
+      const log = (m) => api.logger?.info?.(m) ?? api.logger?.log?.(m);
+      const web = webDriver || createWebDriver({ bridge: link, log });
       let appD = appDriver;
-      const app = () => (appD ||= createAppDriver({ worker: controlWorker(), vision: (png, prompt) => api.runtime.vision(png, prompt) }));
+      const app = () => (appD ||= createAppDriver({ worker: controlWorker(), vision: (png, prompt) => api.runtime.vision(png, prompt), log }));
       const appIsOpen = appOpen || (async () => { try { return findWindows((await controlWorker().run('windows', {})).windows || [], 'whatsapp').length > 0; } catch { return false; } });
       let prepared = null; // { driver, name, what, via, at }
 

@@ -49,7 +49,7 @@ describe('WhatsApp desktop app driver', () => {
 
   it('nobody / two people / wrong chat → nothing pasted', async () => {
     const none = setup({ names: [] });
-    expect(await none.d.prepare({ to: 'Rahul', text: 'hi' })).toEqual({ error: "I can't find Rahul on WhatsApp." });
+    expect(await none.d.prepare({ to: 'Rahul', text: 'hi' })).toEqual({ error: 'I searched the WhatsApp app for "rahu" and nobody called Rahul came up.' });
     const two = setup({ names: ['Rahul Sharma', 'Rahul K'] });
     expect(await two.d.prepare({ to: 'Rahul', text: 'hi' })).toEqual({ choose: ['Rahul Sharma', 'Rahul K'] });
     const wrong = setup({ header: 'Rahul K' });
@@ -78,5 +78,21 @@ describe('laptop-control helper: new commands for the WhatsApp app', () => {
   it('control.ps1 knows clip-files, find/enter/escape keys, shot-window and start-whatsapp', () => {
     const ps = fs.readFileSync(new URL('../../plugins/laptop-control/control.ps1', import.meta.url), 'utf8');
     for (const s of ["'clip-files'", 'find = 0x46', 'selectall = 0x41', 'enter = 0x0D', 'escape = 0x1B', "'shot-window'", "'start-whatsapp'", 'Set-Clipboard -Path']) expect(ps, s).toContain(s);
+  });
+});
+
+describe('WhatsApp app: reading the search results (live 2026-10-15: "can\'t find Isha" with no clue why)', () => {
+  it('names wrapped in words or code fences are still read', async () => {
+    const { parseNames } = await import('../../plugins/browser/whatsappApp.js');
+    expect(parseNames('Here are the chats:\n```json\n["Ishaa", "Isha Group"]\n```')).toEqual(['Ishaa', 'Isha Group']);
+    expect(parseNames('[]')).toEqual([]);
+    expect(parseNames('I cannot see any WhatsApp window.')).toBe(null);
+  });
+  it('an unreadable screenshot says so instead of "nobody found", and is logged', async () => {
+    const logs = [];
+    const worker = { async run(cmd) { if (cmd === 'windows') return { windows: [WA_WIN] }; if (cmd === 'shot-window') return { png: 'cG5n' }; return {}; } };
+    const d = createAppDriver({ worker, vision: async () => 'Sorry, the picture is black.', sleep: async () => {}, log: (m) => logs.push(m) });
+    expect(await d.prepare({ to: 'Isha', text: 'hi' })).toEqual({ error: 'I searched the WhatsApp app for "isha" but couldn\'t read the results. Is WhatsApp showing on the laptop screen?' });
+    expect(logs.join('\n')).toMatch(/\[whatsapp\] app: searched "isha", vision reply not a list: Sorry, the picture is black/);
   });
 });

@@ -4,15 +4,17 @@ import { classifyApproval } from '../grants.js';
 import { UserFacingError } from '../errors.js';
 import { firstSentence } from '../narrator.js';
 import { answerKind } from './answers.js';
+import { matchAnswer, answerFor } from '../claude/questions.js';
 import { FILE_LEAD, FILE_TAIL } from './phrases.js';
 import { controlCommand, isCancelWord, historyCommand } from './controlCommand.js';
 import { browserCommand, isDoneWord } from './browserCommand.js';
+import { previewCommand } from './previewCommand.js';
 import path from 'node:path';
 
 // Asked for directly, these just run even though they can't be "always allowed" in Settings
 // (code_start_task: the user already named Claude). Moving files Novi picked always asks.
 const DIRECT_OK = new Set(['code_start_task', 'code_send_message', 'rename_project', 'file_new_folder', 'open_project', 'file_open', 'file_rename', 'note_write', 'notes_ask', 'note_open']);
-const ASK_ANYWAY = new Set(['file_gather', 'file_undo_move', 'laptop_run', 'whatsapp_send']);
+const ASK_ANYWAY = new Set(['file_gather', 'file_undo_move', 'laptop_run', 'whatsapp_send', 'preview_show']); // preview_show: only its first start of a project's own command asks
 const MAX_ROUNDS = 10; // screen tasks: open the app, look, click, type, …
 const MAX_HISTORY = 40;
 const SUMMARY_AT = 20; // with a summarizer, history past this many messages folds its oldest 10 into one line
@@ -274,6 +276,8 @@ export class Agent {
   async handle(text, { from = 'local' } = {}) {
     this._from = from; // who asked, for plugin approvals (phone warnings)
     this._turnYes = new Set(); // kinds of step the user said yes to in this request
+    const answered = this._answerQuestion(text, from);
+    if (answered) return this._remember(text, answered);
     const also = alsoCommand(text);
     if (also) {
       const reply = await this._also(also, from);
@@ -297,6 +301,8 @@ export class Agent {
     if (control) return this._remember(text, control);
     const browse = await this._browserCommand(text);
     if (browse) return this._remember(text, browse);
+    const preview = await this._previewCommand(text);
+    if (preview) return this._remember(text, preview);
     const hist = historyCommand(text);
     if (hist && this.tools.get(hist.tool)) {
       const { output } = await this._runTool({ id: `hist-${Date.now()}`, function: { name: hist.tool, arguments: JSON.stringify(hist.args) } }, { direct: true });
@@ -420,6 +426,8 @@ export class Agent {
     if (mem && this.tools.get(mem.tool)) return { quick: null, calls: [{ name: mem.tool, args: mem.args }], reply: null, provider: 'direct' };
     const ctl = controlCommand(text);
     if (ctl && this.tools.get(ctl.tool)) return { quick: null, calls: [{ name: ctl.tool, args: ctl.args }], reply: null, provider: 'direct' };
+    const pv = this._previewKnown(previewCommand(text));
+    if (pv) return { quick: null, calls: [{ name: pv.tool, args: pv.args }], reply: null, provider: 'direct' };
     const br = browserCommand(text, { lastTo: this._waLastTo });
     if (br && this.tools.get(br.tool)) return { quick: null, calls: [{ name: br.tool, args: br.args }], reply: null, provider: 'direct' };
     const file = fileCommand(text);
@@ -508,6 +516,24 @@ export class Agent {
     if (output?.error) return output.error;
     if (output?.note) return output.note;
     return `Playing ${output?.playing?.title || query}.`;
+  }
+
+  // While Claude waits on one of its questions, what the user says answers it ("doosra", "dark",
+  // "make it purple", "skip"). A yes/no for another waiting card, and "progress" / "what's next" /
+  // "stop", keep their usual meaning.
+  _answerQuestion(text, from) {
+    const q = this.approvals.waitingQuestion?.();
+    if (!q) return null;
+    const match = matchAnswer(text, q.question.options, { multiSelect: q.question.multiSelect });
+    if (match.kind === 'skip') {
+      this.approvals.resolve(q.id, false, 'voice', null, { from });
+      return 'Okay, Claude will choose.';
+    }
+    if (this.approvals.latest?.({ excludeTier: 'high' }) && answerKind(text)) return null;
+    if (match.kind === 'own' && ['stop', 'status', 'next'].includes(quickCommand(text))) return null;
+    const answer = answerFor(match);
+    this.approvals.resolve(q.id, true, 'voice', null, { from, answer });
+    return `Okay, I told Claude: ${answer}.`;
   }
 
   async _quick(kind, from = 'local') {
@@ -673,6 +699,27 @@ export class Agent {
       if (!out.ready) return out.error || out.note || 'I could not get that ready.';
       const sent = await run('whatsapp_send', {});
       return /declined/i.test(String(sent.error || '')) ? 'Okay, not sent.' : sent.error || sent.note || 'Okay, not sent.';
+    }
+    return out.error || out.note || 'Done.';
+  }
+
+  // A preview needs a project: one named, the running task's, or the last task's. Else the AI asks.
+  _previewKnown(cmd) {
+    if (!cmd || !this.tools.get(cmd.tool)) return null;
+    const known = cmd.args.project || this.tasks?.status?.()?.project || this.memory?.lastTask?.()?.project;
+    return known ? cmd : null;
+  }
+
+  // "Show me the homepage": the preview plugin answers; when it can't tell how to run the project,
+  // Claude is asked to start the site (and write .novi/run.json for next time).
+  async _previewCommand(text) {
+    const cmd = this._previewKnown(previewCommand(text));
+    if (!cmd) return null;
+    const run = async (name, args) => (await this._runTool({ id: `pv-${Date.now()}`, function: { name, arguments: JSON.stringify(args) } }, { direct: true })).output || {};
+    const out = await run(cmd.tool, cmd.args);
+    if (out.askClaude && this.tools.get('code_send_message')) {
+      const sent = await run('code_send_message', { message: 'Please start the website so it can be previewed, and write .novi/run.json.' });
+      if (!sent.error) return 'I asked Claude to start the site. Say "show me the homepage" again in a minute.';
     }
     return out.error || out.note || 'Done.';
   }

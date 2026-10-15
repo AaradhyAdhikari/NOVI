@@ -12,7 +12,7 @@ export function claudeArgs({ resumeSessionId } = {}) {
     '--permission-prompts', 'host',
     '--permission-prompt-tool', 'stdio',
     // Novi answers "what's the progress" / "what's next" by voice from this plan.
-    '--append-system-prompt', 'The user follows this task by voice from their phone. For any task with more than one step, keep a short step-by-step plan with the TodoWrite tool (one short line per step) and update it as you work.',
+    '--append-system-prompt', 'The user follows this task by voice from their phone. For any task with more than one step, keep a short step-by-step plan with the TodoWrite tool (one short line per step) and update it as you work. If the project has a website, write .novi/run.json with {"command", "port", "pages": {"home": "/", ...}} so Novi can preview it.',
   ];
   if (resumeSessionId) args.push('--resume', resumeSessionId);
   return args;
@@ -100,7 +100,7 @@ export class ClaudeSession extends EventEmitter {
       decision = { allow: false, message: 'Novi could not get approval for this action.' };
     }
     const response = decision.allow
-      ? { behavior: 'allow', updatedInput: input }
+      ? { behavior: 'allow', updatedInput: decision.updatedInput || input }
       : { behavior: 'deny', message: decision.message || 'The user denied this action.' };
     this._write({ type: 'control_response', response: { subtype: 'success', request_id: raw.request_id, response } });
   }

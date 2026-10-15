@@ -85,7 +85,7 @@ export function pickContact(names, to) {
 // "Ishaa" (pickContact then chooses).
 export const searchWord = (to) => String(to).trim().toLowerCase().split(/\s+/)[0].slice(0, 4);
 
-export function createWebDriver({ bridge, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), sendWaitMs = 20_000 } = {}) {
+export function createWebDriver({ bridge, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), sendWaitMs = 20_000, log = () => {} } = {}) {
   const q = async (selector) => (await bridge.request('query', { selector })).texts || [];
   let prepared = false;
   return {
@@ -95,10 +95,13 @@ export function createWebDriver({ bridge, sleep = (ms) => new Promise((r) => set
       else await bridge.request('open', { url: 'https://web.whatsapp.com/', newTab: true });
       await bridge.request('waitFor', { selector: WA.ready, ms: 20_000 });
       if ((await q(WA.qr)).length) return { pause: 'qr', note: 'Scan the QR code in WhatsApp on your phone, then say done.' };
-      await bridge.request('typeSel', { selector: WA.search, text: searchWord(to) });
+      const word = searchWord(to);
+      await bridge.request('typeSel', { selector: WA.search, text: word });
       await sleep(800);
-      const pick = pickContact(await q(WA.chatTitles), to);
-      if (pick.none) return { error: `I can't find ${to} on WhatsApp.` };
+      const names = await q(WA.chatTitles);
+      log(`[whatsapp] web: searched "${word}", ${names.length} result(s)`);
+      const pick = pickContact(names, to);
+      if (pick.none) return { error: `I searched WhatsApp Web for "${word}" and nobody called ${to} came up.` };
       if (pick.choose) return { choose: pick.choose };
       await bridge.request('clickSel', { selector: WA.chatTitles, text: pick.name });
       await sleep(600);

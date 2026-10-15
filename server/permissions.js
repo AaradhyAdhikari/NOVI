@@ -58,8 +58,11 @@ export class ApprovalQueue extends EventEmitter {
   // the user can pick by voice or button. `category` + `grantable` come from classifyApproval().
   // kind: 'delete' | 'payment' — never grantable, and from a phone needs a passkey.
   // addable: the action takes an instruction, so a spoken "also …" can be added to it.
-  decide({ title, detail = '', tier, source, prompt, choices, category, grantable = false, kind, addable = false }) {
-    const canGrant = Boolean(this.grants && grantable && category && tier === 'medium' && !kind);
+  // question: { text, options, multiSelect } — one of Claude's own questions (AskUserQuestion); it is
+  // answered with words (resolve(..., { answer })), never by a plain "yes", and never granted.
+  // timeoutMs: null = wait as long as it takes.
+  decide({ title, detail = '', tier, source, prompt, choices, category, grantable = false, kind, addable = false, question, timeoutMs }) {
+    const canGrant = Boolean(this.grants && grantable && category && tier === 'medium' && !kind && !question);
     if (canGrant && this.grants.has(category)) {
       this.grants.record({ category, title });
       this.emit('auto_allowed', { category, title });
@@ -68,10 +71,12 @@ export class ApprovalQueue extends EventEmitter {
     const approval = {
       id: crypto.randomUUID(), title, detail, tier, source, createdAt: Date.now(), ...(kind ? { kind } : {}),
       ...(prompt ? { prompt } : {}), ...(choices?.length ? { choices } : {}), ...(addable ? { addable: true } : {}),
+      ...(question ? { question } : {}),
       ...(canGrant ? { grant: { category, label: labelFor(category) } } : {}),
     };
     return new Promise((resolve) => {
-      const timer = setTimeout(() => this.resolve(approval.id, false, 'timeout'), this.timeoutMs);
+      const wait = timeoutMs === undefined ? this.timeoutMs : timeoutMs;
+      const timer = wait === null ? null : setTimeout(() => this.resolve(approval.id, false, 'timeout'), wait);
       this.items.set(approval.id, { approval, resolve, timer });
       this.emit('added', approval);
     });
@@ -86,7 +91,7 @@ export class ApprovalQueue extends EventEmitter {
   // An allow from a phone without the proof it needs is refused: returns false, the approval stays
   // pending and 'needs_proof' tells that phone what to give (PIN, passkey, or "at the laptop").
   // addition: what the user said after "also" (added to the action's instruction).
-  resolve(id, allow, by = 'user', choice = null, { always = false, from = 'local', proof = null, addition = null } = {}) {
+  resolve(id, allow, by = 'user', choice = null, { always = false, from = 'local', proof = null, addition = null, answer = null } = {}) {
     const item = this.items.get(id);
     if (!item) return false;
     if (allow && this.trust) {
@@ -100,7 +105,7 @@ export class ApprovalQueue extends EventEmitter {
     this.items.delete(id);
     if (allow && always && item.approval.grant && this.grants) this.grants.grant(item.approval.grant.category, by);
     const picked = choice && item.approval.choices?.some((c) => c.id === choice) ? choice : null;
-    item.resolve({ allow: Boolean(allow), choice: picked, ...(allow && addition && item.approval.addable ? { addition: String(addition) } : {}) });
+    item.resolve({ allow: Boolean(allow), choice: picked, ...(allow && addition && item.approval.addable ? { addition: String(addition) } : {}), ...(allow && answer !== null && item.approval.question ? { answer: String(answer) } : {}) });
     this.emit('resolved', { id, allow: Boolean(allow), by, ...(picked ? { choice: picked } : {}) });
     return true;
   }
@@ -110,9 +115,13 @@ export class ApprovalQueue extends EventEmitter {
   }
 
   latest({ excludeTier } = {}) {
-    // Deletes and payments are never answered by a plain spoken "yes".
-    const list = this.pending().filter((a) => a.tier !== excludeTier && !a.kind);
+    // Deletes and payments are never answered by a plain spoken "yes", nor are Claude's questions.
+    const list = this.pending().filter((a) => a.tier !== excludeTier && !a.kind && !a.question);
     return list[list.length - 1] || null;
+  }
+
+  waitingQuestion() {
+    return this.pending().filter((a) => a.question).at(-1) || null;
   }
 
   denyWhere(predicate, reason = 'cancelled') {

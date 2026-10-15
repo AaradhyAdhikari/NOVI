@@ -8,7 +8,18 @@ const NAMES = 'This is the WhatsApp app after searching. List the names of the c
 const HEADER = 'This is the WhatsApp app with a chat open. What is the contact name in the header at the top of the open chat? Answer with the name only.';
 const SENT = 'This is the WhatsApp app. Is the last message in the open chat one I just sent (on the right side, not still waiting with a clock icon)? Answer yes or no.';
 
-export function createAppDriver({ worker, vision, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
+// The vision reply as a list of names: the first [...] in it, even inside words or code fences.
+// null = no list at all (black or wrong picture), [] = the search really showed nobody.
+export function parseNames(reply) {
+  const m = /\[[\s\S]*\]/.exec(String(reply || ''));
+  if (!m) return null;
+  try {
+    const list = JSON.parse(m[0]);
+    return Array.isArray(list) ? list.map(String) : null;
+  } catch { return null; }
+}
+
+export function createAppDriver({ worker, vision, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), log = () => {} } = {}) {
   let win = null;
   let prepared = false;
   const keys = (combo) => worker.run('keys', { combo });
@@ -33,14 +44,20 @@ export function createAppDriver({ worker, vision, sleep = (ms) => new Promise((r
       }
       await worker.run('window', { id: win.id, do: 'focus' });
       await sleep(300);
+      const word = searchWord(to);
       await keys('find');
       await keys('selectall'); // the search box keeps old text; replace it, never add to it
-      await paste(searchWord(to));
+      await paste(word);
       await sleep(1000);
-      let names = [];
-      try { names = JSON.parse((await look(NAMES)).replace(/^```(?:json)?|```$/g, '')); } catch { names = []; }
-      const pick = pickContact(Array.isArray(names) ? names : [], to);
-      if (pick.none) return { error: `I can't find ${to} on WhatsApp.` };
+      const reply = await look(NAMES);
+      const names = parseNames(reply);
+      if (!names) {
+        log(`[whatsapp] app: searched "${word}", vision reply not a list: ${reply.slice(0, 120)}`);
+        return { error: `I searched the WhatsApp app for "${word}" but couldn't read the results. Is WhatsApp showing on the laptop screen?` };
+      }
+      log(`[whatsapp] app: searched "${word}", ${names.length} result(s)`);
+      const pick = pickContact(names, to);
+      if (pick.none) return { error: `I searched the WhatsApp app for "${word}" and nobody called ${to} came up.` };
       if (pick.choose) return { choose: pick.choose };
       await keys('enter');
       await sleep(800);

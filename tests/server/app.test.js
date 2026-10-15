@@ -222,6 +222,40 @@ describe('Novi server', () => {
     expect(exits).toEqual([75]);
   });
 
+  it('preview helpers: the coding project, the asking device\'s host, a link in its chat, tls passed through', async () => {
+    const tls = { key: 'k', cert: 'c' };
+    const { base, novi } = await start({ tls });
+    const rt = novi.plugins.runtime;
+    expect(rt.tls).toBe(tls);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'novi-proj-'));
+    novi.memory.rememberProject('portfolio', dir);
+    expect(rt.codingProject('portfolio')).toMatchObject({ name: 'portfolio', path: dir });
+    expect(rt.codingProject('nope')).toBe(null);
+    novi.memory.addTask({ id: 't1', project: 'portfolio', path: dir, status: 'done', prompt: 'x' });
+    expect(rt.codingProject()).toMatchObject({ name: 'portfolio', path: dir });
+    expect(rt.deviceHost()).toBe('localhost');
+    const ws = new WebSocket(`${base.replace('http', 'ws')}/ws`);
+    const got = [];
+    ws.on('message', (m) => got.push(JSON.parse(m)));
+    await new Promise((r) => ws.on('open', r));
+    await new Promise((r) => setTimeout(r, 50));
+    rt.showLink({ url: 'https://localhost:3005/?novi=t', label: 'Open the portfolio homepage live' });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(got.find((m) => m.type === 'chat')?.entry).toMatchObject({ text: 'Open the portfolio homepage live', link: 'https://localhost:3005/?novi=t' });
+    ws.close();
+  });
+
+  it("a question card answered on screen sends the answer to Claude", async () => {
+    const { base, novi } = await start();
+    const pending = novi.approvals.decide({ title: 'Claude asks: Theme?', tier: 'medium', source: 'claude', question: { text: 'Theme?', options: [{ label: 'Dark' }] }, timeoutMs: null });
+    const card = novi.approvals.pending()[0];
+    const ws = new WebSocket(`${base.replace('http', 'ws')}/ws`);
+    await new Promise((r) => ws.on('open', r));
+    ws.send(JSON.stringify({ type: 'approval', id: card.id, allow: true, answer: 'Dark' }));
+    expect(await pending).toMatchObject({ allow: true, answer: 'Dark' });
+    ws.close();
+  });
+
   it('lists and revokes permission grants, and "always" from a card stores one', async () => {
     const { base, novi } = await start();
     const pending = novi.approvals.decide({ title: 'Open Spotify', tier: 'medium', source: 'novi', category: 'apps', grantable: true });

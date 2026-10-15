@@ -1032,3 +1032,78 @@ describe('WhatsApp: "her" = the last person messaged (live 2026-10-15)', () => {
     expect(ran[1]).toEqual({ to: 'Ishaa', text: 'you are short' });
   });
 });
+
+describe("Claude asks: answers by voice (coding control v1)", () => {
+  const mk = () => {
+    const approvals = new ApprovalQueue();
+    const agent = new Agent({ router: { chat: async () => { throw new Error('no AI'); } }, tools: new ToolRegistry(), approvals, memory: { listProjects: () => [] }, tasks: { status: () => ({ active: true }) } });
+    const ask = () => approvals.decide({ title: 'Claude asks: Which color theme?', tier: 'medium', source: 'claude', prompt: 'Claude asks: Which color theme? One, Dark. Two, Light.', question: { text: 'Which color theme?', options: [{ label: 'Dark' }, { label: 'Light' }], multiSelect: false }, timeoutMs: null });
+    return { approvals, agent, ask };
+  };
+
+  it('while Claude asks, "doosra" / own words answer it; a yes/no card keeps "yes"', async () => {
+    const { approvals, agent, ask } = mk();
+    const yesNo = approvals.decide({ title: 'Claude wants to run npm install', tier: 'medium', source: 'claude' });
+    const q1 = ask();
+    expect(await agent.handle('doosra')).toBe('Okay, I told Claude: Light.');
+    expect(await q1).toMatchObject({ allow: true, answer: 'Light' });
+    const q2 = ask();
+    await agent.handle('yes');
+    expect((await yesNo).allow).toBe(true);
+    expect(approvals.waitingQuestion()).not.toBe(null);
+    expect(await agent.handle('make it purple')).toBe('Okay, I told Claude: make it purple.');
+    expect(await q2).toMatchObject({ allow: true, answer: 'make it purple' });
+  });
+
+  it('"skip" lets Claude choose', async () => {
+    const { agent, ask } = mk();
+    const q = ask();
+    expect(await agent.handle('skip')).toBe('Okay, Claude will choose.');
+    expect((await q).allow).toBe(false);
+  });
+
+  it('the spoken card is the numbered question', async () => {
+    const { spokenApproval } = await import('../../server/brain/answers.js');
+    expect(spokenApproval({ title: 'Claude asks: Which color theme?', tier: 'medium', prompt: 'Claude asks: Which color theme? One, Dark. Two, Light.', question: {} })).toBe('Claude asks: Which color theme? One, Dark. Two, Light.');
+  });
+});
+
+describe('preview by voice', () => {
+  const tools = (out) => new ToolRegistry()
+    .add({ name: 'preview_show', description: 'p', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'p', run: async () => out })
+    .add({ name: 'code_send_message', description: 'm', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'm', run: async (a) => { sent.push(a); return { note: 'sent' }; } });
+  let sent;
+  const agent = (out, { task = { active: false }, last = { project: 'portfolio' } } = {}) => new Agent({ router: { chat: async () => reply('AI') }, tools: tools(out), approvals: new ApprovalQueue(), memory: { listProjects: () => [], lastTask: () => last }, tasks: { status: () => task } });
+
+  it('"show me the homepage" answers from the preview tool, without the AI', async () => {
+    sent = [];
+    expect(await agent({ note: "Here's the homepage. Tap the link to open it live." }).handle('show me the homepage')).toBe("Here's the homepage. Tap the link to open it live.");
+  });
+  it("no project yet → the AI handles it", async () => {
+    sent = [];
+    expect(await agent({ note: 'x' }, { last: null }).handle('show me the homepage')).toBe('AI');
+  });
+  it("Novi can't run it → Claude is asked to start the site", async () => {
+    sent = [];
+    expect(await agent({ error: "I don't know how to run this project yet.", askClaude: true }).handle('show me the homepage')).toBe('I asked Claude to start the site. Say "show me the homepage" again in a minute.');
+    expect(sent).toEqual([{ message: 'Please start the website so it can be previewed, and write .novi/run.json.' }]);
+  });
+});
+
+describe('preview by voice: starting a project asks first', () => {
+  it('"show me the homepage" asks "Start the portfolio site to preview it?" before running it', async () => {
+    const ran = [];
+    const tools = new ToolRegistry().add({
+      name: 'preview_show', description: 'p', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'p',
+      gate: async () => ({ approval: { title: 'Start the portfolio site to preview it?', tier: 'medium', category: 'preview', grantable: true } }),
+      run: async () => { ran.push(1); return { note: "Here's the homepage." }; },
+    });
+    const approvals = new ApprovalQueue();
+    const asked = [];
+    approvals.on('added', (a) => { asked.push(a.title); approvals.resolve(a.id, true); });
+    const agent = new Agent({ router: { chat: async () => { throw new Error('no AI'); } }, tools, approvals, memory: { listProjects: () => [], lastTask: () => ({ project: 'portfolio' }) }, tasks: { status: () => ({ active: false }) } });
+    expect(await agent.handle('show me the homepage')).toBe("Here's the homepage.");
+    expect(asked).toEqual(['Start the portfolio site to preview it?']);
+    expect(ran).toEqual([1]);
+  });
+});
