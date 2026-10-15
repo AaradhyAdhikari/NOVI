@@ -129,3 +129,18 @@ code { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--m
 .voice-words { display: flex; flex-direction: column; gap: 6px; }
 .voice-words input, .voice-words textarea { width: 100%; box-sizing: border-box; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; color: var(--text); font: inherit; }
 .voice-words .list li { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: space-between; }
+
+/* Settings → Memory: the notes galaxy (full screen over the drawer) */
+.galaxy { position: fixed; inset: 0; z-index: 40; background: #05070d; display: flex; flex-direction: column; }
+.galaxy-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 16px; }
+.galaxy-search { flex: 1; max-width: 360px; display: flex; align-items: center; gap: 8px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; color: var(--muted); }
+.galaxy-search input { flex: 1; min-width: 0; background: none; border: 0; color: var(--text); font: inherit; outline: none; }
+.galaxy-canvas { flex: 1; min-height: 0; }
+.galaxy-msg { padding: 0 16px; }
+.galaxy-list { list-style: none; margin: 0; padding: 0 16px 16px; overflow-y: auto; flex: 1; }
+.galaxy-list button { width: 100%; text-align: left; display: grid; grid-template-columns: 10px 1fr; column-gap: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin-bottom: 8px; color: var(--text); font: inherit; }
+.galaxy-list .dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 6px; grid-row: span 2; }
+.galaxy-list .muted { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.galaxy-note { position: absolute; right: 0; top: 62px; bottom: 0; width: min(420px, 100%); background: var(--panel); border-left: 1px solid var(--line); overflow-y: auto; }
+.galaxy-note h3 { margin: 0; font-size: 16px; }
+.galaxy-note pre { margin: 0; padding: 0 16px 16px; white-space: pre-wrap; word-break: break-word; font: 14px/1.5 Inter, system-ui, sans-serif; color: var(--text); }

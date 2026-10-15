@@ -768,3 +768,24 @@ describe('Novi server', () => {
   });
 });
 
+
+describe('Settings → Memory API', () => {
+  it('serves the graph and a note as plain text; refuses paths outside the vault', async () => {
+    const memoryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'novi-mem-'));
+    fs.mkdirSync(path.join(memoryDir, 'Notes'));
+    fs.writeFileSync(path.join(memoryDir, 'Notes', 'DBMS.md'), '# DBMS\n\n<script>x</script>');
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'novi-app-'));
+    const novi = createNovi({ dataDir, memoryDir, providers: [], order: { fast: [], long: [] }, claudeCommand: 'claude', coder: 'free' }, {
+      tasks: Object.assign(new (await import('node:events')).EventEmitter(), { status: () => ({ active: false }), stop: async () => false, setAllowEdits: () => {}, shutdown: async () => {} }),
+      agent: { handle: async () => '' }, router: { status: () => [] }, lanUrls: [], cipher: { protect: async (v) => v, unprotect: async (v) => v },
+    });
+    server = http.createServer(novi.app);
+    await new Promise((r) => server.listen(0, '127.0.0.1', r));
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const graph = await (await fetch(`${base}/api/wiki/graph`)).json();
+    expect(graph.nodes.map((n) => n.id)).toContain('Notes/DBMS.md');
+    const note = await fetch(`${base}/api/wiki/note?id=${encodeURIComponent('Notes/DBMS.md')}`);
+    expect(await note.json()).toEqual({ title: 'DBMS', text: '# DBMS\n\n<script>x</script>' });
+    expect((await fetch(`${base}/api/wiki/note?id=${encodeURIComponent('../.env')}`)).status).toBe(400);
+  });
+});

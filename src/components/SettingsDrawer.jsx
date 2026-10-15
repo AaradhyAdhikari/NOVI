@@ -8,10 +8,12 @@ import PermissionsPanel from './PermissionsPanel.jsx';
 import PasskeySetup from './PasskeySetup.jsx';
 import NotificationsSetup from './NotificationsSetup.jsx';
 import PairQr from './PairQr.jsx';
+import MemoryGalaxy from './MemoryGalaxy.jsx';
 
 export default function SettingsDrawer({ open, onClose, projects, devices, accounts = [], googleConfigured, api, isLocal }) {
   const [pairing, setPairing] = useState(null);
   const [accountMsg, setAccountMsg] = useState(null);
+  const [galaxy, setGalaxy] = useState(false);
   const patchAccount = async (id, body) => {
     const res = await api(`/api/accounts/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     if (!res.ok) setAccountMsg((await res.json().catch(() => ({}))).error || 'That did not work.');
@@ -106,6 +108,13 @@ export default function SettingsDrawer({ open, onClose, projects, devices, accou
               </li>
             ))}
           </ul>
+        </section>
+
+        <section>
+          <h3>Memory</h3>
+          <p className="muted">Your notes and what Novi did, in Documents\Novi Memory (open it in Obsidian to edit).</p>
+          <button onClick={() => setGalaxy(true)}>Show my notes</button>
+          {galaxy && <MemoryGalaxy api={api} onClose={() => setGalaxy(false)} />}
         </section>
 
         <section>
