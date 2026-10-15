@@ -8,6 +8,7 @@ const GROUP = {
   open_project: 'ide', list_projects: 'projects', remember_project: 'projects', forget_project: 'projects',
   timer_set: 'reminder', conversation_history: 'memory',
   project_next: 'projects', rename_project: 'projects', study_log: 'sheets', sheets_log_link: 'sheets',
+  note_write: 'wiki', notes_ask: 'wiki', note_open: 'wiki', notes_list: 'wiki', wiki_recent: 'wiki',
 };
 const groupOf = (name) => GROUP[name] || name.split('_')[0];
 
@@ -27,6 +28,7 @@ const WORDS = {
   sheets: 'study studied studying log logged hours sheet sheets spreadsheet',
   clock: 'announce announcement',
   accounts: 'account accounts',
+  wiki: 'note notes noted notebook obsidian diary did done kiya',
   // "make a project named X in Claude": doing things inside an app = screen control.
   screen: 'screen click type press key button window whatsapp notepad look see showing tab screenshot screenshots ss picture photo image snapshot capture make create named inside',
   briefing: 'briefing brief morning agenda summary day',

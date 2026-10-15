@@ -131,3 +131,35 @@ describe('file_new_folder', () => {
     expect(again.note).toMatch(/already/);
   });
 });
+
+describe('file_rename and file_open by path', () => {
+  it('renames a folder; a file keeps its extension; names are cleaned', async () => {
+    const { host, root } = await setup();
+    const dir = path.join(root, 'Desktop', 'test');
+    fs.mkdirSync(dir, { recursive: true });
+    const gate = await host.get('file_rename').gate({ path: dir, newName: 'demo' });
+    expect(gate.approval.prompt).toBe('Rename test to demo.');
+    const out = await host.get('file_rename').run({ path: dir, newName: 'demo' });
+    expect(out.renamed).toBe(path.join(root, 'Desktop', 'demo'));
+    expect(out.note).toBe('Renamed it to demo.');
+    const f = path.join(root, 'Desktop', 'notes.txt');
+    fs.writeFileSync(f, 'x');
+    expect((await host.get('file_rename').run({ path: f, newName: 'todo' })).renamed).toBe(path.join(root, 'Desktop', 'todo.txt'));
+    expect((await host.get('file_rename').run({ path: path.join(root, 'Desktop', 'todo.txt'), newName: 'a/b:c?' })).renamed).toBe(path.join(root, 'Desktop', 'abc.txt'));
+  });
+
+  it('refuses a taken name and a missing path', async () => {
+    const { host, root } = await setup();
+    fs.mkdirSync(path.join(root, 'A'));
+    fs.mkdirSync(path.join(root, 'B'));
+    expect((await host.get('file_rename').run({ path: path.join(root, 'A'), newName: 'B' })).note).toMatch(/already something called B/);
+    expect((await host.get('file_rename').run({ path: path.join(root, 'nope'), newName: 'C' })).note).toBe("I can't find that anymore.");
+  });
+
+  it('file_open with an exact path opens that path', async () => {
+    const { host, root, opened } = await setup();
+    const dir = path.join(root, 'Desktop');
+    await host.get('file_open').run({ path: dir });
+    expect(opened).toContain(dir);
+  });
+});

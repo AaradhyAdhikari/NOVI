@@ -1,3 +1,6 @@
+import os from 'node:os';
+import { memoryDir, createVault } from '../plugins/wiki/vault.js';
+import { buildGraph, readNote } from '../plugins/wiki/graph.js';
 import express from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -156,7 +159,7 @@ export function createNovi(config, overrides = {}) {
     registry: addAccountTools(new ToolRegistry(), { accounts, auth, gmail, onConnected: (a) => onConnected(a), onConnectError: (e) => onConnectError(e) }),
   }));
   const tools = plugins;
-  const agent = overrides.agent || new Agent({ router, tools, approvals, memory, tasks, accounts, privateProviders: config.privateProviders || ['groq'] });
+  const agent = overrides.agent || new Agent({ router, tools, approvals, memory, tasks, accounts, privateProviders: config.privateProviders || ['groq'], summarize: (text) => plugins.runtime.privateComplete(text) });
   const pairing = overrides.pairing || new Pairing({ file: path.join(config.dataDir, 'devices.json') });
   const tailscaleIdentity = overrides.tailscaleIdentity || createTailscaleIdentity();
   const pairRequests = new PairRequests({ issue: (name) => pairing.issue(name, 'laptop') });
@@ -417,6 +420,10 @@ export function createNovi(config, overrides = {}) {
   app.get('/api/vocabulary', (req, res) => localOnly(req, res) && res.json(vocabulary.get()));
   app.put('/api/vocabulary', (req, res) => localOnly(req, res) && tryJson(res, () => vocabulary.set(req.body || {})));
   app.post('/api/vocabulary/fix', (req, res) => localOnly(req, res) && tryJson(res, () => vocabulary.addFix(req.body?.from, req.body?.to)));
+  // Settings → Memory: the notes galaxy (read-only; the laptop and paired phones).
+  const wikiVault = createVault(config.memoryDir || memoryDir({ home: os.homedir() }));
+  app.get('/api/wiki/graph', (req, res) => res.json(buildGraph(wikiVault)));
+  app.get('/api/wiki/note', (req, res) => tryJson(res, () => readNote(wikiVault, req.query.id)));
   app.get('/api/voice-log', (req, res) => localOnly(req, res) && res.json({ entries: voiceLog.recent(30) }));
   app.post('/api/voice-log/:id/wrong', (req, res) => localOnly(req, res) && tryJson(res, () => voiceLog.markWrong(req.params.id, req.body?.said)));
 

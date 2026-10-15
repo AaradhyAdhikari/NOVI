@@ -1,0 +1,25 @@
+{
+  "id": "wiki",
+  "name": "Novi Memory",
+  "description": "Novi's notes and actions log, as Markdown files in Documents\\Novi Memory (opens in Obsidian).",
+  "categories": [
+    "productivity"
+  ],
+  "contracts": {
+    "tools": [
+      "wiki_recent",
+      "note_write",
+      "notes_ask",
+      "note_open",
+      "notes_list"
+    ]
+  },
+  "activation": {
+    "onStartup": true
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

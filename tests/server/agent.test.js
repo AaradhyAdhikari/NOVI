@@ -720,3 +720,94 @@ describe('spoken approval is only the task', async () => {
     expect(spokenApproval({ title: 'Click “Send”' })).toBe('Click “Send”.');
   });
 });
+
+describe('after_tool_call', () => {
+  it('the agent tells plugins about each tool run, with its result or error', async () => {
+    const events = [];
+    const tools = new ToolRegistry()
+      .add({ name: 'ok', description: 'o', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'o', run: async () => ({ created: '/x' }) })
+      .add({ name: 'bad', description: 'b', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'b', run: async () => { throw new Error('nope'); } });
+    tools.afterToolCall = async (e) => { events.push(e); };
+    const agent = new Agent({ router: scriptedRouter([]), tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
+    await agent._runTool({ id: '1', function: { name: 'ok', arguments: '{"a":1}' } });
+    await agent._runTool({ id: '2', function: { name: 'bad', arguments: '{}' } });
+    expect(events[0]).toMatchObject({ toolName: 'ok', params: { a: 1 }, result: { created: '/x' } });
+    expect(events[1]).toMatchObject({ toolName: 'bad', error: 'nope' });
+  });
+});
+
+describe('memory by voice: "it", "what did you do", notes', async () => {
+  const { memoryCommand } = await import('../../server/brain/agent.js');
+  const NOW = new Date(2026, 9, 15, 15, 0);
+  const at = (h) => new Date(2026, 9, 15, h, 0).toISOString();
+  const recent = [
+    { at: at(14), tool: 'file_new_folder', verb: 'Made folder', name: 'test', path: 'C:\\D\\test' },
+    { at: at(13), tool: 'open_app', verb: 'Opened app', name: 'Spotify', path: '' },
+    { at: at(12), tool: 'open_project', verb: 'Opened project', name: 'calc', path: 'C:\\P\\calc', project: true },
+    { at: new Date(2026, 9, 14, 9).toISOString(), tool: 'file_open', verb: 'Opened', name: 'old.pdf', path: 'C:\\old.pdf' },
+  ];
+
+  it('"rename it to X" renames the newest thing with a path; a project goes through rename_project', () => {
+    expect(memoryCommand('rename it to demo', null)).toEqual({ needsRecent: true });
+    expect(memoryCommand('what did you do today?', null)).toEqual({ needsRecent: true });
+    expect(memoryCommand('open spotify', null)).toBe(null);
+    expect(memoryCommand('note that the exam is on 3 Nov', null)).toMatchObject({ tool: 'note_write' });
+    expect(memoryCommand('Okay, rename it to demo', recent, NOW)).toEqual({ tool: 'file_rename', args: { path: 'C:\\D\\test', newName: 'demo' } });
+    expect(memoryCommand('rename that folder as demo two', recent, NOW)).toEqual({ tool: 'file_rename', args: { path: 'C:\\D\\test', newName: 'demo two' } });
+    expect(memoryCommand('rename it to calculator', [recent[2]], NOW)).toEqual({ tool: 'rename_project', args: { name: 'calc', newName: 'calculator' } });
+    expect(memoryCommand('rename it to demo', [], NOW)).toEqual({ reply: 'Rename what? Tell me the name.' });
+  });
+
+  it('"open the folder you just made" / "open it" opens that exact path', () => {
+    expect(memoryCommand('open the folder you just made', recent, NOW)).toEqual({ tool: 'file_open', args: { path: 'C:\\D\\test' } });
+    expect(memoryCommand('open it', recent, NOW)).toEqual({ tool: 'file_open', args: { path: 'C:\\D\\test' } });
+    expect(memoryCommand('open it', [], NOW)).toEqual({ reply: 'Open what? Tell me the name.' });
+  });
+
+  it('"what did you do today" is read from the log, no AI', () => {
+    expect(memoryCommand('what did you do today?', recent, NOW)).toEqual({ reply: 'Today I did 3 things. Last: made folder test, opened app Spotify, opened project calc.' });
+    expect(memoryCommand('aaj kya kiya', [], NOW)).toEqual({ reply: 'Nothing yet today.' });
+  });
+
+  it('notes: write, ask, open', () => {
+    expect(memoryCommand('note that the DBMS exam is on 3 Nov', recent, NOW)).toEqual({ tool: 'note_write', args: { text: 'the DBMS exam is on 3 Nov' } });
+    expect(memoryCommand('remember in my notes that I owe Rahul 200', recent, NOW)).toEqual({ tool: 'note_write', args: { text: 'I owe Rahul 200' } });
+    expect(memoryCommand('add to my DBMS plan note: unit 3 is normalization', recent, NOW)).toEqual({ tool: 'note_write', args: { title: 'DBMS plan', text: 'unit 3 is normalization' } });
+    expect(memoryCommand('write a note about hackathon: demo at 5', recent, NOW)).toEqual({ tool: 'note_write', args: { title: 'hackathon', text: 'demo at 5' } });
+    expect(memoryCommand('check my notes about the DBMS exam', recent, NOW)).toEqual({ tool: 'notes_ask', args: { question: 'the DBMS exam' } });
+    expect(memoryCommand('what do my notes say about Rahul?', recent, NOW)).toEqual({ tool: 'notes_ask', args: { question: 'Rahul' } });
+    expect(memoryCommand('open my DBMS plan note', recent, NOW)).toEqual({ tool: 'note_open', args: { title: 'DBMS plan' } });
+  });
+
+  it('leaves everything else alone', () => {
+    for (const t of ['rename sample project to calc', 'open my DBMS notes', 'open youtube', "what's the weather", 'make a folder called x']) expect(memoryCommand(t, recent, NOW), t).toBeNull();
+  });
+});
+
+describe('long chats keep earlier context', () => {
+  const make = (summarize) => {
+    const agent = new Agent({ router: {}, tools: new ToolRegistry(), approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) }, summarize });
+    for (let i = 0; i < 10; i++) agent.history.push({ role: 'user', content: `q${i}` }, { role: 'assistant', content: `a${i}` });
+    return agent;
+  };
+
+  it('past 20 messages, the oldest 10 become one "Earlier in this chat" line', async () => {
+    const seen = [];
+    const agent = make(async (text) => { seen.push(text); return 'They talked about DBMS.'; });
+    agent._remember('q10', 'a10');
+    await agent._summarizing;
+    expect(agent.history).toHaveLength(13);
+    expect(agent.history[0]).toEqual({ role: 'system', content: 'Earlier in this chat: They talked about DBMS.' });
+    expect(seen[0]).toMatch(/^Summarize in 2 sentences what was said:/);
+    expect(seen[0]).toContain('q0');
+    expect(seen[0]).not.toContain('q5');
+  });
+
+  it('a failing summary just drops those 10 messages', async () => {
+    const agent = make(async () => { throw new Error('busy'); });
+    expect(agent._remember('q10', 'a10')).toBe('a10');
+    await agent._summarizing;
+    expect(agent.history).toHaveLength(12);
+    expect(agent.history[0]).toEqual({ role: 'user', content: 'q5' });
+  });
+});

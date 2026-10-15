@@ -104,9 +104,13 @@ export function createFilesPlugin({ roots, home = os.homedir(), docsDir, openPat
       api.registerTool({
         name: 'file_open',
         description: 'Open a file or folder on the laptop by what the user calls it ("open my DBMS notes"). Opens it in its normal app. Read-only.',
-        parameters: obj({ query: str('What the user called the file') }, ['query']),
-        async execute(_id, { query }) {
-          const hit = await best(query);
+        parameters: obj({ query: str('What the user called the file'), path: str('Optional: the exact path, when Novi already knows it (e.g. the folder it just made)') }),
+        async execute(_id, { query, path: exact }) {
+          if (exact && fs.existsSync(exact)) {
+            await openPath(exact);
+            return reply({ opened: path.basename(exact), folder: path.dirname(exact) });
+          }
+          const hit = await best(query || '');
           await openPath(hit.path);
           return reply({ opened: hit.name, folder: path.dirname(hit.path) });
         },
@@ -218,6 +222,34 @@ export function createFilesPlugin({ roots, home = os.homedir(), docsDir, openPat
         },
       });
 
+      // Rename one file or folder in place (files keep their extension when none is given).
+      const renamePlan = ({ path: from, newName }) => {
+        const clean = safeName(newName);
+        if (!from || !clean) return null;
+        const isFile = fs.existsSync(from) && fs.statSync(from).isFile();
+        const ext = path.extname(from);
+        const name = isFile && ext && !path.extname(clean) ? clean + ext : clean;
+        return { from, name, to: path.join(path.dirname(from), name) };
+      };
+      api.registerTool({
+        name: 'file_rename',
+        description: 'Rename one file or folder on the laptop in place, given its exact path (e.g. the folder Novi just made: "rename it to demo").',
+        parameters: obj({ path: str('Exact path of the file or folder'), newName: str('The new name') }, ['path', 'newName']),
+        async execute(_id, params) {
+          const plan = renamePlan(params);
+          if (!plan) return reply({ note: 'Tell me the new name.' });
+          if (!fs.existsSync(plan.from)) return reply({ note: "I can't find that anymore." });
+          if (fs.existsSync(plan.to)) return reply({ note: `There's already something called ${plan.name} there.` });
+          try {
+            fs.renameSync(plan.from, plan.to);
+          } catch (err) {
+            if (['EPERM', 'EBUSY', 'EACCES'].includes(err.code)) return reply({ note: `Windows says ${path.basename(plan.from)} is in use. Close any window using it, then ask me again.` });
+            throw err;
+          }
+          return reply({ renamed: plan.to, note: `Renamed it to ${plan.name}.` });
+        },
+      });
+
       const lastMove = () => { try { return JSON.parse(fs.readFileSync(lastMoveFile, 'utf8')); } catch { return null; } };
       api.registerTool({
         name: 'file_undo_move',
@@ -253,6 +285,12 @@ export function createFilesPlugin({ roots, home = os.homedir(), docsDir, openPat
           const { clean, parent, dest } = newFolderPlan(params);
           if (!dest || fs.existsSync(dest)) return undefined;
           return { requireApproval: { title: `Make a folder called ${clean} in ${placeLabel(parent)}`, description: dest, prompt: `Make a folder called ${clean} in ${placeLabel(parent)}. OK?`, severity: 'warning', category: 'files' } };
+        }
+        if (toolName === 'file_rename') {
+          const plan = renamePlan(params);
+          if (!plan || !fs.existsSync(plan.from) || fs.existsSync(plan.to)) return undefined;
+          const line = `Rename ${path.basename(plan.from)} to ${plan.name}`;
+          return { requireApproval: { title: line, description: plan.from, prompt: `${line}.`, severity: 'warning', category: 'files' } };
         }
         if (toolName === 'file_undo_move') {
           const n = lastMove()?.moves?.length || 0;

@@ -7,10 +7,11 @@ import { answerKind } from './answers.js';
 
 // Asked for directly, these just run even though they can't be "always allowed" in Settings
 // (code_start_task: the user already named Claude). Moving files Novi picked always asks.
-const DIRECT_OK = new Set(['code_start_task', 'code_send_message', 'rename_project', 'file_new_folder', 'open_project', 'file_open']);
+const DIRECT_OK = new Set(['code_start_task', 'code_send_message', 'rename_project', 'file_new_folder', 'open_project', 'file_open', 'file_rename', 'note_write', 'notes_ask', 'note_open']);
 const ASK_ANYWAY = new Set(['file_gather', 'file_undo_move']);
 const MAX_ROUNDS = 10; // screen tasks: open the app, look, click, type, …
 const MAX_HISTORY = 40;
+const SUMMARY_AT = 20; // with a summarizer, history past this many messages folds its oldest 10 into one line
 
 export function systemPrompt({ projects, task, accounts = [] }) {
   return [
@@ -137,6 +138,47 @@ export function claimsAction(text) {
   return /^(?:(?:ok(?:ay)?|sure|done|alright)[,.!]?\s*)?(?:i(?:'ve| have| just)?\s+)?(?:opened|opening|launched|launching|started|starting|playing|played|renamed|moved|created|closed|sent|deleted|showing|here it is|it'?s open|done[,.!])/i.test(String(text).trim());
 }
 
+// Memory by voice, without the AI: "rename it", "open the folder you just made", "what did you do
+// today" (from Novi's actions log) and notes ("note that …", "check my notes about X").
+// recent = wiki_recent actions, newest first; null = not read yet → { needsRecent: true } when the
+// words need them (so the log is read only for "rename it" / "open that" / "what did you do").
+const isPath = (a) => a.path && !/^https?:/i.test(a.path);
+const NEEDS_RECENT = /^(?:rename (?:it|that|this)\b|open (?:it|that|the (?:folder|file|project|one) (?:you|u)\b)|what (?:all )?(?:did|have) (?:you|u)\b|(?:tumne )?aaj kya kiya)/i;
+export function memoryCommand(text, recent = [], now = new Date()) {
+  const t = String(text || '').trim().replace(/[.!?।]+$/, '').replace(FILE_LEAD, '').replace(FILE_TAIL, '');
+  if (recent === null) {
+    if (NEEDS_RECENT.test(t)) return { needsRecent: true };
+    recent = [];
+  }
+  const target = recent.find(isPath);
+  const ren = /^rename (?:it|that|this)(?: (?:folder|file|project|one))? (?:to|as) (.+)$/i.exec(t);
+  if (ren) {
+    if (!target) return { reply: 'Rename what? Tell me the name.' };
+    return target.project ? { tool: 'rename_project', args: { name: target.name, newName: ren[1].trim() } } : { tool: 'file_rename', args: { path: target.path, newName: ren[1].trim() } };
+  }
+  if (/^open (?:it|that|the (?:folder|file|project|one) (?:you|u) (?:just )?(?:made|created|opened|renamed|moved))$/i.test(t)) {
+    return target ? { tool: 'file_open', args: { path: target.path } } : { reply: 'Open what? Tell me the name.' };
+  }
+  if (/^(?:what (?:did|have) (?:you|u) (?:do|done)(?: today)?|what all did you do(?: today)?|(?:tumne )?aaj kya kiya)$/i.test(t)) {
+    const day = (d) => new Date(d).toDateString();
+    const today = recent.filter((a) => day(a.at) === day(now));
+    if (!today.length) return { reply: 'Nothing yet today.' };
+    const say = (a) => `${a.verb.charAt(0).toLowerCase()}${a.verb.slice(1)}${a.name ? ` ${a.name}` : ''}`;
+    return { reply: `Today I did ${today.length} thing${today.length === 1 ? '' : 's'}. Last: ${today.slice(0, 3).map(say).join(', ')}.` };
+  }
+  let m = /^add to my (.+?) note[:,]?\s+(.+)$/i.exec(t);
+  if (m) return { tool: 'note_write', args: { title: m[1].trim(), text: m[2].trim() } };
+  m = /^write (?:a |this )?note about ([^:,]+)[:,]\s*(.+)$/i.exec(t);
+  if (m) return { tool: 'note_write', args: { title: m[1].trim(), text: m[2].trim() } };
+  m = /^(?:note (?:that|down)|make a note(?: that)?|write (?:a |this )?note(?: that)?[:,]?|remember in (?:my )?notes?(?: that)?)\s+(.+)$/i.exec(t);
+  if (m) return { tool: 'note_write', args: { text: m[1].trim() } };
+  m = /^(?:check|search|look in) my notes (?:about|for|on) (.+)$/i.exec(t) || /^what do my notes say about (.+)$/i.exec(t) || /^notes? (?:mein|me|madhe) (.+?) (?:dekho|check karo|bagh)$/i.exec(t);
+  if (m) return { tool: 'notes_ask', args: { question: m[1].trim() } };
+  m = /^open my (.+?) note$/i.exec(t);
+  if (m) return { tool: 'note_open', args: { title: m[1].trim() } };
+  return null;
+}
+
 // Short spoken replies Novi handles without calling the AI (stop, yes/no, "use Claude instead", status).
 export function quickCommand(text) {
   const t = text.trim().toLowerCase().replace(/[.!?।]+$/, '').replace(/\s+/g, ' ');
@@ -191,7 +233,7 @@ export function describeStatus(s) {
 }
 
 export class Agent {
-  constructor({ router, tools, approvals, memory, tasks, accounts = null, privateProviders = ['groq'], logger = console, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
+  constructor({ router, tools, approvals, memory, tasks, accounts = null, privateProviders = ['groq'], summarize = null, logger = console, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
     this.sleep = sleep;
     this.logger = logger;
     this.accounts = accounts;
@@ -202,6 +244,8 @@ export class Agent {
     this.memory = memory;
     this.tasks = tasks;
     this.history = [];
+    this.summarize = summarize; // (text) → 2-sentence summary on the private provider; long chats keep earlier context
+    this._summarizing = null;
   }
 
   // from: 'local' (the laptop) or { deviceId } — approvals answered by voice check it (server/remoteTrust.js).
@@ -226,6 +270,12 @@ export class Agent {
     if (code) {
       const { output } = await this._runTool({ id: `code-${Date.now()}`, function: { name: 'code_show', arguments: JSON.stringify({ what: code }) } });
       return this._remember(text, output?.error || `Here's ${output?.file}.`);
+    }
+    const mem = this.tools.get('wiki_recent') ? await this._memoryCommand(text) : null;
+    if (mem?.reply) return this._remember(text, mem.reply);
+    if (mem && this.tools.get(mem.tool)) {
+      const { output } = await this._runTool({ id: `mem-${Date.now()}`, function: { name: mem.tool, arguments: JSON.stringify(mem.args) } }, { direct: true });
+      return this._remember(text, output?.error || output?.answer || output?.note || output?.text || (output?.opened ? `Opened ${output.opened}.` : 'Done.'));
     }
     const file = fileCommand(text);
     if (file && this.tools.get(file.tool)) {
@@ -322,6 +372,9 @@ export class Agent {
     if (yt?.play) return { quick: null, calls: [{ name: 'play_youtube', args: { query: yt.play } }], reply: null, provider: 'direct' };
     const gh = this.tools.get('github_graph') ? githubGraphCommand(text) : null;
     if (gh) return { quick: null, calls: [{ name: 'github_graph', args: { date: gh.date } }], reply: null, provider: 'direct' };
+    const mem = this.tools.get('wiki_recent') ? await this._memoryCommand(text) : null;
+    if (mem?.reply) return { quick: null, calls: [], reply: mem.reply, provider: 'direct' };
+    if (mem && this.tools.get(mem.tool)) return { quick: null, calls: [{ name: mem.tool, args: mem.args }], reply: null, provider: 'direct' };
     const file = fileCommand(text);
     if (file && this.tools.get(file.tool)) return { quick: null, calls: [{ name: file.tool, args: file.args }], reply: null, provider: 'direct' };
     const { extra, messages, offered, purpose } = await this._prepare(text);
@@ -461,6 +514,9 @@ export class Agent {
   async _runTool(call, { direct = false } = {}) {
     const result = await this._runToolInner(call, { direct });
     const err = result.output?.error;
+    let params = {};
+    try { params = JSON.parse(call.function?.arguments || '{}'); } catch { /* bad JSON: reported by the run */ }
+    Promise.resolve(this.tools.afterToolCall?.({ toolName: call.function?.name, params, result: result.output, ...(err ? { error: err } : {}) })).catch(() => {});
     this.logger?.log?.(`[tool] ${call.function?.name} ${err ? `error: ${String(err).slice(0, 200)}` : 'ok'}`);
     return result;
   }
@@ -528,6 +584,20 @@ export class Agent {
     }
   }
 
+  async _memoryCommand(text) {
+    const first = memoryCommand(text, null);
+    return first?.needsRecent ? memoryCommand(text, await this._recentActions()) : first;
+  }
+
+  async _recentActions() {
+    try {
+      const out = await this.tools.get('wiki_recent').run({ limit: 20 });
+      return out?.actions || [];
+    } catch {
+      return [];
+    }
+  }
+
   _accountsForPrompt() {
     if (!this.accounts) return [];
     return this.accounts.list().map((a) => ({ ...a, isDefault: this.accounts.defaultFor(a.provider)?.id === a.id }));
@@ -535,8 +605,24 @@ export class Agent {
 
   _remember(text, replyText) {
     this.history.push({ role: 'user', content: text }, { role: 'assistant', content: replyText });
+    if (this.summarize && this.history.length > SUMMARY_AT && !this._summarizing) this._summarizing = this._summarizeOldest();
     if (this.history.length > MAX_HISTORY) this.history.splice(0, this.history.length - MAX_HISTORY);
     Promise.resolve(this.tools.agentEnd?.({ messages: [{ role: 'user', content: text }, { role: 'assistant', content: replyText }], success: true })).catch(() => {});
     return replyText;
+  }
+
+  // Runs after the reply: the oldest 10 messages leave history now; their 2-sentence summary comes
+  // back as one system line at the top. If summarizing fails they're just gone (as before).
+  async _summarizeOldest() {
+    const old = this.history.splice(0, 10);
+    try {
+      const said = old.map((m) => `${m.role === 'assistant' ? 'Novi' : m.role === 'user' ? 'User' : 'Note'}: ${m.content}`).join('\n');
+      const summary = String((await this.summarize(`Summarize in 2 sentences what was said:\n${said}`)) || '').trim();
+      if (summary) this.history.unshift({ role: 'system', content: `Earlier in this chat: ${summary}` });
+    } catch (err) {
+      this.logger.warn?.(`[agent] chat summary failed: ${err.message}`);
+    } finally {
+      this._summarizing = null;
+    }
   }
 }
