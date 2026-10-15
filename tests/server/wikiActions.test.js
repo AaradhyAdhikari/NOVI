@@ -43,8 +43,21 @@ describe('Novi Memory: actions log', () => {
     expect(out.actions.map((a) => a.name)).toEqual(['f7', 'f6', 'f5']);
     expect(out.actions[0]).toMatchObject({ tool: 'file_new_folder', path: '/x/f7' });
     const ctx = await host.promptContext({ prompt: 'rename it', messages: [] });
-    expect(ctx.system).toMatch(/Your recent actions \(newest first\)/);
-    expect(ctx.system.match(/Made folder/g)).toHaveLength(5);
+    expect(ctx.context).toMatch(/Your recent actions \(newest first\)/);
+    expect(ctx.context.match(/Made folder/g)).toHaveLength(5);
+  });
+
+  it('the recent actions (with paths) join only turns that point back, and keep them private', async () => {
+    const { host } = setup();
+    await host.afterToolCall({ toolName: 'file_new_folder', params: {}, result: { created: '/x/secret-plans' } });
+    for (const prompt of ['move that to the desktop', 'put the folder you just made on the desktop', 'usko delete karo']) {
+      const ctx = await host.promptContext({ prompt, messages: [] });
+      expect(ctx.context, prompt).toMatch(/secret-plans/);
+      expect(ctx.sensitive, prompt).toBe(true);
+    }
+    const plain = await host.promptContext({ prompt: "what's the weather in Pune", messages: [] });
+    expect(`${plain.system || ''}${plain.context || ''}`).not.toMatch(/secret-plans/);
+    expect(plain.sensitive).toBe(false);
   });
 
   it('nothing in the prompt before the first action', async () => {

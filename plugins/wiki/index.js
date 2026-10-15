@@ -21,6 +21,8 @@ function openOnLaptop(target) {
 }
 const obsidianOnLaptop = () => fs.existsSync(path.join(process.env.APPDATA || path.join(os.homedir(), '.config'), 'obsidian'));
 
+const POINTS_BACK = /\b(?:it|that|this|those|them|same|just|again|usko|isko|wahi|wohi)\b|\bthe (?:folder|file|project|one|note)\b/i;
+
 export function createWikiPlugin({ now = () => new Date(), env = process.env, home = os.homedir(), openPath = openOnLaptop, obsidianInstalled = obsidianOnLaptop } = {}) {
   return definePluginEntry({
     id: 'wiki',
@@ -32,11 +34,13 @@ export function createWikiPlugin({ now = () => new Date(), env = process.env, ho
       const notes = createNotes({ vault, now });
 
       api.on('after_tool_call', (event) => { actions.record(event); });
-      api.on('before_prompt_build', () => {
+      // Only for words that point back ("it", "that", "the folder you just made", "usko"); the
+      // lines hold the user's paths, so such a turn stays on the private provider.
+      api.on('before_prompt_build', ({ prompt } = {}) => {
         const recent = actions.recent(5);
-        if (!recent.length) return undefined;
+        if (!recent.length || !POINTS_BACK.test(String(prompt || ''))) return undefined;
         const lines = recent.map((a) => `- ${a.verb}${a.name ? ` "${a.name}"` : ''}${a.path ? ` (${a.path})` : ''}`).join('\n');
-        return { appendSystemContext: `Your recent actions (newest first) — "it", "that" and "the folder you just made" mean the newest matching one:\n${lines}` };
+        return { appendContext: `Your recent actions (newest first) — "it", "that" and "the folder you just made" mean the newest matching one:\n${lines}`, sensitive: true };
       });
 
       api.registerTool({
