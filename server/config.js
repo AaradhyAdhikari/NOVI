@@ -26,7 +26,9 @@ const PROVIDERS = {
     quick: ['gemma-4-31B-it'],
   },
   cerebras: { baseURL: 'https://api.cerebras.ai/v1', fast: [], long: [] },
-  openrouter: { baseURL: 'https://openrouter.ai/api/v1', fast: [], long: [] },
+  // Free models only (":free"; about 50 requests a day without credit). openrouter/free picks any
+  // free model that can do what the request needs (tools), so the list survives model churn.
+  openrouter: { baseURL: 'https://openrouter.ai/api/v1', fast: ['openai/gpt-oss-120b:free', 'openrouter/free'], long: ['openai/gpt-oss-120b:free', 'openrouter/free'] },
   mistral: { baseURL: 'https://api.mistral.ai/v1', fast: [], long: [] },
 };
 
