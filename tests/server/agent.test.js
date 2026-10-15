@@ -811,3 +811,36 @@ describe('long chats keep earlier context', () => {
     expect(agent.history[0]).toEqual({ role: 'user', content: 'q5' });
   });
 });
+
+describe('web search by voice', () => {
+  it('webCommand: "search the web for X", "google X", "X internet pe dekho"', async () => {
+    const { webCommand } = await import('../../server/brain/agent.js');
+    expect(webCommand('Search the web for iPhone 18 price')).toEqual({ tool: 'web_search', args: { query: 'iPhone 18 price' } });
+    expect(webCommand('okay google who won the match yesterday')).toEqual({ tool: 'web_search', args: { query: 'who won the match yesterday' } });
+    expect(webCommand('look up Groq new models online')).toEqual({ tool: 'web_search', args: { query: 'Groq new models' } });
+    expect(webCommand('search online for flights to Goa')).toEqual({ tool: 'web_search', args: { query: 'flights to Goa' } });
+    expect(webCommand('petrol ka rate internet pe dekho')).toEqual({ tool: 'web_search', args: { query: 'petrol ka rate' } });
+    expect(webCommand('google pe search karo IPL schedule')).toEqual({ tool: 'web_search', args: { query: 'IPL schedule' } });
+    for (const t of ['open google', 'search my files for DBMS', 'search my notes for DBMS', 'what is the weather', 'google']) expect(webCommand(t), t).toBe(null);
+  });
+
+  it('answers straight from the search (no AI), naming the sites', async () => {
+    const { webReply } = await import('../../server/brain/agent.js');
+    expect(webReply({ answer: 'India won by 6 wickets.', sources: [{ title: 'A', url: 'https://www.espncricinfo.com/x' }, { title: 'B', url: 'https://bbc.com/y' }] }))
+      .toBe('India won by 6 wickets. (espncricinfo.com, bbc.com)');
+    expect(webReply({ answer: null, sources: [{ title: 'Groq models list', url: 'https://groq.com/m' }, { title: 'News', url: 'https://n.com' }] }))
+      .toBe('Top results: Groq models list (groq.com); News (n.com).');
+    expect(webReply({ error: 'Web search is not set up.' })).toBe('Web search is not set up.');
+  });
+});
+
+describe('web search by voice: the agent', () => {
+  it('"search the web for X" runs web_search directly and says the answer (router never called)', async () => {
+    const seen = [];
+    const tools = new ToolRegistry().add({ name: 'web_search', description: 's', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 's', run: async (a) => { seen.push(a); return { answer: 'It is 42.', sources: [{ title: 'A', url: 'https://a.com/x' }] }; } });
+    const router = { chat: async () => { throw new Error('the AI should not be asked'); } };
+    const agent = new Agent({ router, tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
+    expect(await agent.handle('search the web for the answer to everything')).toBe('It is 42. (a.com)');
+    expect(seen).toEqual([{ query: 'the answer to everything' }]);
+  });
+});

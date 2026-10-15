@@ -49,6 +49,17 @@ describe('loadConfig', () => {
     expect(c.order.fast).toEqual(['groq', 'gemini', 'sambanova']);
   });
 
+  it("adds OpenRouter's free models as the last backup when its key is set (never private)", () => {
+    const c = loadConfig({ ...base, OPENROUTER_API_KEYS: 'sk-or-1' });
+    const or = c.providers.find((p) => p.name === 'openrouter');
+    for (const list of [or.models.fast, or.models.long]) {
+      expect(list.length).toBeGreaterThan(0);
+      for (const m of list) expect(m, m).toMatch(/:free$|^openrouter\/free$/);
+    }
+    expect(c.order.fast.at(-1)).toBe('openrouter');
+    expect(c.privateProviders).not.toContain('openrouter');
+  });
+
   it('uses CLAUDE_PATH when set, else falls back to "claude"', () => {
     expect(loadConfig({ ...base, CLAUDE_PATH: 'X:\\claude.exe' }).claudeCommand).toBe('X:\\claude.exe');
     expect(loadConfig(base).claudeCommand).toBe('claude');

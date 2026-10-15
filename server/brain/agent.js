@@ -138,6 +138,26 @@ export function claimsAction(text) {
   return /^(?:(?:ok(?:ay)?|sure|done|alright)[,.!]?\s*)?(?:i(?:'ve| have| just)?\s+)?(?:opened|opening|launched|launching|started|starting|playing|played|renamed|moved|created|closed|sent|deleted|showing|here it is|it'?s open|done[,.!])/i.test(String(text).trim());
 }
 
+// Web search by voice, without the AI: "search the web/online/internet for X", "google X",
+// "look up X online", "X internet/google pe dekho", "google pe search karo X". "Search my files /
+// notes" stays with those tools.
+export function webCommand(text) {
+  const t = String(text || '').trim().replace(/[.!?।]+$/, '').replace(FILE_LEAD, '').replace(FILE_TAIL, '');
+  const m = /^(?:search|look up|find)(?: on)? (?:the )?(?:web|internet|online|google) (?:for |about )?(.+)$/i.exec(t)
+    || /^(?:search|look up|find) (?:for )?(.+?) (?:online|on the (?:web|internet)|on google)$/i.exec(t)
+    || /^google(?: pe| par)? (?:search karo |dekho |search )?(.+)$/i.exec(t)
+    || /^(.+?) (?:internet|google|online) (?:pe|par) (?:dekho|search karo|dhundo)$/i.exec(t);
+  const query = m?.[1]?.trim();
+  return query && !/^(?:my|mere|meri) /i.test(query) ? { tool: 'web_search', args: { query } } : null;
+}
+const siteOf = (url) => { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return ''; } };
+export function webReply(out = {}) {
+  if (out.error) return out.error;
+  const sources = out.sources || [];
+  if (out.answer) return `${out.answer} (${sources.slice(0, 2).map((s) => siteOf(s.url)).filter(Boolean).join(', ')})`.replace(/ \(\)$/, '');
+  return `Top results: ${sources.slice(0, 3).map((s) => `${s.title} (${siteOf(s.url)})`).join('; ')}.`;
+}
+
 // Memory by voice, without the AI: "rename it", "open the folder you just made", "what did you do
 // today" (from Novi's actions log) and notes ("note that …", "check my notes about X").
 // recent = wiki_recent actions, newest first; null = not read yet → { needsRecent: true } when the
@@ -282,6 +302,11 @@ export class Agent {
       const { output } = await this._runTool({ id: `file-${Date.now()}`, function: { name: file.tool, arguments: JSON.stringify(file.args) } }, { direct: true });
       return this._remember(text, output?.error || output?.note || output?.text || (output?.opened ? `Opened ${output.opened}.` : 'Done.'));
     }
+    const web = webCommand(text);
+    if (web && this.tools.get(web.tool)) {
+      const { output } = await this._runTool({ id: `web-${Date.now()}`, function: { name: web.tool, arguments: JSON.stringify(web.args) } }, { direct: true });
+      return this._remember(text, webReply(output || {}));
+    }
     const direct = await this._projectCommand(text);
     if (direct) return this._remember(text, direct);
     const gh = this.tools.get('github_graph') ? githubGraphCommand(text) : null;
@@ -377,6 +402,8 @@ export class Agent {
     if (mem && this.tools.get(mem.tool)) return { quick: null, calls: [{ name: mem.tool, args: mem.args }], reply: null, provider: 'direct' };
     const file = fileCommand(text);
     if (file && this.tools.get(file.tool)) return { quick: null, calls: [{ name: file.tool, args: file.args }], reply: null, provider: 'direct' };
+    const web = webCommand(text);
+    if (web && this.tools.get(web.tool)) return { quick: null, calls: [{ name: web.tool, args: web.args }], reply: null, provider: 'direct' };
     const { extra, messages, offered, purpose } = await this._prepare(text);
     const res = await this.router.chat({ messages, tools: offered, purpose, only: extra.sensitive ? this.privateProviders[0] : undefined });
     const calls = (res.message.tool_calls || []).map((c) => {

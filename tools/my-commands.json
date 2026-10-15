@@ -286,5 +286,21 @@
         "notes_ask"
       ]
     }
+  },
+  {
+    "say": "search the web for the latest Groq models",
+    "expect": {
+      "tools": [
+        "web_search"
+      ]
+    }
+  },
+  {
+    "say": "who won the India match yesterday",
+    "expect": {
+      "tools": [
+        "web_search"
+      ]
+    }
   }
 ]

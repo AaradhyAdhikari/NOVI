@@ -1,0 +1,9 @@
+{
+  "id": "web",
+  "name": "Web search",
+  "description": "Search the web (Tavily, Jina as backup) and read web pages (Jina Reader). Free keys from .env: TAVILY_API_KEYS, JINA_API_KEYS.",
+  "categories": ["other"],
+  "contracts": { "tools": ["web_search", "web_read"] },
+  "activation": { "onStartup": true },
+  "configSchema": { "type": "object", "additionalProperties": false, "properties": {} }
+}

@@ -31,6 +31,8 @@ const ALL = [
   tool('notes_ask', 'Answer from notes.'),
   tool('note_open', 'Open a note.'),
   tool('wiki_recent', 'What Novi did recently.'),
+  tool('web_search', 'Search the web.'),
+  tool('web_read', 'Read a web page.'),
 ];
 const names = (text, opts) => selectTools(ALL, { text, ...opts }).map((t) => t.function.name);
 
@@ -40,6 +42,14 @@ describe('selectTools: send the model only the tools a request needs', () => {
     for (const t of ['note_write', 'notes_ask', 'note_open', 'wiki_recent']) expect(n).toContain(t);
     expect(names('what did you do today?')).toContain('wiki_recent');
     expect(names("What's the weather in Pune tomorrow?")).not.toContain('notes_ask');
+  });
+
+  it('web: news, scores, prices, "search the web/Google" bring both web tools', () => {
+    for (const text of ['who won the India match yesterday', 'search the web for the iPhone 18 price', 'google latest Groq models', 'read this article https://example.com/a', 'internet pe dekho petrol ka rate', 'what is the latest news']) {
+      expect(names(text), text).toEqual(expect.arrayContaining(['web_search', 'web_read']));
+    }
+    expect(names("What's the weather in Pune tomorrow?")).not.toContain('web_search');
+    expect(names('open my DBMS notes')).not.toContain('web_search');
   });
 
   it('weather question gets the weather tool, not mail or GitHub', () => {
