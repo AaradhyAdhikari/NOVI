@@ -735,3 +735,47 @@ describe('after_tool_call', () => {
     expect(events[1]).toMatchObject({ toolName: 'bad', error: 'nope' });
   });
 });
+
+describe('memory by voice: "it", "what did you do", notes', async () => {
+  const { memoryCommand } = await import('../../server/brain/agent.js');
+  const NOW = new Date(2026, 9, 15, 15, 0);
+  const at = (h) => new Date(2026, 9, 15, h, 0).toISOString();
+  const recent = [
+    { at: at(14), tool: 'file_new_folder', verb: 'Made folder', name: 'test', path: 'C:\\D\\test' },
+    { at: at(13), tool: 'open_app', verb: 'Opened app', name: 'Spotify', path: '' },
+    { at: at(12), tool: 'open_project', verb: 'Opened project', name: 'calc', path: 'C:\\P\\calc', project: true },
+    { at: new Date(2026, 9, 14, 9).toISOString(), tool: 'file_open', verb: 'Opened', name: 'old.pdf', path: 'C:\\old.pdf' },
+  ];
+
+  it('"rename it to X" renames the newest thing with a path; a project goes through rename_project', () => {
+    expect(memoryCommand('Okay, rename it to demo', recent, NOW)).toEqual({ tool: 'file_rename', args: { path: 'C:\\D\\test', newName: 'demo' } });
+    expect(memoryCommand('rename that folder as demo two', recent, NOW)).toEqual({ tool: 'file_rename', args: { path: 'C:\\D\\test', newName: 'demo two' } });
+    expect(memoryCommand('rename it to calculator', [recent[2]], NOW)).toEqual({ tool: 'rename_project', args: { name: 'calc', newName: 'calculator' } });
+    expect(memoryCommand('rename it to demo', [], NOW)).toEqual({ reply: 'Rename what? Tell me the name.' });
+  });
+
+  it('"open the folder you just made" / "open it" opens that exact path', () => {
+    expect(memoryCommand('open the folder you just made', recent, NOW)).toEqual({ tool: 'file_open', args: { path: 'C:\\D\\test' } });
+    expect(memoryCommand('open it', recent, NOW)).toEqual({ tool: 'file_open', args: { path: 'C:\\D\\test' } });
+    expect(memoryCommand('open it', [], NOW)).toEqual({ reply: 'Open what? Tell me the name.' });
+  });
+
+  it('"what did you do today" is read from the log, no AI', () => {
+    expect(memoryCommand('what did you do today?', recent, NOW)).toEqual({ reply: 'Today I did 3 things. Last: made folder test, opened app Spotify, opened project calc.' });
+    expect(memoryCommand('aaj kya kiya', [], NOW)).toEqual({ reply: 'Nothing yet today.' });
+  });
+
+  it('notes: write, ask, open', () => {
+    expect(memoryCommand('note that the DBMS exam is on 3 Nov', recent, NOW)).toEqual({ tool: 'note_write', args: { text: 'the DBMS exam is on 3 Nov' } });
+    expect(memoryCommand('remember in my notes that I owe Rahul 200', recent, NOW)).toEqual({ tool: 'note_write', args: { text: 'I owe Rahul 200' } });
+    expect(memoryCommand('add to my DBMS plan note: unit 3 is normalization', recent, NOW)).toEqual({ tool: 'note_write', args: { title: 'DBMS plan', text: 'unit 3 is normalization' } });
+    expect(memoryCommand('write a note about hackathon: demo at 5', recent, NOW)).toEqual({ tool: 'note_write', args: { title: 'hackathon', text: 'demo at 5' } });
+    expect(memoryCommand('check my notes about the DBMS exam', recent, NOW)).toEqual({ tool: 'notes_ask', args: { question: 'the DBMS exam' } });
+    expect(memoryCommand('what do my notes say about Rahul?', recent, NOW)).toEqual({ tool: 'notes_ask', args: { question: 'Rahul' } });
+    expect(memoryCommand('open my DBMS plan note', recent, NOW)).toEqual({ tool: 'note_open', args: { title: 'DBMS plan' } });
+  });
+
+  it('leaves everything else alone', () => {
+    for (const t of ['rename sample project to calc', 'open my DBMS notes', 'open youtube', "what's the weather", 'make a folder called x']) expect(memoryCommand(t, recent, NOW), t).toBeNull();
+  });
+});

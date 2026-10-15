@@ -7,7 +7,7 @@ import { answerKind } from './answers.js';
 
 // Asked for directly, these just run even though they can't be "always allowed" in Settings
 // (code_start_task: the user already named Claude). Moving files Novi picked always asks.
-const DIRECT_OK = new Set(['code_start_task', 'code_send_message', 'rename_project', 'file_new_folder', 'open_project', 'file_open', 'file_rename']);
+const DIRECT_OK = new Set(['code_start_task', 'code_send_message', 'rename_project', 'file_new_folder', 'open_project', 'file_open', 'file_rename', 'note_write', 'notes_ask', 'note_open']);
 const ASK_ANYWAY = new Set(['file_gather', 'file_undo_move']);
 const MAX_ROUNDS = 10; // screen tasks: open the app, look, click, type, …
 const MAX_HISTORY = 40;
@@ -137,6 +137,41 @@ export function claimsAction(text) {
   return /^(?:(?:ok(?:ay)?|sure|done|alright)[,.!]?\s*)?(?:i(?:'ve| have| just)?\s+)?(?:opened|opening|launched|launching|started|starting|playing|played|renamed|moved|created|closed|sent|deleted|showing|here it is|it'?s open|done[,.!])/i.test(String(text).trim());
 }
 
+// Memory by voice, without the AI: "rename it", "open the folder you just made", "what did you do
+// today" (from Novi's actions log) and notes ("note that …", "check my notes about X").
+// recent = wiki_recent actions, newest first.
+const isPath = (a) => a.path && !/^https?:/i.test(a.path);
+export function memoryCommand(text, recent = [], now = new Date()) {
+  const t = String(text || '').trim().replace(/[.!?।]+$/, '').replace(FILE_LEAD, '').replace(FILE_TAIL, '');
+  const target = recent.find(isPath);
+  const ren = /^rename (?:it|that|this)(?: (?:folder|file|project|one))? (?:to|as) (.+)$/i.exec(t);
+  if (ren) {
+    if (!target) return { reply: 'Rename what? Tell me the name.' };
+    return target.project ? { tool: 'rename_project', args: { name: target.name, newName: ren[1].trim() } } : { tool: 'file_rename', args: { path: target.path, newName: ren[1].trim() } };
+  }
+  if (/^open (?:it|that|the (?:folder|file|project|one) (?:you|u) (?:just )?(?:made|created|opened|renamed|moved))$/i.test(t)) {
+    return target ? { tool: 'file_open', args: { path: target.path } } : { reply: 'Open what? Tell me the name.' };
+  }
+  if (/^(?:what (?:did|have) (?:you|u) (?:do|done)(?: today)?|what all did you do(?: today)?|(?:tumne )?aaj kya kiya)$/i.test(t)) {
+    const day = (d) => new Date(d).toDateString();
+    const today = recent.filter((a) => day(a.at) === day(now));
+    if (!today.length) return { reply: 'Nothing yet today.' };
+    const say = (a) => `${a.verb.charAt(0).toLowerCase()}${a.verb.slice(1)}${a.name ? ` ${a.name}` : ''}`;
+    return { reply: `Today I did ${today.length} thing${today.length === 1 ? '' : 's'}. Last: ${today.slice(0, 3).map(say).join(', ')}.` };
+  }
+  let m = /^add to my (.+?) note[:,]?\s+(.+)$/i.exec(t);
+  if (m) return { tool: 'note_write', args: { title: m[1].trim(), text: m[2].trim() } };
+  m = /^write (?:a |this )?note about ([^:,]+)[:,]\s*(.+)$/i.exec(t);
+  if (m) return { tool: 'note_write', args: { title: m[1].trim(), text: m[2].trim() } };
+  m = /^(?:note (?:that|down)|make a note(?: that)?|write (?:a |this )?note(?: that)?[:,]?|remember in (?:my )?notes?(?: that)?)\s+(.+)$/i.exec(t);
+  if (m) return { tool: 'note_write', args: { text: m[1].trim() } };
+  m = /^(?:check|search|look in) my notes (?:about|for|on) (.+)$/i.exec(t) || /^what do my notes say about (.+)$/i.exec(t) || /^notes? (?:mein|me|madhe) (.+?) (?:dekho|check karo|bagh)$/i.exec(t);
+  if (m) return { tool: 'notes_ask', args: { question: m[1].trim() } };
+  m = /^open my (.+?) note$/i.exec(t);
+  if (m) return { tool: 'note_open', args: { title: m[1].trim() } };
+  return null;
+}
+
 // Short spoken replies Novi handles without calling the AI (stop, yes/no, "use Claude instead", status).
 export function quickCommand(text) {
   const t = text.trim().toLowerCase().replace(/[.!?।]+$/, '').replace(/\s+/g, ' ');
@@ -226,6 +261,12 @@ export class Agent {
     if (code) {
       const { output } = await this._runTool({ id: `code-${Date.now()}`, function: { name: 'code_show', arguments: JSON.stringify({ what: code }) } });
       return this._remember(text, output?.error || `Here's ${output?.file}.`);
+    }
+    const mem = this.tools.get('wiki_recent') ? memoryCommand(text, await this._recentActions()) : null;
+    if (mem?.reply) return this._remember(text, mem.reply);
+    if (mem && this.tools.get(mem.tool)) {
+      const { output } = await this._runTool({ id: `mem-${Date.now()}`, function: { name: mem.tool, arguments: JSON.stringify(mem.args) } }, { direct: true });
+      return this._remember(text, output?.error || output?.answer || output?.note || output?.text || (output?.opened ? `Opened ${output.opened}.` : 'Done.'));
     }
     const file = fileCommand(text);
     if (file && this.tools.get(file.tool)) {
@@ -322,6 +363,9 @@ export class Agent {
     if (yt?.play) return { quick: null, calls: [{ name: 'play_youtube', args: { query: yt.play } }], reply: null, provider: 'direct' };
     const gh = this.tools.get('github_graph') ? githubGraphCommand(text) : null;
     if (gh) return { quick: null, calls: [{ name: 'github_graph', args: { date: gh.date } }], reply: null, provider: 'direct' };
+    const mem = this.tools.get('wiki_recent') ? memoryCommand(text, await this._recentActions()) : null;
+    if (mem?.reply) return { quick: null, calls: [], reply: mem.reply, provider: 'direct' };
+    if (mem && this.tools.get(mem.tool)) return { quick: null, calls: [{ name: mem.tool, args: mem.args }], reply: null, provider: 'direct' };
     const file = fileCommand(text);
     if (file && this.tools.get(file.tool)) return { quick: null, calls: [{ name: file.tool, args: file.args }], reply: null, provider: 'direct' };
     const { extra, messages, offered, purpose } = await this._prepare(text);
@@ -528,6 +572,15 @@ export class Agent {
       return { output, note: output?.note };
     } catch (err) {
       return { output: { error: err.message }, note: err instanceof UserFacingError ? err.message : undefined };
+    }
+  }
+
+  async _recentActions() {
+    try {
+      const out = await this.tools.get('wiki_recent').run({ limit: 20 });
+      return out?.actions || [];
+    } catch {
+      return [];
     }
   }
 
