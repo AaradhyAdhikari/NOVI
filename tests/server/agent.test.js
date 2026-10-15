@@ -932,3 +932,22 @@ describe('laptop control: direct commands still ask before turning things off', 
     expect(calls.at(-1)).toEqual(['volume', { level: 20 }]);
   });
 });
+
+describe('pin approvals reach the approval queue', () => {
+  it('the agent passes pin: true to approvals.decide', async () => {
+    const { PluginHost } = await import('../../server/plugins/host.js');
+    const { definePluginEntry } = await import('../../server/plugins/sdk.js');
+    const tools = new PluginHost({ logger: { warn() {} } });
+    tools.register(definePluginEntry({ id: 'p', name: 'P', register(api) {
+      api.registerTool({ name: 'p_do', description: 'd', parameters: { type: 'object', properties: {} }, execute: async () => ({ content: [], details: { done: true } }) });
+      api.on('before_tool_call', () => ({ requireApproval: { title: 'Delete it?', severity: 'warning', pin: true } }));
+    } }));
+    const seen = [];
+    const approvals = { decide: async (a) => { seen.push(a); return { allow: false }; }, latest: () => null };
+    const steps = [{ message: { role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'p_do', arguments: '{}' } }] }, provider: 'groq' }, { message: { role: 'assistant', content: 'Okay, I did not.' }, provider: 'groq' }];
+    let i = 0;
+    const agent = new Agent({ router: { chat: async () => steps[i++] }, tools, approvals, memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
+    await agent.handle('delete it');
+    expect(seen[0]).toMatchObject({ title: 'Delete it?', pin: true });
+  });
+});

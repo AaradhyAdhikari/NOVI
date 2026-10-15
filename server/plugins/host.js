@@ -153,6 +153,8 @@ export class PluginHost {
               ...(req.category ? { category: req.category } : {}), ...(req.grantable !== undefined ? { grantable: Boolean(req.grantable) } : {}),
               // Novi extension: deletes and payments need a fingerprint/face confirmation from a phone.
               ...(req.kind === 'delete' || req.kind === 'payment' ? { kind: req.kind } : {}),
+              // Novi extension: dangerous laptop commands need the voice PIN on every device.
+              ...(req.pin ? { pin: true } : {}),
             };
           }
         }
