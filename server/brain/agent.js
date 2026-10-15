@@ -4,6 +4,7 @@ import { classifyApproval } from '../grants.js';
 import { UserFacingError } from '../errors.js';
 import { firstSentence } from '../narrator.js';
 import { answerKind } from './answers.js';
+import { FILE_LEAD, FILE_TAIL } from './phrases.js';
 
 // Asked for directly, these just run even though they can't be "always allowed" in Settings
 // (code_start_task: the user already named Claude). Moving files Novi picked always asks.
@@ -109,8 +110,6 @@ export function alsoCommand(text) {
 const FILE_WORD = /\b(?:files?|folders?|pdfs?|docs?|docx|documents?|sheets?|excel|csv|notes|ppt|pptx|slides|presentation|assignment|report|resume|cv|spreadsheet)\b/i;
 const GATHER_KIND = { pdf: 'pdf', document: 'doc', doc: 'doc', sheet: 'sheet', spreadsheet: 'sheet', slide: 'slides', presentation: 'slides', picture: 'image', photo: 'image', image: 'image', file: 'any' };
 // The way it's actually said: "Okay, can you open …", "… on my laptop right now".
-const FILE_LEAD = /^(?:(?:ok(?:ay)?|hey novi|novi|so|now|please|can you|could you|would you|will you|just)[\s,]+)+/i;
-const FILE_TAIL = /(?:[\s,]+(?:(?:on|in) (?:(?:my|the) )?(?:laptop|computer|pc)|for me|right now|now|please|quickly))+$/i;
 
 export function fileCommand(text) {
   const t = String(text || '').trim().replace(/[.!?।]+$/, '').replace(FILE_LEAD, '').replace(FILE_TAIL, '');
