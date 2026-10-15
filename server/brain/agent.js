@@ -420,7 +420,7 @@ export class Agent {
     if (mem && this.tools.get(mem.tool)) return { quick: null, calls: [{ name: mem.tool, args: mem.args }], reply: null, provider: 'direct' };
     const ctl = controlCommand(text);
     if (ctl && this.tools.get(ctl.tool)) return { quick: null, calls: [{ name: ctl.tool, args: ctl.args }], reply: null, provider: 'direct' };
-    const br = browserCommand(text);
+    const br = browserCommand(text, { lastTo: this._waLastTo });
     if (br && this.tools.get(br.tool)) return { quick: null, calls: [{ name: br.tool, args: br.args }], reply: null, provider: 'direct' };
     const file = fileCommand(text);
     if (file && this.tools.get(file.tool)) return { quick: null, calls: [{ name: file.tool, args: file.args }], reply: null, provider: 'direct' };
@@ -563,6 +563,8 @@ export class Agent {
   async _runTool(call, { direct = false } = {}) {
     const result = await this._runToolInner(call, { direct });
     if (result.output?.countdownUntil) this._countdown = { until: result.output.countdownUntil };
+    // "her" / "him" in the next WhatsApp request = the chat Novi just checked.
+    if (call.function?.name === 'whatsapp_prepare' && result.output?.ready?.name) this._waLastTo = result.output.ready.name;
     const err = result.output?.error;
     let params = {};
     try { params = JSON.parse(call.function?.arguments || '{}'); } catch { /* bad JSON: reported by the run */ }
@@ -653,7 +655,7 @@ export class Agent {
   // LeetCode / WhatsApp without the AI. A WhatsApp file or folder is found first; sending always
   // asks (whatsapp_send). "done" after a pause (QR scan) tries the same send again.
   async _browserCommand(text) {
-    let cmd = browserCommand(text);
+    let cmd = browserCommand(text, { lastTo: this._waLastTo });
     if (!cmd && this._browserPause && isDoneWord(text)) cmd = this._browserPause;
     this._browserPause = null;
     if (!cmd || !this.tools.get(cmd.tool)) return null;

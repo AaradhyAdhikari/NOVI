@@ -41,3 +41,21 @@ describe('LeetCode as actually said (live 2026-10-15: one phrasing went to the A
     for (const t of ['open leetcode in chrome', 'open the leetcode login page']) expect(browserCommand(t), t).toBe(null);
   });
 });
+
+describe('WhatsApp as actually said (live 2026-10-15: "send a message to her saying that you are short" went to the slow AI)', () => {
+  it('message / text someone without saying WhatsApp', () => {
+    expect(browserCommand('Send a message to Isha saying that you are short.')).toEqual({ tool: 'whatsapp_prepare', args: { to: 'Isha', text: 'you are short' } });
+    expect(browserCommand('message Rahul that I will be late')).toEqual({ tool: 'whatsapp_prepare', args: { to: 'Rahul', text: 'I will be late' } });
+    expect(browserCommand('text mom saying good night')).toEqual({ tool: 'whatsapp_prepare', args: { to: 'mom', text: 'good night' } });
+    expect(browserCommand('send Isha a message saying hi')).toEqual({ tool: 'whatsapp_prepare', args: { to: 'Isha', text: 'hi' } });
+    expect(browserCommand('Isha ko message karo ki main late hu')).toEqual({ tool: 'whatsapp_prepare', args: { to: 'Isha', text: 'main late hu' } });
+  });
+  it('her / him / them = the last person messaged; nobody yet → the AI', () => {
+    expect(browserCommand('Send a message to her saying that you are short.', { lastTo: 'Isha' })).toEqual({ tool: 'whatsapp_prepare', args: { to: 'Isha', text: 'you are short' } });
+    expect(browserCommand('tell him on whatsapp that hi', { lastTo: 'Rahul' })).toEqual({ tool: 'whatsapp_prepare', args: { to: 'Rahul', text: 'hi' } });
+    expect(browserCommand('Send a message to her saying hi')).toBe(null);
+  });
+  it('email stays out', () => {
+    for (const t of ['send an email to Rahul saying hi', 'message Rahul on email that hi', 'send a mail to Isha saying hi']) expect(browserCommand(t), t).toBe(null);
+  });
+});
