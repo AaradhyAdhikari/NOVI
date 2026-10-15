@@ -131,6 +131,28 @@ export function createNovi(config, overrides = {}) {
         const image = svg ? `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}` : `data:image/png;base64,${Buffer.from(png).toString('base64')}`;
         sendTo(active, { type: 'chat', entry: { role: 'novi', text: caption, at, image } });
       },
+      // A tap-to-open link in the chat of whoever asked (the preview plugin's live link).
+      showLink: ({ url, label = '' }) => {
+        const at = new Date().toISOString();
+        transcript.push({ role: 'novi', text: label, at, device: deviceKey(active), link: url });
+        sendTo(active, { type: 'chat', entry: { role: 'novi', text: label, at, link: url } });
+      },
+      // The host name the asking device used to reach Novi (its Tailscale name / IP; the laptop: localhost).
+      deviceHost: () => {
+        const key = deviceKey(active);
+        if (key === 'local') return 'localhost';
+        const ws = [...clients].find((c) => viewerKey(c) === key && c.host);
+        return ws ? ws.host.replace(/:\d+$/, '') : tsName || 'localhost';
+      },
+      // The coding project a request is about: the one named, else the running or last task's project.
+      codingProject: (name) => {
+        const pick = (n) => { const p = n && memory.findProject(n); return p?.path ? { name: p.name, path: p.path } : null; };
+        if (name) return pick(name);
+        const status = tasks.status?.() || {};
+        const last = memory.lastTask?.();
+        return pick(status.project) || pick(last?.project) || (last?.path ? { name: last.project, path: last.path } : null);
+      },
+      tls: overrides.tls || null,
       dataDir: config.dataDir, logger: console },
   });
   // A Claude task started by voice (e.g. from a walk): a laptop window follows its progress, and
@@ -723,6 +745,7 @@ export function createNovi(config, overrides = {}) {
   function attachWebSocket(server) {
     const wss = new WebSocketServer({ server, path: '/ws' });
     wss.on('connection', (ws, req) => {
+      ws.host = String(req.headers.host || '');
       if (!originAllowed(req)) {
         ws.close(4003, 'Cross-site connection blocked');
         return;

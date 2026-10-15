@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { definePluginEntry } from '#plugin-sdk';
+import { pageShot } from './pageShot.js';
 
 // Screen control: look at the screen (Gemini vision — the user agreed screenshots may go to Gemini),
 // click a described element, type, press a key. Every action needs approval (category "screen",
@@ -48,33 +49,8 @@ export const windowsDriver = {
   key: (name) => ps(['key', KEY_CODES[name]]),
   focus: async (app) => (await ps(['focus'], { NOVI_SCREEN_APP: String(app) })) === 'True',
   // A picture of a web page from a hidden Edge (its own empty profile, so not signed in anywhere).
-  async pageShot(url) {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'novi-page-'));
-    const file = path.join(dir, 'page.png');
-    try {
-      await new Promise((resolve, reject) => execFile(EDGE, [
-        // --do-not-de-elevate: when Novi runs with admin rights Edge would otherwise hand off to a
-        // normal-rights copy and the screenshot is lost.
-        '--headless=new', '--do-not-de-elevate', '--disable-gpu', '--hide-scrollbars', '--no-first-run', `--user-data-dir=${path.join(dir, 'profile')}`,
-        '--window-size=1280,1400', '--virtual-time-budget=10000', `--screenshot=${file}`, url,
-      ], { windowsHide: true, timeout: 45_000 }, (err) => (err && !fs.existsSync(file) ? reject(err) : resolve())));
-      // msedge.exe can return while a child process is still loading the page: wait for the file
-      // (and for it to stop growing).
-      let last = -1;
-      for (let waited = 0; waited < 25_000; waited += 300) {
-        const size = fs.existsSync(file) ? fs.statSync(file).size : -1;
-        if (size > 0 && size === last) return { png: fs.readFileSync(file) };
-        last = size;
-        await new Promise((r) => setTimeout(r, 300));
-      }
-      throw new Error("The page didn't load in time, so there's no picture.");
-    } finally {
-      // Edge's helper processes hold the profile for a moment after it exits; clean up later if needed.
-      fs.promises.rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 500 }).catch(() => {});
-    }
-  },
+  pageShot: (url) => pageShot(url),
 };
-const EDGE = path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'Microsoft', 'Edge', 'Application', 'msedge.exe');
 
 const reply = (text, details = {}) => ({ content: [{ type: 'text', text }], details: { ...details, sensitive: true } });
 const refuse = (what) => reply(`I won't ${what} here: it looks like a password, payment, CAPTCHA or system security screen. Please do that part yourself.`);

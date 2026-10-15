@@ -32,16 +32,18 @@ if (ts) lanUrls.unshift(`https://${ts.name}:${config.port}`);
 const edgeVoices = { en: process.env.NOVI_TTS_VOICE_EN || DEFAULT_VOICES.en, hi: process.env.NOVI_TTS_VOICE_HI || DEFAULT_VOICES.hi, mr: process.env.NOVI_TTS_VOICE_MR || DEFAULT_VOICES.mr };
 const localSpeaker = createLocalSpeaker({ synth: createEdgeTts({ voices: edgeVoices }) });
 localSpeaker?.(''); // warm up the Windows voice now so the first reply isn't 2.5 s late
-const novi = createNovi(config, { lanUrls, localSpeaker, logBuffer, system, tsName: ts?.name || null });
+// Self-signed for localhost / LAN IPs; the real Tailscale certificate when the phone asks for the ts.net name (SNI).
+// The preview plugin's port uses the same certificates (runtime.tls).
+let tsContext = ts && tls.createSecureContext({ key: ts.key, cert: ts.cert });
+const serverTls = {
+  ...loadOrCreateCert(certDir),
+  SNICallback: (servername, cb) => cb(null, ts && servername === ts.name ? tsContext : undefined),
+};
+const novi = createNovi(config, { lanUrls, localSpeaker, logBuffer, system, tsName: ts?.name || null, tls: serverTls });
 await novi.plugins.loadDirectory(path.resolve('plugins'));
 rememberOwnProject(novi.memory, process.cwd());
 await novi.plugins.startServices();
-// Self-signed for localhost / LAN IPs; the real Tailscale certificate when the phone asks for the ts.net name (SNI).
-let tsContext = ts && tls.createSecureContext({ key: ts.key, cert: ts.cert });
-const server = https.createServer({
-  ...loadOrCreateCert(certDir),
-  SNICallback: (servername, cb) => cb(null, ts && servername === ts.name ? tsContext : undefined),
-}, novi.app);
+const server = https.createServer(serverTls, novi.app);
 // Tailscale certificates last 90 days; `tailscale cert` renews only when needed.
 if (ts) setInterval(async () => {
   const fresh = await tailscaleCert({ dir: certDir });
