@@ -105,3 +105,12 @@ describe('browser tools', () => {
     expect(shown[0].png).toBeInstanceOf(Buffer);
   });
 });
+
+describe('browser tools: no page read yet', () => {
+  it('a first click still reads the page and asks if it is a submit', async () => {
+    const { tool, calls } = setup();
+    const gate = await tool('browser_click').gate({ n: 3 });
+    expect(calls[0]).toEqual(['read', {}]);
+    expect(gate.approval?.title).toBe('Submit the form on example.com: Name Aaradhy?');
+  });
+});

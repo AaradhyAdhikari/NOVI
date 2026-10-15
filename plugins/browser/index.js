@@ -84,6 +84,10 @@ export function createBrowserPlugin({ bridge = null, showImage = null } = {}) {
       api.on('before_tool_call', async ({ toolName, params = {}, from }) => {
         if (!toolName.startsWith('browser_')) return undefined;
         lastFrom = from || 'local';
+        // Never judge a click on a page Novi hasn't read: read it first.
+        if (!page && (toolName === 'browser_click' || toolName === 'browser_key')) {
+          try { page = await link.request('read'); } catch { return undefined; } // not connected: the run says so
+        }
         if (!page) return undefined;
         let target = null;
         if (toolName === 'browser_click') target = item(page, params.n);
