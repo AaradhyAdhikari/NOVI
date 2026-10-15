@@ -61,7 +61,7 @@ describe('WhatsApp Web driver', () => {
 
   it('nobody, or two people → no chat is opened', async () => {
     const none = createWebDriver({ bridge: fakeBridge({ chats: [] }).bridge, ...fast });
-    expect(await none.prepare({ to: 'Rahul', text: 'hi' })).toEqual({ error: "I can't find Rahul on WhatsApp." });
+    expect(await none.prepare({ to: 'Rahul', text: 'hi' })).toEqual({ error: 'I searched WhatsApp Web for "rahu" and nobody called Rahul came up.' });
     const two = fakeBridge({ chats: ['Rahul Sharma', 'Rahul K', 'Mom'] });
     expect(await createWebDriver({ bridge: two.bridge, ...fast }).prepare({ to: 'Rahul', text: 'hi' })).toEqual({ choose: ['Rahul Sharma', 'Rahul K'] });
     expect(two.calls.some(([c, a]) => c === 'clickSel' && a.selector === WA.chatTitles)).toBe(false);
