@@ -4,6 +4,7 @@ import { classifyApproval } from '../grants.js';
 import { UserFacingError } from '../errors.js';
 import { firstSentence } from '../narrator.js';
 import { answerKind } from './answers.js';
+import { matchAnswer, answerFor } from '../claude/questions.js';
 import { FILE_LEAD, FILE_TAIL } from './phrases.js';
 import { controlCommand, isCancelWord, historyCommand } from './controlCommand.js';
 import { browserCommand, isDoneWord } from './browserCommand.js';
@@ -274,6 +275,8 @@ export class Agent {
   async handle(text, { from = 'local' } = {}) {
     this._from = from; // who asked, for plugin approvals (phone warnings)
     this._turnYes = new Set(); // kinds of step the user said yes to in this request
+    const answered = this._answerQuestion(text, from);
+    if (answered) return this._remember(text, answered);
     const also = alsoCommand(text);
     if (also) {
       const reply = await this._also(also, from);
@@ -508,6 +511,24 @@ export class Agent {
     if (output?.error) return output.error;
     if (output?.note) return output.note;
     return `Playing ${output?.playing?.title || query}.`;
+  }
+
+  // While Claude waits on one of its questions, what the user says answers it ("doosra", "dark",
+  // "make it purple", "skip"). A yes/no for another waiting card, and "progress" / "what's next" /
+  // "stop", keep their usual meaning.
+  _answerQuestion(text, from) {
+    const q = this.approvals.waitingQuestion?.();
+    if (!q) return null;
+    const match = matchAnswer(text, q.question.options, { multiSelect: q.question.multiSelect });
+    if (match.kind === 'skip') {
+      this.approvals.resolve(q.id, false, 'voice', null, { from });
+      return 'Okay, Claude will choose.';
+    }
+    if (this.approvals.latest?.({ excludeTier: 'high' }) && answerKind(text)) return null;
+    if (match.kind === 'own' && ['stop', 'status', 'next'].includes(quickCommand(text))) return null;
+    const answer = answerFor(match);
+    this.approvals.resolve(q.id, true, 'voice', null, { from, answer });
+    return `Okay, I told Claude: ${answer}.`;
   }
 
   async _quick(kind, from = 'local') {

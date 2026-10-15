@@ -1032,3 +1032,38 @@ describe('WhatsApp: "her" = the last person messaged (live 2026-10-15)', () => {
     expect(ran[1]).toEqual({ to: 'Ishaa', text: 'you are short' });
   });
 });
+
+describe("Claude asks: answers by voice (coding control v1)", () => {
+  const mk = () => {
+    const approvals = new ApprovalQueue();
+    const agent = new Agent({ router: { chat: async () => { throw new Error('no AI'); } }, tools: new ToolRegistry(), approvals, memory: { listProjects: () => [] }, tasks: { status: () => ({ active: true }) } });
+    const ask = () => approvals.decide({ title: 'Claude asks: Which color theme?', tier: 'medium', source: 'claude', prompt: 'Claude asks: Which color theme? One, Dark. Two, Light.', question: { text: 'Which color theme?', options: [{ label: 'Dark' }, { label: 'Light' }], multiSelect: false }, timeoutMs: null });
+    return { approvals, agent, ask };
+  };
+
+  it('while Claude asks, "doosra" / own words answer it; a yes/no card keeps "yes"', async () => {
+    const { approvals, agent, ask } = mk();
+    const yesNo = approvals.decide({ title: 'Claude wants to run npm install', tier: 'medium', source: 'claude' });
+    const q1 = ask();
+    expect(await agent.handle('doosra')).toBe('Okay, I told Claude: Light.');
+    expect(await q1).toMatchObject({ allow: true, answer: 'Light' });
+    const q2 = ask();
+    await agent.handle('yes');
+    expect((await yesNo).allow).toBe(true);
+    expect(approvals.waitingQuestion()).not.toBe(null);
+    expect(await agent.handle('make it purple')).toBe('Okay, I told Claude: make it purple.');
+    expect(await q2).toMatchObject({ allow: true, answer: 'make it purple' });
+  });
+
+  it('"skip" lets Claude choose', async () => {
+    const { agent, ask } = mk();
+    const q = ask();
+    expect(await agent.handle('skip')).toBe('Okay, Claude will choose.');
+    expect((await q).allow).toBe(false);
+  });
+
+  it('the spoken card is the numbered question', async () => {
+    const { spokenApproval } = await import('../../server/brain/answers.js');
+    expect(spokenApproval({ title: 'Claude asks: Which color theme?', tier: 'medium', prompt: 'Claude asks: Which color theme? One, Dark. Two, Light.', question: {} })).toBe('Claude asks: Which color theme? One, Dark. Two, Light.');
+  });
+});
