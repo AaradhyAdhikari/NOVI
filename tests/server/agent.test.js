@@ -1017,3 +1017,18 @@ describe('system prompt: websites vs videos (live 2026-10-15)', () => {
     expect(p).toMatch(/never play a video for LeetCode/);
   });
 });
+
+describe('WhatsApp: "her" = the last person messaged (live 2026-10-15)', () => {
+  it('after messaging Isha, "send a message to her saying …" goes to Ishaa again without the AI', async () => {
+    const ran = [];
+    const tools = new ToolRegistry()
+      .add({ name: 'whatsapp_prepare', description: 'p', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'p', run: async (a) => { ran.push(a); return { ready: { name: 'Ishaa', what: `"${a.text}"`, via: 'app' } }; } })
+      .add({ name: 'whatsapp_send', description: 's', parameters: { type: 'object', properties: {} }, tier: 'medium', describe: () => 'Send?', run: async () => ({ note: 'Sent.' }) });
+    const approvals = new ApprovalQueue();
+    approvals.on('added', (a) => approvals.resolve(a.id, true));
+    const agent = new Agent({ router: { chat: async () => { throw new Error('no AI'); } }, tools, approvals, memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
+    expect(await agent.handle('message Isha that hi')).toBe('Sent.');
+    expect(await agent.handle('Send a message to her saying that you are short.')).toBe('Sent.');
+    expect(ran[1]).toEqual({ to: 'Ishaa', text: 'you are short' });
+  });
+});

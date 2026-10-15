@@ -18,8 +18,13 @@ function fileOrText(what, to, via) {
   return { tool: 'whatsapp_prepare', find, kind, args: { to, ...VIA(via) } };
 }
 
-export function browserCommand(text) {
-  const t = clean(text);
+// "her" / "him" / "them" / "usko" = the last person messaged on WhatsApp (lastTo), else unknown.
+const PRONOUN = /^(?:her|him|them|usko|use|isko|ise|unko)$/i;
+const person = (name, lastTo) => (PRONOUN.test(name.trim()) ? lastTo || null : name.trim());
+const msg = (to, text, via) => (to ? T('whatsapp_prepare', { to, text: text.trim(), ...VIA(via) }) : null);
+
+export function browserCommand(text, { lastTo = null } = {}) {
+  const t = clean(text).replace(/[.!?]+$/, '');
   if (!t) return null;
   // Any LeetCode phrasing about today's problem or the user's progress — never left to the AI, which
   // once played a YouTube video for "show me today's leetcode problem". Login / sign-in / "in
@@ -33,7 +38,15 @@ export function browserCommand(text) {
   m = /^(.+?) ko (.+?) (?:bhej do|bhejo|bhej de)(?: (?:on )?whats ?app(?: (app|web))?(?: (?:pe|par))?| whats ?app (?:pe|par))$/i.exec(t);
   if (m) return fileOrText(m[2], m[1].trim(), m[3]);
   m = /^(?:tell|message|text) (.+?) on (?:the )?whats ?app(?: (app|web))?(?: that|:)? (.+)$/i.exec(t);
-  if (m) return T('whatsapp_prepare', { to: m[1].trim(), text: m[3].trim(), ...VIA(m[2]) });
+  if (m) return msg(person(m[1], lastTo), m[3], m[2]);
+  // Plain "message / text someone …" (no app named) is WhatsApp; email words stay with the AI.
+  if (!/\b(?:e-?mail|mail|gmail|sms)\b/i.test(t)) {
+    m = /^send (?:a |an )?(?:message|text|msg) to (.+?) (?:saying|that|ki)(?: that)? (.+)$/i.exec(t)
+      || /^(?:message|text|msg) (.+?) (?:saying|that)(?: that)? (.+)$/i.exec(t)
+      || /^send (.+?) a (?:message|text|msg) (?:saying|that)(?: that)? (.+)$/i.exec(t)
+      || /^(.+?) ko (?:message|msg|text) (?:karo|kar do|bhejo|bhej do)(?: ki)? (.+)$/i.exec(t);
+    if (m) return msg(person(m[1], lastTo), m[2]);
+  }
   m = /^whats ?app (.+?)[:,] (.+)$/i.exec(t);
   if (m) return T('whatsapp_prepare', { to: m[1].trim(), text: m[2].trim() });
   return null;
