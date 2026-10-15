@@ -67,5 +67,6 @@ export function createAppDriver({ worker, vision, sleep = (ms) => new Promise((r
       prepared = false;
       await keys('escape');
     },
+    async shot() { return win ? (await worker.run('shot-window', { id: win.id })).png : null; },
   };
 }

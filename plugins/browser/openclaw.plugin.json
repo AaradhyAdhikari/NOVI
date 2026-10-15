@@ -3,7 +3,7 @@
   "name": "Browser",
   "description": "Works in your everyday Chrome through the Novi extension: open, read, fill and click pages; asks before final submits; never pays or types passwords.",
   "categories": ["other"],
-  "contracts": { "tools": ["browser_open", "browser_read", "browser_click", "browser_type", "browser_select", "browser_key", "browser_scroll", "browser_back", "browser_tabs", "browser_switch", "browser_screenshot"] },
+  "contracts": { "tools": ["browser_open", "browser_read", "browser_click", "browser_type", "browser_select", "browser_key", "browser_scroll", "browser_back", "browser_tabs", "browser_switch", "browser_screenshot", "whatsapp_prepare", "whatsapp_send"] },
   "activation": { "onStartup": true },
   "configSchema": { "type": "object", "additionalProperties": false, "properties": { "port": { "type": "string", "description": "Port for the extension link on 127.0.0.1 (NOVI_PLUGIN_BROWSER_PORT, default 3003)" } } }
 }

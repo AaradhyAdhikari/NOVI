@@ -2,6 +2,11 @@ import path from 'node:path';
 import { definePluginEntry } from '#plugin-sdk';
 import { createBridge } from './bridge.js';
 import { loadCode } from './pairing.js';
+import { fileURLToPath } from 'node:url';
+import { createWebDriver, zipForSend } from './whatsapp.js';
+import { createAppDriver } from './whatsappApp.js';
+import { createControlWorker } from '../laptop-control/worker.js';
+import { findWindows } from '../laptop-control/windows.js';
 import { isSubmit, isPayment, isCardField, needsPassword, hasCaptcha, needsCode, summarizeForm, pageText } from './rules.js';
 
 // Novi in the user's everyday Chrome (through the Novi extension). User's rules (2026-10-15):
@@ -19,7 +24,11 @@ const obj = (properties, required = []) => ({ type: 'object', properties, requir
 const fromPhone = (from) => Boolean(from && typeof from === 'object' && from.deviceId);
 const item = (page, n) => (page?.items || []).find((it) => it.n === Number(n));
 
-export function createBrowserPlugin({ bridge = null, showImage = null } = {}) {
+const PREPARED_MS = 5 * 60_000;
+const sizeOf = (bytes) => (bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1).replace(/\.0$/, '')} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`);
+const orList = (names) => (names.length > 1 ? `${names.slice(0, -1).join(', ')} or ${names.at(-1)}` : names[0]);
+
+export function createBrowserPlugin({ bridge = null, showImage = null, webDriver = null, appDriver = null, appOpen = null, now = () => Date.now() } = {}) {
   return definePluginEntry({
     id: 'browser',
     name: 'Browser',
@@ -75,10 +84,66 @@ export function createBrowserPlugin({ bridge = null, showImage = null } = {}) {
       tool('browser_tabs', 'List the open Chrome tabs.', obj({}), async () => reply({ tabs: (await link.request('tabs')).tabs || [] }));
       tool('browser_switch', 'Switch to a Chrome tab by its id.', obj({ tabId: { type: 'number' } }, ['tabId']),
         async ({ tabId }) => { await link.request('switch', { tabId }); return read(); });
+      // WhatsApp (Web through the extension, or the desktop app): prepare finds and checks the
+      // chat and attaches; send asks "Send X to <checked name>?" and only then presses Send.
+      let worker = null;
+      const controlWorker = () => (worker ||= createControlWorker({ script: path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'laptop-control', 'control.ps1') }));
+      const web = webDriver || createWebDriver({ bridge: link });
+      let appD = appDriver;
+      const app = () => (appD ||= createAppDriver({ worker: controlWorker(), vision: (png, prompt) => api.runtime.vision(png, prompt) }));
+      const appIsOpen = appOpen || (async () => { try { return findWindows((await controlWorker().run('windows', {})).windows || [], 'whatsapp').length > 0; } catch { return false; } });
+      let prepared = null; // { driver, name, what, via, at }
+
+      tool('whatsapp_prepare', 'Get a WhatsApp message ready for ONE person: finds the chat, checks it is the right person, attaches a file or folder (zipped) and/or types the text. Then call whatsapp_send — the user is asked before anything is sent. via: "app" or "web" only if the user said so.',
+        obj({ to: { type: 'string' }, text: { type: 'string' }, path: { type: 'string', description: 'Full path of a file or folder to send' }, via: { type: 'string', enum: ['web', 'app'] } }, ['to']),
+        async ({ to, text, path: target, via }) => {
+          prepared = null;
+          if (!text && !target) return reply({ error: 'What should I send?' });
+          const file = target ? zipForSend(target) : null;
+          const useApp = via === 'app' || (via !== 'web' && (await appIsOpen() || !link.connected()));
+          const driver = useApp ? app() : web;
+          const r = await driver.prepare({ to, text, file });
+          if (r.choose) return reply({ choose: r.choose, note: `Which ${to}: ${orList(r.choose)}?` });
+          if (r.pause) return reply({ pause: r.pause, note: r.note });
+          if (r.error) return reply({ error: r.error });
+          const what = [file && `${file.name} (${sizeOf(file.bytes)})`, text && `"${text}"`].filter(Boolean).join(' with ');
+          prepared = { driver, name: r.name, what, via: useApp ? 'app' : 'web', at: now() };
+          return reply({ ready: { name: r.name, what, via: prepared.via }, note: `Ready to send ${what} to ${r.name}.` });
+        });
+
+      tool('whatsapp_send', 'Send the WhatsApp message prepared by whatsapp_prepare (the user is asked first).', obj({}), async () => {
+        const p = prepared;
+        prepared = null;
+        if (!p) return reply({ error: 'Nothing is ready to send.' });
+        const { sent } = await p.driver.send();
+        return reply({ sent, note: sent ? 'Sent.' : "WhatsApp didn't confirm it was sent — please check." });
+      });
+
       tool('browser_screenshot', 'Show a picture of the page to the user.', obj({}), async () => {
         const { png } = await link.request('screenshot');
         show({ png: Buffer.from(png, 'base64'), caption: page?.title || 'Chrome' });
         return reply({ note: 'Here it is.' });
+      });
+
+      api.on('before_tool_call', async ({ toolName, from }) => {
+        if (toolName !== 'whatsapp_send') return undefined;
+        lastFrom = from || 'local';
+        if (!prepared || now() - prepared.at > PREPARED_MS) { prepared = null; return { block: true, blockReason: 'Nothing is ready to send.' }; }
+        const title = `Send ${prepared.what} to ${prepared.name}${prepared.via === 'app' ? ' on WhatsApp app' : ''}?`;
+        if (fromPhone(lastFrom)) {
+          try {
+            const png = prepared.via === 'app' ? await prepared.driver.shot?.() : (await link.request('screenshot')).png;
+            if (png) show({ png: Buffer.from(png, 'base64'), caption: title });
+          } catch { /* the question still stands */ }
+        }
+        return { requireApproval: { title, prompt: title, severity: 'warning', category: 'whatsapp', grantable: false } };
+      });
+      api.on('after_tool_call', async ({ toolName, error }) => {
+        if (toolName === 'whatsapp_send' && /declined/i.test(String(error || '')) && prepared) {
+          const p = prepared;
+          prepared = null;
+          await p.driver.cancel().catch(() => {});
+        }
       });
 
       api.on('before_tool_call', async ({ toolName, params = {}, from }) => {
