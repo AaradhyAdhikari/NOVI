@@ -35,7 +35,7 @@ function endTree(child) {
 }
 
 const accepts = (port) => new Promise((resolve) => {
-  const s = net.connect(port, '127.0.0.1', () => { s.destroy(); resolve(true); });
+  const s = net.connect({ port, host: 'localhost', autoSelectFamily: true }, () => { s.destroy(); resolve(true); });
   s.on('error', () => resolve(false));
 });
 

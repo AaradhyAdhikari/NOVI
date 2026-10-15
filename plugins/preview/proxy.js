@@ -1,3 +1,4 @@
+// Sites are reached at "localhost" (IPv4 or IPv6: Vite on newer Node listens on ::1 only).
 // The preview port: the project's site at the root of its own address (so /assets/… paths work),
 // reachable only with a one-time link Novi gives to a paired device. The link's token becomes an
 // HttpOnly cookie; it lasts 30 minutes and only for the newest link (one project at a time).
@@ -34,7 +35,7 @@ export function createPreviewProxy({ port = 3005, tls = null, ttlMs = 30 * 60_00
       return;
     }
     if (!valid(cookieOf(req))) { res.writeHead(403, { 'Content-Type': 'text/plain' }).end(DENIED); return; }
-    const upstream = http.request({ host: '127.0.0.1', port: current.targetPort, method: req.method, path: req.url, headers: { ...req.headers, host: `127.0.0.1:${current.targetPort}` } }, (r) => {
+    const upstream = http.request({ host: 'localhost', autoSelectFamily: true, port: current.targetPort, method: req.method, path: req.url, headers: { ...req.headers, host: `localhost:${current.targetPort}` } }, (r) => {
       res.writeHead(r.statusCode, r.headers);
       r.pipe(res);
     });
@@ -45,8 +46,8 @@ export function createPreviewProxy({ port = 3005, tls = null, ttlMs = 30 * 60_00
   // WebSockets (hot reload): pass the raw upgrade request through to the site.
   function upgrade(req, socket, head) {
     if (!valid(cookieOf(req))) { socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n'); return; }
-    const target = net.connect(current.targetPort, '127.0.0.1', () => {
-      const headers = Object.entries({ ...req.headers, host: `127.0.0.1:${current.targetPort}` }).map(([k, v]) => `${k}: ${v}`).join('\r\n');
+    const target = net.connect({ port: current.targetPort, host: 'localhost', autoSelectFamily: true }, () => {
+      const headers = Object.entries({ ...req.headers, host: `localhost:${current.targetPort}` }).map(([k, v]) => `${k}: ${v}`).join('\r\n');
       target.write(`${req.method} ${req.url} HTTP/1.1\r\n${headers}\r\n\r\n`);
       if (head?.length) target.write(head);
       target.pipe(socket);

@@ -57,7 +57,7 @@ describe('preview plugin', () => {
   it('the contact page: phone-sized picture + live link for the asking device', async () => {
     const s = setup();
     const out = await s.show.run({ page: 'contact' });
-    expect(s.shots).toEqual([['http://127.0.0.1:4321/contact', { width: 390, height: 844 }]]);
+    expect(s.shots).toEqual([['http://localhost:4321/contact', { width: 390, height: 844 }]]);
     expect(s.shown[0].png).toBeInstanceOf(Buffer);
     expect(s.links).toEqual([{ url: 'https://laptop.tail.ts.net:3005/?novi=tok-portfolio-4321', label: 'Open the portfolio contact page live' }]);
     expect(out.note).toBe("Here's the contact page. Tap the link to open it live.");
@@ -66,9 +66,9 @@ describe('preview plugin', () => {
   it('a page found from a link on the homepage; an unknown one falls back to the homepage', async () => {
     const s = setup();
     await s.show.run({ page: 'about' });
-    expect(s.shots[0][0]).toBe('http://127.0.0.1:4321/about-me');
+    expect(s.shots[0][0]).toBe('http://localhost:4321/about-me');
     const out = await s.show.run({ page: 'blog' });
-    expect(s.shots[1][0]).toBe('http://127.0.0.1:4321/');
+    expect(s.shots[1][0]).toBe('http://localhost:4321/');
     expect(out.note).toBe("I couldn't find a blog page, so here's the homepage.");
   });
 

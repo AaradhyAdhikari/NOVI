@@ -1089,3 +1089,21 @@ describe('preview by voice', () => {
     expect(sent).toEqual([{ message: 'Please start the website so it can be previewed, and write .novi/run.json.' }]);
   });
 });
+
+describe('preview by voice: starting a project asks first', () => {
+  it('"show me the homepage" asks "Start the portfolio site to preview it?" before running it', async () => {
+    const ran = [];
+    const tools = new ToolRegistry().add({
+      name: 'preview_show', description: 'p', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'p',
+      gate: async () => ({ approval: { title: 'Start the portfolio site to preview it?', tier: 'medium', category: 'preview', grantable: true } }),
+      run: async () => { ran.push(1); return { note: "Here's the homepage." }; },
+    });
+    const approvals = new ApprovalQueue();
+    const asked = [];
+    approvals.on('added', (a) => { asked.push(a.title); approvals.resolve(a.id, true); });
+    const agent = new Agent({ router: { chat: async () => { throw new Error('no AI'); } }, tools, approvals, memory: { listProjects: () => [], lastTask: () => ({ project: 'portfolio' }) }, tasks: { status: () => ({ active: false }) } });
+    expect(await agent.handle('show me the homepage')).toBe("Here's the homepage.");
+    expect(asked).toEqual(['Start the portfolio site to preview it?']);
+    expect(ran).toEqual([1]);
+  });
+});

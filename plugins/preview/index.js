@@ -34,7 +34,7 @@ export function createPreviewPlugin({ sites = createSites(), proxy = null, shot 
     register(api) {
       const runtime = api.runtime || {};
       const link = proxy || createPreviewProxy({ port: Number(api.pluginConfig?.port || process.env.NOVI_PREVIEW_PORT) || 3005, tls: runtime.tls || null });
-      const readHome = fetchHome || (async (port) => { try { return await (await fetch(`http://127.0.0.1:${port}/`)).text(); } catch { return ''; } });
+      const readHome = fetchHome || (async (port) => { try { return await (await fetch(`http://localhost:${port}/`)).text(); } catch { return ''; } });
       const allowed = new Set(); // projects whose command the user already OK'd in this run
       const project = (name) => runtime.codingProject?.(name) || null;
 
@@ -54,7 +54,7 @@ export function createPreviewPlugin({ sites = createSites(), proxy = null, shot 
           const label = where.found && !isHome(page) ? `${String(page).trim().toLowerCase().replace(/\s*page$/, '')} page` : 'homepage';
           let pictured = true;
           try {
-            const { png } = await shot(`http://127.0.0.1:${site.port}${where.path}`, PHONE);
+            const { png } = await shot(`http://localhost:${site.port}${where.path}`, PHONE);
             runtime.showImage?.({ png, caption: `${p.name} — ${label}` });
           } catch { pictured = false; }
           runtime.showLink?.({ url: link.link({ project: p.name, targetPort: site.port, host: runtime.deviceHost?.() || 'localhost' }), label: `Open the ${p.name} ${label} live` });

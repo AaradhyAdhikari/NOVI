@@ -69,3 +69,16 @@ describe('preview port: one-time links', () => {
     await expect(new Promise((resolve, reject) => { bad.on('open', resolve); bad.on('error', reject); })).rejects.toThrow(/403/);
   });
 });
+
+const hasIpv6 = await new Promise((resolve) => { const s = http.createServer(); s.once('error', () => resolve(false)); s.listen(0, '::1', () => s.close(() => resolve(true))); });
+describe('preview port: sites that listen on IPv6 localhost (Vite on newer Node)', () => {
+  it.skipIf(!hasIpv6)('reaches a site listening only on ::1 (skipped on machines without IPv6)', async () => {
+    const server = http.createServer((req, res) => res.end('v6 site'));
+    await new Promise((r) => server.listen(0, '::1', r));
+    closers.push(() => server.close());
+    const p = await proxy();
+    const link = p.link({ project: 'a', targetPort: server.address().port, host: '127.0.0.1' });
+    const cookie = (await open(link)).headers.get('set-cookie').split(';')[0];
+    expect(await (await open(`http://127.0.0.1:${p.port()}/`, cookie)).text()).toBe('v6 site');
+  });
+});

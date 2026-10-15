@@ -14,7 +14,7 @@ import path from 'node:path';
 // Asked for directly, these just run even though they can't be "always allowed" in Settings
 // (code_start_task: the user already named Claude). Moving files Novi picked always asks.
 const DIRECT_OK = new Set(['code_start_task', 'code_send_message', 'rename_project', 'file_new_folder', 'open_project', 'file_open', 'file_rename', 'note_write', 'notes_ask', 'note_open']);
-const ASK_ANYWAY = new Set(['file_gather', 'file_undo_move', 'laptop_run', 'whatsapp_send']);
+const ASK_ANYWAY = new Set(['file_gather', 'file_undo_move', 'laptop_run', 'whatsapp_send', 'preview_show']); // preview_show: only its first start of a project's own command asks
 const MAX_ROUNDS = 10; // screen tasks: open the app, look, click, type, …
 const MAX_HISTORY = 40;
 const SUMMARY_AT = 20; // with a summarizer, history past this many messages folds its oldest 10 into one line
