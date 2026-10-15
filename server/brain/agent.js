@@ -5,6 +5,7 @@ import { UserFacingError } from '../errors.js';
 import { firstSentence } from '../narrator.js';
 import { answerKind } from './answers.js';
 import { FILE_LEAD, FILE_TAIL } from './phrases.js';
+import { controlCommand, isCancelWord } from './controlCommand.js';
 
 // Asked for directly, these just run even though they can't be "always allowed" in Settings
 // (code_start_task: the user already named Claude). Moving files Novi picked always asks.
@@ -276,6 +277,12 @@ export class Agent {
       const reply = await this._also(also, from);
       if (reply) return this._remember(text, reply);
     }
+    // A shut down / restart is counting down: "cancel" / "stop" / "ruko" cancel that first.
+    if (this._countdown && this._countdown.until > Date.now() && isCancelWord(text)) {
+      this._countdown = null;
+      const { output } = await this._runTool({ id: `power-${Date.now()}`, function: { name: 'laptop_power', arguments: JSON.stringify({ action: 'cancel' }) } }, { direct: true });
+      return this._remember(text, output?.error || output?.note || 'Okay, cancelled.');
+    }
     // While Novi waits for a yes/no, short answers the way they're said and heard ("A low", "Nay",
     // "Dino", "haan kar do") answer it — never a song, never the AI.
     const waiting = Boolean(this.approvals.latest?.({ excludeTier: 'high' }));
@@ -284,6 +291,8 @@ export class Agent {
       const quickReply = await this._quick(quick, from);
       if (quickReply) return this._remember(text, quickReply);
     }
+    const control = await this._controlCommand(text);
+    if (control) return this._remember(text, control);
     const yt = await this._youtube(text);
     if (yt) return this._remember(text, yt);
     const code = this.tools.get('code_show') ? codeCommand(text) : null;
@@ -400,6 +409,8 @@ export class Agent {
     const mem = this.tools.get('wiki_recent') ? await this._memoryCommand(text) : null;
     if (mem?.reply) return { quick: null, calls: [], reply: mem.reply, provider: 'direct' };
     if (mem && this.tools.get(mem.tool)) return { quick: null, calls: [{ name: mem.tool, args: mem.args }], reply: null, provider: 'direct' };
+    const ctl = controlCommand(text);
+    if (ctl && this.tools.get(ctl.tool)) return { quick: null, calls: [{ name: ctl.tool, args: ctl.args }], reply: null, provider: 'direct' };
     const file = fileCommand(text);
     if (file && this.tools.get(file.tool)) return { quick: null, calls: [{ name: file.tool, args: file.args }], reply: null, provider: 'direct' };
     const web = webCommand(text);
@@ -540,6 +551,7 @@ export class Agent {
   // "should I?" again is noise. Big or risky things still ask; see _skipAsking.
   async _runTool(call, { direct = false } = {}) {
     const result = await this._runToolInner(call, { direct });
+    if (result.output?.countdownUntil) this._countdown = { until: result.output.countdownUntil };
     const err = result.output?.error;
     let params = {};
     try { params = JSON.parse(call.function?.arguments || '{}'); } catch { /* bad JSON: reported by the run */ }
@@ -609,6 +621,22 @@ export class Agent {
     } catch (err) {
       return { output: { error: err.message }, note: err instanceof UserFacingError ? err.message : undefined };
     }
+  }
+
+  // Laptop controls without the AI (volume, windows, clipboard…). "Go to X" with no such window
+  // returns null so the request goes on (X may be a website or an app to open).
+  async _controlCommand(text) {
+    const ctl = controlCommand(text);
+    if (!ctl || !this.tools.get(ctl.tool)) return null;
+    const args = { ...ctl.args };
+    if (ctl.lastReply) {
+      const last = [...this.history].reverse().find((m) => m.role === 'assistant')?.content;
+      if (!last) return "There's nothing to copy yet.";
+      args.text = last;
+    }
+    const { output } = await this._runTool({ id: `laptop-${Date.now()}`, function: { name: ctl.tool, arguments: JSON.stringify(args) } }, { direct: true });
+    if (output?.notFound && args.do === 'focus') return null;
+    return output?.error || output?.note || 'Done.';
   }
 
   async _memoryCommand(text) {

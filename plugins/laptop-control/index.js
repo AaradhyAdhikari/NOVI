@@ -106,7 +106,7 @@ export function createLaptopControlPlugin({
         obj({ app: { type: 'string' }, do: { type: 'string', enum: ['focus', 'minimize', 'maximize', 'close'] }, all: { type: 'boolean' } }, ['app', 'do']),
         async ({ app, do: action, all }) => {
           const found = findWindows(await windows(), app);
-          if (!found.length) return { error: `I don't see a window for ${app}.` };
+          if (!found.length) return { error: `I don't see a window for ${app}.`, notFound: true };
           const label = appLabel(found[0]);
           if (action === 'close') {
             const targets = all ? found : found.slice(0, 1);
@@ -148,7 +148,7 @@ export function createLaptopControlPlugin({
           if (action === 'paste') {
             const list = await windows();
             const target = app ? findWindows(list, app)[0] : workWindow(list);
-            if (!target) return { error: `I don't see a window for ${app || 'that'}.` };
+            if (!target) return { error: `I don't see a window for ${app || 'that'}.`, notFound: true };
             await run('window', { id: target.id, do: 'focus' });
             await pause(150);
             await run('keys', { combo: 'paste' }); // never Enter: sending stays the user's

@@ -29,6 +29,7 @@ const WORDS = {
   clock: 'announce announcement',
   accounts: 'account accounts',
   wiki: 'note notes noted notebook obsidian diary did done kiya',
+  laptop: 'volume louder quieter mute unmute awaaz sound brightness bright brighter dim media pause resume song gaana battery charge charging wifi wi-fi bluetooth lock sleep shutdown shut restart reboot signout logout window windows switch minimize maximize close clipboard copy copied paste band chalu chrome',
   web: 'web internet online google googled search searching lookup news headlines latest won win winner score scores match price prices rate rates release released launched article articles http https',
   // "make a project named X in Claude": doing things inside an app = screen control.
   screen: 'screen click type press key button window whatsapp notepad look see showing tab screenshot screenshots ss picture photo image snapshot capture make create named inside',

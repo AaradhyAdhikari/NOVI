@@ -33,6 +33,7 @@ const ALL = [
   tool('wiki_recent', 'What Novi did recently.'),
   tool('web_search', 'Search the web.'),
   tool('web_read', 'Read a web page.'),
+  tool('laptop_volume', 'v'), tool('laptop_window', 'w'), tool('laptop_battery', 'b'), tool('laptop_clipboard', 'c'), tool('laptop_power', 'p'),
 ];
 const names = (text, opts) => selectTools(ALL, { text, ...opts }).map((t) => t.function.name);
 
@@ -50,6 +51,13 @@ describe('selectTools: send the model only the tools a request needs', () => {
     }
     expect(names("What's the weather in Pune tomorrow?")).not.toContain('web_search');
     expect(names('open my DBMS notes')).not.toContain('web_search');
+  });
+
+  it('laptop: volume, windows, battery, clipboard and power words bring all laptop tools', () => {
+    for (const text of ['turn up the volume a bit', 'close chrome', 'battery kitni hai', 'paste it into whatsapp', 'lock my laptop', 'make the screen brighter']) {
+      expect(names(text), text).toEqual(expect.arrayContaining(['laptop_volume', 'laptop_window', 'laptop_battery', 'laptop_clipboard', 'laptop_power']));
+    }
+    expect(names("What's the weather in Pune tomorrow?")).not.toContain('laptop_volume');
   });
 
   it('weather question gets the weather tool, not mail or GitHub', () => {
