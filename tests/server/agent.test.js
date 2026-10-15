@@ -982,3 +982,29 @@ describe('laptop commands: history by voice', () => {
     expect(await agent.handle('what commands did you run today?')).toBe('2 today. Last: a, b.');
   });
 });
+
+describe('WhatsApp by voice: find the file, prepare, then always ask before sending', () => {
+  it('"send my DBMS notes folder to Rahul on WhatsApp" finds it, prepares, asks, sends on yes', async () => {
+    const ran = [];
+    const tools = new ToolRegistry()
+      .add({ name: 'file_find', description: 'f', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'f', run: async (a) => { ran.push(['file_find', a]); return { files: [{ name: 'DBMS notes', folder: '/home/me/Documents', folderItself: true }] }; } })
+      .add({ name: 'whatsapp_prepare', description: 'p', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'p', run: async (a) => { ran.push(['whatsapp_prepare', a]); return { ready: { name: 'Rahul Sharma', what: 'DBMS notes.zip (3 MB)', via: 'web' } }; } })
+      .add({ name: 'whatsapp_send', description: 's', parameters: { type: 'object', properties: {} }, tier: 'medium', describe: () => 'Send DBMS notes.zip (3 MB) to Rahul Sharma?', run: async () => { ran.push(['whatsapp_send']); return { note: 'Sent.' }; } });
+    const approvals = new ApprovalQueue();
+    const asked = [];
+    approvals.on('added', (a) => { asked.push(a.title); approvals.resolve(a.id, true); });
+    const agent = new Agent({ router: { chat: async () => { throw new Error('no AI'); } }, tools, approvals, memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
+    expect(await agent.handle('send my DBMS notes folder to Rahul on WhatsApp')).toBe('Sent.');
+    expect(ran[0]).toEqual(['file_find', { query: 'DBMS notes folder' }]);
+    expect(ran[1][1]).toEqual({ to: 'Rahul', path: (await import('node:path')).join('/home/me/Documents', 'DBMS notes') });
+    expect(asked).toEqual(['Send DBMS notes.zip (3 MB) to Rahul Sharma?']);
+  });
+
+  it('nothing found → says so, nothing prepared', async () => {
+    const tools = new ToolRegistry()
+      .add({ name: 'file_find', description: 'f', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'f', run: async () => ({ files: [] }) })
+      .add({ name: 'whatsapp_prepare', description: 'p', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'p', run: async () => { throw new Error('should not run'); } });
+    const agent = new Agent({ router: {}, tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
+    expect(await agent.handle('send my DBMS notes folder to Rahul on WhatsApp')).toBe("I can't find DBMS notes.");
+  });
+});

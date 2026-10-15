@@ -807,3 +807,18 @@ describe('Settings → History API', () => {
     expect((await fetch(`${base}/api/commands/history`, { headers: { Authorization: `Bearer ${token}` } })).status).toBe(403);
   });
 });
+
+describe('Settings → Browser API', () => {
+  it('laptop sees the extension status and code, can make a new code; a phone gets 403', async () => {
+    let local = true;
+    const { novi, base } = await start({ isLocalAddress: () => local });
+    let code = 'abc123';
+    novi.plugins.runtime.browserStatus = () => ({ connected: false, code });
+    novi.plugins.runtime.browserNewCode = () => { code = 'new456'; return code; };
+    expect(await (await fetch(`${base}/api/browser`)).json()).toEqual({ connected: false, code: 'abc123' });
+    expect(await (await fetch(`${base}/api/browser/code`, { method: 'POST' })).json()).toEqual({ connected: false, code: 'new456' });
+    local = false;
+    const { token } = novi.pairing.issue('Phone');
+    expect((await fetch(`${base}/api/browser`, { headers: { Authorization: `Bearer ${token}` } })).status).toBe(403);
+  });
+});

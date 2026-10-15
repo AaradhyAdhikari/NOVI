@@ -356,5 +356,29 @@
     "expect": {
       "direct": true
     }
+  },
+  {
+    "say": "what is today's LeetCode problem",
+    "expect": {
+      "tools": [
+        "leetcode_today"
+      ]
+    }
+  },
+  {
+    "say": "show my LeetCode stats",
+    "expect": {
+      "tools": [
+        "leetcode_stats"
+      ]
+    }
+  },
+  {
+    "say": "send my DBMS notes folder to Rahul on WhatsApp",
+    "expect": {
+      "tools": [
+        "whatsapp_prepare"
+      ]
+    }
   }
 ]

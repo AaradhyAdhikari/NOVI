@@ -66,6 +66,11 @@ public static class NoviWin {
   [DllImport("user32.dll")] static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
   [DllImport("user32.dll")] static extern void keybd_event(byte k, byte s, uint f, UIntPtr e);
   [DllImport("user32.dll")] public static extern bool LockWorkStation();
+  [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+  [StructLayout(LayoutKind.Sequential)] struct RECT { public int L, T, R, B; }
+  [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RECT r);
+  public static int[] Rect(long id) { RECT r; GetWindowRect(new IntPtr(id), out r); return new int[] { r.L, r.T, r.R - r.L, r.B - r.T }; }
+  public static void Press(byte vk) { Key(vk, false); }
 
   // Visible, titled, top-level app windows in z-order (front first): [handle, title, pid].
   public static List<object[]> List() {
@@ -98,6 +103,8 @@ public static class NoviWin {
   }
 }
 '@
+[NoviWin]::SetProcessDPIAware() | Out-Null
+Add-Type -AssemblyName System.Drawing
 
 # WinRT (Wi-Fi / Bluetooth radios): await an IAsyncOperation from PowerShell 5.1.
 $asTaskGeneric = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' })[0]
@@ -187,11 +194,24 @@ $handlers = @{
   'clip-get' = { param($a) $t = Get-Clipboard -Raw -Format Text -ErrorAction SilentlyContinue; @{ text = [string]$t } }
   'clip-set' = { param($a) Set-Clipboard -Value ([string]$a.text); @{} }
   keys = { param($a)
-    $letter = @{ copy = 0x43; paste = 0x56 }[[string]$a.combo]
-    if (-not $letter) { throw 'bad-keys' }
-    [NoviWin]::Ctrl([byte]$letter)
+    $ctrl = @{ copy = 0x43; paste = 0x56; find = 0x46 }[[string]$a.combo]
+    $plain = @{ enter = 0x0D; escape = 0x1B }[[string]$a.combo]
+    if ($ctrl) { [NoviWin]::Ctrl([byte]$ctrl) } elseif ($plain) { [NoviWin]::Press([byte]$plain) } else { throw 'bad-keys' }
     @{}
   }
+  'clip-files' = { param($a) Set-Clipboard -Path @($a.paths); @{} }
+  'shot-window' = { param($a)
+    $r = [NoviWin]::Rect([long]$a.id)
+    if ($r[2] -le 0 -or $r[3] -le 0) { throw 'no-window' }
+    $bmp = New-Object System.Drawing.Bitmap $r[2], $r[3]
+    $g = [System.Drawing.Graphics]::FromImage($bmp)
+    $g.CopyFromScreen($r[0], $r[1], 0, 0, $bmp.Size)
+    $ms = New-Object System.IO.MemoryStream
+    $bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
+    $g.Dispose(); $bmp.Dispose()
+    @{ png = [Convert]::ToBase64String($ms.ToArray()) }
+  }
+  'start-whatsapp' = { param($a) Start-Process 'whatsapp:'; @{} }
 }
 
 while ($true) {

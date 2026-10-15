@@ -10,6 +10,7 @@ import NotificationsSetup from './NotificationsSetup.jsx';
 import PairQr from './PairQr.jsx';
 import MemoryGalaxy from './MemoryGalaxy.jsx';
 import CommandHistory from './CommandHistory.jsx';
+import BrowserSetup from './BrowserSetup.jsx';
 
 export default function SettingsDrawer({ open, onClose, projects, devices, accounts = [], googleConfigured, api, isLocal }) {
   const [pairing, setPairing] = useState(null);
@@ -121,6 +122,11 @@ export default function SettingsDrawer({ open, onClose, projects, devices, accou
         <section>
           <h3>History</h3>
           {isLocal ? <CommandHistory api={api} /> : <p className="muted">Open this on the laptop.</p>}
+        </section>
+
+        <section>
+          <h3>Browser</h3>
+          {isLocal ? <BrowserSetup api={api} /> : <p className="muted">Open this on the laptop.</p>}
         </section>
 
         <section>
