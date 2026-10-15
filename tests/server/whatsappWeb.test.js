@@ -52,7 +52,7 @@ describe('WhatsApp Web driver', () => {
     fs.writeFileSync(file, 'zip');
     expect(await d.prepare({ to: 'rahul', file: { file, name: 'notes.zip', bytes: 3 } })).toEqual({ ok: true, name: 'Rahul Sharma' });
     expect(calls).toContainEqual(['switch', { tabId: 7 }]);
-    expect(calls).toContainEqual(['typeSel', { selector: WA.search, text: 'rahul' }]);
+    expect(calls).toContainEqual(['typeSel', { selector: WA.search, text: 'rahu' }]);
     expect(calls.find(([c]) => c === 'attach')[1]).toMatchObject({ selector: WA.fileInput, name: 'notes.zip', b64: Buffer.from('zip').toString('base64') });
     expect(calls.some(([c, a]) => c === 'clickSel' && a.selector === WA.send)).toBe(false);
     expect(await d.send()).toEqual({ sent: true });
@@ -91,5 +91,18 @@ describe('WhatsApp Web driver', () => {
     expect(await d.send()).toEqual({ sent: false });
     await d.cancel();
     expect(calls).toContainEqual(['typeSel', { selector: WA.compose, text: '' }]);
+  });
+});
+
+describe('names as heard (live 2026-10-15: "Isha" vs the contact "Ishaa")', () => {
+  it('one letter more or less still finds the person; a real tie still asks', async () => {
+    const { pickContact, searchWord } = await import('../../plugins/browser/whatsapp.js');
+    expect(pickContact(['Ishaa'], 'Isha')).toEqual({ name: 'Ishaa' });
+    expect(pickContact(['Isha'], 'Ishaa')).toEqual({ name: 'Isha' });
+    expect(pickContact(['Ishaa Sharma', 'Rahul'], 'isha sharma')).toEqual({ name: 'Ishaa Sharma' });
+    expect(pickContact(['Isha', 'Ishaa'], 'Isha')).toEqual({ name: 'Isha' });
+    expect(pickContact(['Ishan', 'Mom'], 'Ishaa')).toEqual({ none: true });
+    expect(searchWord('Ishaa Sharma')).toBe('isha');
+    expect(searchWord('Mom')).toBe('mom');
   });
 });

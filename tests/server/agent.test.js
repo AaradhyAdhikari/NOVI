@@ -1008,3 +1008,12 @@ describe('WhatsApp by voice: find the file, prepare, then always ask before send
     expect(await agent.handle('send my DBMS notes folder to Rahul on WhatsApp')).toBe("I can't find DBMS notes.");
   });
 });
+
+describe('system prompt: websites vs videos (live 2026-10-15)', () => {
+  it('login / forms / clicking a site go through the browser tools; LeetCode is never a video', async () => {
+    const { systemPrompt } = await import('../../server/brain/agent.js');
+    const p = systemPrompt({ projects: [], task: { active: false } });
+    expect(p).toMatch(/log in, fill a form, click or read a page[^.]*browser_open/);
+    expect(p).toMatch(/never play a video for LeetCode/);
+  });
+});

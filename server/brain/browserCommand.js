@@ -21,8 +21,13 @@ function fileOrText(what, to, via) {
 export function browserCommand(text) {
   const t = clean(text);
   if (!t) return null;
-  if (/^(?:(?:what(?:'s| is) )?(?:today'?s|the daily|daily) (?:leetcode|leet code)(?: problem| question| challenge)?|leetcode (?:today'?s |daily )?(?:problem|question|challenge)(?: of the day| today)?|leetcode today|aaj ka leetcode(?: (?:problem|question))?(?: kya hai)?)$/i.test(t)) return T('leetcode_today');
-  if (/^(?:(?:show |tell me )?my leetcode (?:stats|progress|score|profile)|leetcode (?:stats|progress)|how many leetcode (?:problems|questions) (?:have i|did i) solved?)$/i.test(t)) return T('leetcode_stats');
+  // Any LeetCode phrasing about today's problem or the user's progress — never left to the AI, which
+  // once played a YouTube video for "show me today's leetcode problem". Login / sign-in / "in
+  // chrome" stay with the AI (browser tools).
+  if (/\bleet ?code\b/i.test(t) && !/\b(?:login|log in|sign ?in|sign ?up|chrome|browser|tab)\b/i.test(t)) {
+    if (/\b(?:stats?|streak|solved|progress|profile|score|rank(?:ing)?|kitne)\b/i.test(t)) return T('leetcode_stats');
+    if (/\b(?:today'?s?|daily|aaj|potd|of the day|problem|question|challenge)\b/i.test(t)) return T('leetcode_today');
+  }
   let m = /^send (.+?) to (.+?) on (?:the )?whats ?app(?: (app|web))?$/i.exec(t);
   if (m) return fileOrText(m[1], m[2].trim(), m[3]);
   m = /^(.+?) ko (.+?) (?:bhej do|bhejo|bhej de)(?: (?:on )?whats ?app(?: (app|web))?(?: (?:pe|par))?| whats ?app (?:pe|par))$/i.exec(t);

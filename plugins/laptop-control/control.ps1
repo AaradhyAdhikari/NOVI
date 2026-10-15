@@ -194,7 +194,7 @@ $handlers = @{
   'clip-get' = { param($a) $t = Get-Clipboard -Raw -Format Text -ErrorAction SilentlyContinue; @{ text = [string]$t } }
   'clip-set' = { param($a) Set-Clipboard -Value ([string]$a.text); @{} }
   keys = { param($a)
-    $ctrl = @{ copy = 0x43; paste = 0x56; find = 0x46 }[[string]$a.combo]
+    $ctrl = @{ copy = 0x43; paste = 0x56; find = 0x46; selectall = 0x41 }[[string]$a.combo]
     $plain = @{ enter = 0x0D; escape = 0x1B }[[string]$a.combo]
     if ($ctrl) { [NoviWin]::Ctrl([byte]$ctrl) } elseif ($plain) { [NoviWin]::Press([byte]$plain) } else { throw 'bad-keys' }
     @{}

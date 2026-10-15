@@ -2,7 +2,7 @@
 // Gemini vision on a screenshot of the WhatsApp window (to read the contact list and the chat name —
 // the user allowed screenshots to Gemini). Same driver shape as WhatsApp Web: prepare → send/cancel.
 import { findWindows } from '../laptop-control/windows.js';
-import { pickContact } from './whatsapp.js';
+import { pickContact, searchWord } from './whatsapp.js';
 
 const NAMES = 'This is the WhatsApp app after searching. List the names of the chats shown in the search results, top to bottom, as a JSON array of strings. Only names, nothing else.';
 const HEADER = 'This is the WhatsApp app with a chat open. What is the contact name in the header at the top of the open chat? Answer with the name only.';
@@ -34,7 +34,8 @@ export function createAppDriver({ worker, vision, sleep = (ms) => new Promise((r
       await worker.run('window', { id: win.id, do: 'focus' });
       await sleep(300);
       await keys('find');
-      await paste(to);
+      await keys('selectall'); // the search box keeps old text; replace it, never add to it
+      await paste(searchWord(to));
       await sleep(1000);
       let names = [];
       try { names = JSON.parse((await look(NAMES)).replace(/^```(?:json)?|```$/g, '')); } catch { names = []; }

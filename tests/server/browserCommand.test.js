@@ -27,3 +27,17 @@ describe('browserCommand: LeetCode and WhatsApp without the AI', () => {
     expect(isDoneWord('done with the report?')).toBe(false);
   });
 });
+
+describe('LeetCode as actually said (live 2026-10-15: one phrasing went to the AI and played a video)', () => {
+  it('any LeetCode problem-of-the-day phrasing goes straight to leetcode_today', () => {
+    for (const t of ["show me today's leetcode problem", 'open the leetcode question of the day', 'what is the leetcode problem today', 'leetcode ka aaj ka question', "tell me today's leetcode challenge", 'leetcode potd'])
+      expect(browserCommand(t), t).toEqual({ tool: 'leetcode_today', args: {} });
+  });
+  it('streak / solved / profile go to leetcode_stats', () => {
+    for (const t of ['what is my leetcode streak', 'how many problems have I solved on leetcode', 'show me my leetcode profile'])
+      expect(browserCommand(t), t).toEqual({ tool: 'leetcode_stats', args: {} });
+  });
+  it('other LeetCode requests stay with the AI', () => {
+    for (const t of ['open leetcode in chrome', 'open the leetcode login page']) expect(browserCommand(t), t).toBe(null);
+  });
+});
