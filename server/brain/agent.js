@@ -11,6 +11,7 @@ const DIRECT_OK = new Set(['code_start_task', 'code_send_message', 'rename_proje
 const ASK_ANYWAY = new Set(['file_gather', 'file_undo_move']);
 const MAX_ROUNDS = 10; // screen tasks: open the app, look, click, type, …
 const MAX_HISTORY = 40;
+const SUMMARY_AT = 20; // with a summarizer, history past this many messages folds its oldest 10 into one line
 
 export function systemPrompt({ projects, task, accounts = [] }) {
   return [
@@ -226,7 +227,7 @@ export function describeStatus(s) {
 }
 
 export class Agent {
-  constructor({ router, tools, approvals, memory, tasks, accounts = null, privateProviders = ['groq'], logger = console, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
+  constructor({ router, tools, approvals, memory, tasks, accounts = null, privateProviders = ['groq'], summarize = null, logger = console, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
     this.sleep = sleep;
     this.logger = logger;
     this.accounts = accounts;
@@ -237,6 +238,8 @@ export class Agent {
     this.memory = memory;
     this.tasks = tasks;
     this.history = [];
+    this.summarize = summarize; // (text) → 2-sentence summary on the private provider; long chats keep earlier context
+    this._summarizing = null;
   }
 
   // from: 'local' (the laptop) or { deviceId } — approvals answered by voice check it (server/remoteTrust.js).
@@ -591,8 +594,24 @@ export class Agent {
 
   _remember(text, replyText) {
     this.history.push({ role: 'user', content: text }, { role: 'assistant', content: replyText });
+    if (this.summarize && this.history.length > SUMMARY_AT && !this._summarizing) this._summarizing = this._summarizeOldest();
     if (this.history.length > MAX_HISTORY) this.history.splice(0, this.history.length - MAX_HISTORY);
     Promise.resolve(this.tools.agentEnd?.({ messages: [{ role: 'user', content: text }, { role: 'assistant', content: replyText }], success: true })).catch(() => {});
     return replyText;
+  }
+
+  // Runs after the reply: the oldest 10 messages leave history now; their 2-sentence summary comes
+  // back as one system line at the top. If summarizing fails they're just gone (as before).
+  async _summarizeOldest() {
+    const old = this.history.splice(0, 10);
+    try {
+      const said = old.map((m) => `${m.role === 'assistant' ? 'Novi' : m.role === 'user' ? 'User' : 'Note'}: ${m.content}`).join('\n');
+      const summary = String((await this.summarize(`Summarize in 2 sentences what was said:\n${said}`)) || '').trim();
+      if (summary) this.history.unshift({ role: 'system', content: `Earlier in this chat: ${summary}` });
+    } catch (err) {
+      this.logger.warn?.(`[agent] chat summary failed: ${err.message}`);
+    } finally {
+      this._summarizing = null;
+    }
   }
 }

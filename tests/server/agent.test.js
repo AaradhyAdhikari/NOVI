@@ -779,3 +779,31 @@ describe('memory by voice: "it", "what did you do", notes', async () => {
     for (const t of ['rename sample project to calc', 'open my DBMS notes', 'open youtube', "what's the weather", 'make a folder called x']) expect(memoryCommand(t, recent, NOW), t).toBeNull();
   });
 });
+
+describe('long chats keep earlier context', () => {
+  const make = (summarize) => {
+    const agent = new Agent({ router: {}, tools: new ToolRegistry(), approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) }, summarize });
+    for (let i = 0; i < 10; i++) agent.history.push({ role: 'user', content: `q${i}` }, { role: 'assistant', content: `a${i}` });
+    return agent;
+  };
+
+  it('past 20 messages, the oldest 10 become one "Earlier in this chat" line', async () => {
+    const seen = [];
+    const agent = make(async (text) => { seen.push(text); return 'They talked about DBMS.'; });
+    agent._remember('q10', 'a10');
+    await agent._summarizing;
+    expect(agent.history).toHaveLength(13);
+    expect(agent.history[0]).toEqual({ role: 'system', content: 'Earlier in this chat: They talked about DBMS.' });
+    expect(seen[0]).toMatch(/^Summarize in 2 sentences what was said:/);
+    expect(seen[0]).toContain('q0');
+    expect(seen[0]).not.toContain('q5');
+  });
+
+  it('a failing summary just drops those 10 messages', async () => {
+    const agent = make(async () => { throw new Error('busy'); });
+    expect(agent._remember('q10', 'a10')).toBe('a10');
+    await agent._summarizing;
+    expect(agent.history).toHaveLength(12);
+    expect(agent.history[0]).toEqual({ role: 'user', content: 'q5' });
+  });
+});
