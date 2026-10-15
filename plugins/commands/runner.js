@@ -30,10 +30,11 @@ export function buildScript(command, look) {
     "  $n = $n -replace '\\.exe$', ''",
     "  -not (($read -contains $n) -or ($n.StartsWith('get-') -and $n -ne 'get-credential'))",
     '})',
-    "$force = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandParameterAst] -and $n.ParameterName -eq 'Force' }, $true))",
+    "$force = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandParameterAst] -and @('force','install','acceptall','download','autoreboot','delete','remove','kill','stop','reset','clear') -contains $n.ParameterName.ToLower() }, $true))",
+    "$ipc = @($cmds | Where-Object { $_.GetCommandName() -match '^ipconfig' -and \"$_\" -match '/(release|renew|flushdns|registerdns|setclassid)' })",
     '$calls = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.InvokeMemberExpressionAst] }, $true) | Where-Object { -not ($safe -contains $_.Member.Value.ToLower()) })',
     '$redir = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FileRedirectionAst] }, $true))',
-    "if ($bad.Count -or $force.Count -or $calls.Count -or $redir.Count) { 'NOVI-NOT-LOOK'; exit 3 }",
+    "if ($bad.Count -or $force.Count -or $ipc.Count -or $calls.Count -or $redir.Count) { 'NOVI-NOT-LOOK'; exit 3 }",
   ];
   return [...check, ...run].join('\n');
 }

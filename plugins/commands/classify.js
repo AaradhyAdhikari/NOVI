@@ -83,6 +83,9 @@ function lookProblem(words, bare) {
   }
   if (/>/.test(bare.replace(/-(?:gt|ge)\b/gi, ''))) return 'it writes to a file';
   if (/(?:^|\s)-force\b/i.test(bare)) return 'it uses -Force';
+  // Read-only programs and Get- commands that still change things with some switches.
+  if (/\bipconfig\b[^|;]*\/(?:release|renew|flushdns|registerdns|setclassid)/i.test(bare)) return 'ipconfig with a switch that changes the network';
+  if (/(?:^|\s)-(?:install|acceptall|download|autoreboot|delete|remove|kill|stop|reset|clear)\b/i.test(bare)) return 'a switch that changes things';
   for (const m of bare.matchAll(/\[[\w.]+\]::\w+\(?/g)) if (!SAFE_TYPES.test(m[0])) return `it calls ${m[0]}`;
   for (const m of bare.matchAll(/\.(\w+)\(/g)) if (!SAFE_METHODS.has(m[1].toLowerCase())) return `it calls .${m[1]}()`;
   if (/(?:^|[;|{(]\s*)[&.]\s/.test(bare)) return 'it runs another script';

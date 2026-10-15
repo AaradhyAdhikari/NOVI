@@ -28,6 +28,10 @@ const CHANGE = [
   "[IO.File]::WriteAllText('a','b')",
   'Get-Item x; Copy-Item x y',
   'some-unknown-program.exe',
+  'ipconfig /release',
+  'ipconfig /flushdns',
+  'Get-WindowsUpdate -Install -AcceptAll',
+  'Get-Service | Get-Thing -Remove',
   '',
 ];
 const DANGER = [
