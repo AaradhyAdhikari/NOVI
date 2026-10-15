@@ -15,6 +15,8 @@
     const items = [];
     let n = 0;
     let focused = null;
+    // Old numbers go first: an element hidden since the last read must not answer to a new number.
+    for (const el of document.querySelectorAll('[data-novi-n]')) el.removeAttribute('data-novi-n');
     for (const el of document.querySelectorAll(SEL)) {
       if (n >= 150 || !visible(el)) continue;
       n += 1;
