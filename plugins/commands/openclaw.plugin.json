@@ -1,0 +1,9 @@
+{
+  "id": "commands",
+  "name": "Laptop commands",
+  "description": "Runs one PowerShell command for requests no other tool covers, with safety levels (look runs, change asks, danger needs the voice PIN, never is refused) and a history.",
+  "categories": ["other"],
+  "contracts": { "tools": ["laptop_run", "commands_history"] },
+  "activation": { "onStartup": true },
+  "configSchema": { "type": "object", "additionalProperties": false, "properties": {} }
+}

@@ -951,3 +951,26 @@ describe('pin approvals reach the approval queue', () => {
     expect(seen[0]).toMatchObject({ title: 'Delete it?', pin: true });
   });
 });
+
+describe('laptop commands: a direct route never skips the question', () => {
+  it('laptop_run (a change) asks even when run directly', async () => {
+    const { PluginHost } = await import('../../server/plugins/host.js');
+    const { createCommandsPlugin } = await import('../../plugins/commands/index.js');
+    const fs = await import('node:fs');
+    const os = await import('node:os');
+    const path = await import('node:path');
+    const { createHistory } = await import('../../plugins/commands/history.js');
+    const runs = [];
+    const tools = new PluginHost({ logger: { warn() {} } });
+    tools.register(createCommandsPlugin({ runner: { run: async (a) => { runs.push(a); return { ok: true, exitCode: 0, output: '' }; } }, history: createHistory({ file: path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'novi-a-')), 'h.jsonl') }) }));
+    const approvals = new ApprovalQueue();
+    const asked = [];
+    approvals.on('added', (a) => { asked.push(a.title); approvals.resolve(a.id, false); });
+    const agent = new Agent({ router: {}, tools, approvals, memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
+    agent._turnYes = new Set();
+    const { output } = await agent._runTool({ id: 'x', function: { name: 'laptop_run', arguments: JSON.stringify({ command: 'Stop-Process -Name notepad', purpose: 'Close Notepad' }) } }, { direct: true });
+    expect(asked).toEqual(['Close Notepad?']);
+    expect(runs).toEqual([]);
+    expect(output.error).toMatch(/declined/);
+  });
+});
