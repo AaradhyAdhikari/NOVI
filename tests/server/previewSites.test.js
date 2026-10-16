@@ -60,6 +60,14 @@ describe('preview: running sites', () => {
     await expect(sites.start('b', project({ '.novi/run.json': { command: `"${process.execPath}" -e "setTimeout(()=>{},5000)"` } }))).rejects.toThrow("The site didn't say which address it uses.");
   });
 
+  it('lists the sites that are running', async () => {
+    sites = createSites();
+    await sites.start('site', project({ 'index.html': 'x' }));
+    expect(sites.list()).toEqual(['site']);
+    sites.stop('site');
+    expect(sites.list()).toEqual([]);
+  });
+
   it('stop and stopAll end the sites', async () => {
     sites = createSites();
     const d = project({ '.novi/run.json': { command: cmd() } });

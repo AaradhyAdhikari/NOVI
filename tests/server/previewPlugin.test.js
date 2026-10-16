@@ -22,6 +22,7 @@ function setup({ project = { name: 'portfolio', path: folder({ '.novi/run.json':
     running: () => running,
     stop: () => { running = false; return true; },
     stopAll: () => { stopped += 1; },
+    list: () => (running ? ['portfolio'] : []),
   };
   const proxy = { start: async () => {}, stop: () => {}, link: ({ project: p, targetPort, host }) => `https://${host}:3005/?novi=tok-${p}-${targetPort}` };
   const runtime = { codingProject: (name) => (name && name !== project?.name ? null : project), showImage: (i) => shown.push(i), showLink: (l) => links.push(l), deviceHost: () => 'laptop.tail.ts.net' };
@@ -31,7 +32,7 @@ function setup({ project = { name: 'portfolio', path: folder({ '.novi/run.json':
     shot: async (url, size) => { shots.push([url, size]); if (shotFails) throw new Error('no edge'); return { png: Buffer.from('png') }; },
     fetchHome: async () => homeHtml,
   }));
-  return { host, started, shots, shown, links, stoppedAll: () => stopped, show: host.get('preview_show'), stop: host.get('preview_stop') };
+  return { host, started, shots, shown, links, stoppedAll: () => stopped, show: host.get('preview_show'), stop: host.get('preview_stop'), status: host.get('preview_status') };
 }
 
 describe('preview plugin', () => {
@@ -85,5 +86,12 @@ describe('preview plugin', () => {
     expect((await s.stop.run({})).note).toBe('Stopped the portfolio preview.');
     await s.host.stopServices();
     expect(s.stoppedAll()).toBe(1);
+  });
+
+  it('says which previews are running', async () => {
+    const s = setup();
+    expect((await s.status.run({})).note).toBe('');
+    await s.show.run({});
+    expect((await s.status.run({})).note).toBe('The portfolio preview is running.');
   });
 });

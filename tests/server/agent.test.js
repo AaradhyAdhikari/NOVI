@@ -1107,3 +1107,51 @@ describe('preview by voice: starting a project asks first', () => {
     expect(ran).toEqual([1]);
   });
 });
+
+describe('activity log: what happened in each request', () => {
+  it('records direct tools and AI turns; "what went wrong" answers from the log', async () => {
+    const { createActivity } = await import('../../server/activity.js');
+    const dir = (await import('node:fs')).mkdtempSync((await import('node:path')).join((await import('node:os')).tmpdir(), 'novi-aa-'));
+    const activity = createActivity({ file: `${dir}/a.json` });
+    const tools = new ToolRegistry().add({ name: 'leetcode_today', description: 'l', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'l', run: async () => ({ error: 'LeetCode is not answering right now.' }) });
+    const agent = new Agent({ router: { chat: async () => reply('A joke.') }, tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) }, activity });
+    await agent.handle("what's today's leetcode problem");
+    await agent.handle('tell me a joke');
+    const [joke, leet] = activity.list();
+    expect(joke).toMatchObject({ heard: 'tell me a joke', route: 'AI (groq)', reply: 'A joke.' });
+    expect(leet).toMatchObject({ route: 'direct', tools: [{ name: 'leetcode_today', ok: false, error: 'LeetCode is not answering right now.' }] });
+    expect(await agent.handle('what went wrong?')).toBe('Last time I heard "tell me a joke". I answered with the AI (groq): A joke.');
+    await agent.handle("what's today's leetcode problem");
+    expect(await agent.handle('kya galat hua')).toBe(`Last time I heard "what's today's leetcode problem". leetcode_today failed: LeetCode is not answering right now.`);
+  });
+});
+
+describe('"what\'s running?" in one answer', () => {
+  const t = (name, note, extra = {}) => ({ name, description: name, parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => name, run: async () => ({ note, ...extra }) });
+  const make = (status, tools) => new Agent({ router: { chat: async () => { throw new Error('no AI'); } }, tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => status } });
+
+  it('the Claude task, the preview and the next reminder', async () => {
+    const tools = new ToolRegistry()
+      .add(t('preview_status', 'The portfolio preview is running.'))
+      .add(t('reminder_list', 'You have 2 reminders: …', { items: [{ when: 'today at 6 pm', text: 'gym' }, { when: 'tomorrow', text: 'call mom' }] }));
+    const status = { active: true, status: 'running', agent: 'Claude', project: 'portfolio', plan: [{ step: 'Write the homepage', doing: 'Writing the homepage', status: 'completed' }, { step: 'Add the form', doing: 'Adding the form', status: 'in_progress' }] };
+    const out = await make(status, tools).handle("what's running?");
+    expect(out).toMatch(/^Claude is on step 2 of 2/);
+    expect(out).toContain('The portfolio preview is running.');
+    expect(out).toContain('Next reminder: today at 6 pm: gym.');
+  });
+
+  it('nothing at all', async () => {
+    expect(await make({ active: false }, new ToolRegistry()).handle('kya chal raha hai')).toBe('Nothing is running right now.');
+  });
+});
+
+describe('understanding test dry run knows the new direct answers', () => {
+  it('"what went wrong" and "what\'s running" answer without the AI', async () => {
+    const { createActivity } = await import('../../server/activity.js');
+    const dir = (await import('node:fs')).mkdtempSync((await import('node:path')).join((await import('node:os')).tmpdir(), 'novi-fs-'));
+    const agent = new Agent({ router: { chat: async () => { throw new Error('no AI'); } }, tools: new ToolRegistry(), approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) }, activity: createActivity({ file: `${dir}/a.json` }) });
+    expect(await agent.firstStep('what went wrong')).toMatchObject({ provider: 'direct', reply: "I haven't done anything yet since I started." });
+    expect(await agent.firstStep("what's running")).toMatchObject({ provider: 'direct', reply: 'Nothing is running right now.' });
+  });
+});

@@ -245,6 +245,15 @@ describe('Novi server', () => {
     ws.close();
   });
 
+  it('Settings → Activity lists what happened in each request (laptop only)', async () => {
+    const { base, novi } = await start();
+    const rec = novi.activity.begin('volume 30', 'local');
+    novi.activity.tool(rec, { name: 'laptop_volume', ok: true, ms: 12 });
+    novi.activity.end(rec, 'Volume 30.');
+    const body = await (await fetch(`${base}/api/activity`)).json();
+    expect(body.entries[0]).toMatchObject({ heard: 'volume 30', route: 'direct', tools: [{ name: 'laptop_volume', ok: true }], reply: 'Volume 30.' });
+  });
+
   it("a question card answered on screen sends the answer to Claude", async () => {
     const { base, novi } = await start();
     const pending = novi.approvals.decide({ title: 'Claude asks: Theme?', tier: 'medium', source: 'claude', question: { text: 'Theme?', options: [{ label: 'Dark' }] }, timeoutMs: null });

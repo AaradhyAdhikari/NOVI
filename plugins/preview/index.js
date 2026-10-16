@@ -76,6 +76,17 @@ export function createPreviewPlugin({ sites = createSites(), proxy = null, shot 
         },
       });
 
+      api.registerTool({
+        name: 'preview_status',
+        description: 'Which coding-project website previews are running right now.',
+        parameters: obj({}),
+        async execute() {
+          const names = sites.list?.() || [];
+          const note = !names.length ? '' : names.length === 1 ? `The ${names[0]} preview is running.` : `Previews running: ${names.join(', ')}.`;
+          return reply({ note, running: names });
+        },
+      });
+
       // Running the project's own command = running its code: ask once per project per Novi run.
       api.on('before_tool_call', async ({ toolName, params = {} }) => {
         if (toolName !== 'preview_show') return undefined;
