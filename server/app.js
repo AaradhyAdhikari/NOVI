@@ -1,3 +1,4 @@
+import { createQuiet } from './quiet.js';
 import { createActivity } from './activity.js';
 import os from 'node:os';
 import { memoryDir, createVault } from '../plugins/wiki/vault.js';
@@ -183,9 +184,17 @@ export function createNovi(config, overrides = {}) {
     registry: addAccountTools(new ToolRegistry(), { accounts, auth, gmail, onConnected: (a) => onConnected(a), onConnectError: (e) => onConnectError(e) }),
   }));
   const tools = plugins;
+  // Quiet mode: nothing spoken anywhere, everything still on screen (the chip shows it).
+  const quietStore = overrides.quiet || createQuiet({ file: path.join(config.dataDir, 'quiet.json') });
+  const quiet = {
+    on: (minutes) => { quietStore.on(minutes); broadcast({ type: 'quiet', ...quietStore.state() }); },
+    off: () => { quietStore.off(); broadcast({ type: 'quiet', ...quietStore.state() }); },
+    isOn: () => quietStore.isOn(),
+    state: () => quietStore.state(),
+  };
   // "What happened" in each request (Settings → Activity, "what went wrong?").
   const activity = overrides.activity || createActivity({ file: path.join(config.dataDir, 'activity', 'recent.json') });
-  const agent = overrides.agent || new Agent({ router, tools, approvals, memory, tasks, accounts, privateProviders: config.privateProviders || ['groq'], summarize: (text) => plugins.runtime.privateComplete(text), activity });
+  const agent = overrides.agent || new Agent({ router, tools, approvals, memory, tasks, accounts, privateProviders: config.privateProviders || ['groq'], summarize: (text) => plugins.runtime.privateComplete(text), activity, quiet });
   const pairing = overrides.pairing || new Pairing({ file: path.join(config.dataDir, 'devices.json') });
   const tailscaleIdentity = overrides.tailscaleIdentity || createTailscaleIdentity();
   const pairRequests = new PairRequests({ issue: (name) => pairing.issue(name, 'laptop') });
@@ -233,7 +242,7 @@ export function createNovi(config, overrides = {}) {
   const push = overrides.push || createPush({ dir: path.join(config.dataDir, 'push') });
   const missed = createMissedQueue();
   const transcript = [];
-  const send = (ws, msg) => ws.readyState === 1 && ws.send(JSON.stringify(msg));
+  const send = (ws, msg) => !(msg.type === 'speak' && quiet.isOn()) && ws.readyState === 1 && ws.send(JSON.stringify(msg));
   // With no Novi page open, spoken lines go to the laptop speakers instead (Windows voice).
   const localSpeaker = overrides.localSpeaker || null;
   // The wake listener must know when the laptop is talking ("Hey Novi" then interrupts it).
@@ -248,7 +257,7 @@ export function createNovi(config, overrides = {}) {
   };
   const broadcast = (msg) => {
     for (const ws of clients) send(ws, msg);
-    if (msg.type === 'speak' && clients.size === 0 && msg.text) speakLocal(msg.text);
+    if (msg.type === 'speak' && clients.size === 0 && msg.text && !quiet.isOn()) speakLocal(msg.text);
   };
   // Replies go only to the device that asked: 'local' = the laptop (its pages, else its speakers),
   // { deviceId } = that phone. `active` is whoever spoke to Novi last — task updates, reminders and
@@ -257,6 +266,11 @@ export function createNovi(config, overrides = {}) {
   const deviceKey = (from) => (from === 'local' || !from ? 'local' : from.deviceId);
   const viewerKey = (ws) => ws.deviceId || 'local';
   const sendTo = (from, msg) => {
+    // Quiet mode: nothing is spoken; lines that were only spoken (show: true) go into the chat.
+    if (msg.type === 'speak' && quiet.isOn()) {
+      if (msg.show && msg.text) say('novi', msg.text, from);
+      return;
+    }
     const key = deviceKey(from);
     let reached = 0;
     for (const ws of clients) if (viewerKey(ws) === key) { send(ws, msg); reached += 1; }
@@ -302,6 +316,7 @@ export function createNovi(config, overrides = {}) {
   let wakeWord = 'browser';
   const snapshot = (viewer = 'local') => ({
     type: 'snapshot',
+    quiet: quiet.state(),
     // The laptop-mic wake word only helps pages on the laptop; a phone listens for itself.
     wakeWord: viewer === 'local' ? wakeWord : 'browser',
     transcript: transcript.filter((e) => e.device === viewer).map(({ device, ...e }) => e),
@@ -323,7 +338,7 @@ export function createNovi(config, overrides = {}) {
   };
 
   tasks.on('feed', (f) => broadcast({ type: 'feed', ...f }));
-  tasks.on('speak', (text) => sendTo(active, { type: 'speak', text }));
+  tasks.on('speak', (text) => sendTo(active, { type: 'speak', text, show: true }));
   const notifiedTasks = new Set();
   tasks.on('task', (task) => {
     broadcast({ type: 'task', task });
@@ -804,5 +819,5 @@ export function createNovi(config, overrides = {}) {
     broadcast({ type: 'stop_speaking' });
   };
 
-  return { app, activity, attachWebSocket, remotePin, setWakeTools, setSpeakerVerifier, checkVoice, stopSpeaking, wakeThreshold, snapshot, runVoiceCommand, setWakeWord, memory, accounts, approvals, tasks, router, agent, tools, plugins, pairing, broadcast };
+  return { app, activity, setQuiet: (on, minutes) => (on ? quiet.on(minutes) : quiet.off()), attachWebSocket, remotePin, setWakeTools, setSpeakerVerifier, checkVoice, stopSpeaking, wakeThreshold, snapshot, runVoiceCommand, setWakeWord, memory, accounts, approvals, tasks, router, agent, tools, plugins, pairing, broadcast };
 }

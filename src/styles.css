@@ -161,3 +161,6 @@ code { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--m
 .approval.question .question-options .btn { text-align: left; white-space: normal; }
 .approval.question .question-own { display: flex; gap: 6px; flex-wrap: wrap; }
 .approval.question .question-own input { flex: 1 1 160px; min-width: 0; }
+
+/* Quiet mode chip */
+.chip.quiet { background: rgba(250, 204, 21, 0.15); color: #facc15; border-color: rgba(250, 204, 21, 0.4); }
