@@ -41,6 +41,15 @@ function ask(toolName, input) {
 async function runTurn(text) {
   turn += 1;
   if (text.includes('HANG')) return; // simulates a long task for stop() tests
+  if (text.includes('PLAN')) { // a 3-step TodoWrite plan worked through step by step ('PLANWAIT' stops on step 1)
+    const steps = [['Write the homepage', 'Writing the homepage'], ['Add the contact form', 'Adding the contact form'], ['Style the pages', 'Styling the pages']];
+    const todo = (done) => ({ type: 'assistant', message: { content: [{ type: 'tool_use', id: `tu-todo-${done}`, name: 'TodoWrite', input: { todos: steps.map(([content, activeForm], i) => ({ content, activeForm, status: i < done ? 'completed' : i === done ? 'in_progress' : 'pending' })) } }] } });
+    out(todo(0));
+    if (text.includes('PLANWAIT')) return;
+    for (let done = 1; done <= 3; done += 1) { await new Promise((r) => setTimeout(r, 30)); out(todo(done)); }
+    out({ type: 'result', subtype: 'success', is_error: false, result: 'Built the site.', session_id: sessionId, num_turns: turn });
+    return;
+  }
   if (text.includes('ASK')) { // Claude's own questions (AskUserQuestion) come as a permission request
     const decision = await ask('AskUserQuestion', { questions: [
       { question: 'Which color theme?', header: 'Theme', options: [{ label: 'Dark', description: 'Black background' }, { label: 'Light' }], multiSelect: false },

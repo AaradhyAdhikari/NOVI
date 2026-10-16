@@ -15,8 +15,10 @@ export function permissionTitle(toolName, input = {}, agentName = 'Claude') {
 }
 
 export class TaskManager extends EventEmitter {
-  constructor({ memory, approvals, createSession, agentName = 'Claude', agentLabels = {}, narratorIntervalMs = 8000, questionReminderMs = 5 * 60_000 }) {
+  constructor({ memory, approvals, createSession, agentName = 'Claude', agentLabels = {}, narratorIntervalMs = 8000, questionReminderMs = 5 * 60_000, milestoneGapMs = 45_000, stillWorkingMs = 3 * 60_000 }) {
     super();
+    this.milestoneGapMs = milestoneGapMs; // spoken step updates: at most one per gap
+    this.stillWorkingMs = stillWorkingMs; // a quiet stretch gets "still on step N" (max 3 in a row)
     this.questionReminderMs = questionReminderMs;
     this.agentName = agentName; // label of the default coder
     this.agentLabels = agentLabels; // e.g. { 'novi-coder': 'Novi Coder', claude: 'Claude' }
@@ -81,6 +83,7 @@ export class TaskManager extends EventEmitter {
 
   async stop() {
     if (!this.session || this.session.exited) return false;
+    this._quiet();
     this.stopping = true;
     this.narrator?.dispose();
     this.approvals.denyWhere((a) => a.source === 'claude', 'task stopped');
@@ -146,11 +149,14 @@ export class TaskManager extends EventEmitter {
     }
     // The coder's plan (Claude's TodoWrite) and the files it wrote: "what's next", "show me the code".
     if (event.kind === 'tool_use' && event.name === 'TodoWrite' && Array.isArray(event.input?.todos)) {
+      const before = task.plan || [];
       task.plan = event.input.todos.map((t) => ({ step: String(t.content || ''), doing: String(t.activeForm || t.content || ''), status: t.status || 'pending' }));
+      this._milestone(task, before);
     }
     if (event.kind === 'tool_use' && EDIT_TOOLS.has(event.name) && event.input?.file_path) {
       task.files = [...(task.files || []).filter((f) => f !== event.input.file_path), event.input.file_path].slice(-20);
     }
+    if (event.kind === 'result' || event.kind === 'exit') this._quiet();
     if (event.kind === 'result') {
       if (this.stopping) return;
       task.status = event.isError ? 'failed' : 'done';
@@ -177,6 +183,45 @@ export class TaskManager extends EventEmitter {
     const category = EDIT_TOOLS.has(toolName) ? 'files' : /^(Bash|PowerShell)$/.test(toolName) ? 'commands' : null;
     const allow = await this.approvals.request({ title: permissionTitle(toolName, input, task.agentName || this.agentName), detail: description || '', tier, source: 'claude', category, grantable: Boolean(category) && tier === 'medium' });
     return allow ? { allow: true } : { allow: false, message: 'The user denied this action. Do not retry it; continue without it or explain what you need.' };
+  }
+
+  // Spoken updates while the coder works: the plan once ("a plan of 5 steps"), then each finished
+  // step (not the last one — "Claude finished." says that), at most one line per milestoneGapMs, and
+  // "still on step N" after a quiet stretch (at most 3 in a row).
+  _milestone(task, before) {
+    const plan = task.plan;
+    const say = (text) => { this._lastSaid = Date.now(); this.emit('speak', text); };
+    const done = plan.filter((p) => p.status === 'completed').length;
+    if (!before.length && plan.length >= 3) say(`${task.agentName || this.agentName} made a plan of ${plan.length} steps. I'll tell you as each one is done.`);
+    const newly = plan.map((p, i) => ({ ...p, i })).filter((p) => p.status === 'completed' && before[p.i]?.status !== 'completed');
+    if (newly.length && done < plan.length && Date.now() - (this._lastSaid || 0) >= this.milestoneGapMs) {
+      const last = newly.at(-1);
+      say(newly.length === 1
+        ? `${task.agentName || this.agentName} finished step ${last.i + 1} of ${plan.length}: ${last.step.replace(/[.!]+$/, '')}.`
+        : `${task.agentName || this.agentName} finished ${newly.length} steps; ${done} of ${plan.length} done.`);
+    }
+    if (newly.length || !before.length) this._stillTimer(task, 0);
+  }
+
+  _stillTimer(task, count) {
+    clearTimeout(this._still);
+    if (count >= 3 || !this.stillWorkingMs) return;
+    this._still = setTimeout(() => {
+      if (this.task !== task || task.status !== 'running') return;
+      const plan = task.plan || [];
+      const at = plan.findIndex((p) => p.status !== 'completed');
+      if (at >= 0) {
+        this._lastSaid = Date.now();
+        this.emit('speak', `${task.agentName || this.agentName} is still on step ${at + 1} of ${plan.length}: ${plan[at].doing.replace(/[.!]+$/, '')}.`);
+      }
+      this._stillTimer(task, count + 1);
+    }, this.stillWorkingMs);
+    this._still.unref?.();
+  }
+
+  _quiet() {
+    clearTimeout(this._still);
+    this._still = null;
   }
 
   // Claude's own questions: asked one by one as question cards (spoken with numbered options), no
