@@ -102,5 +102,6 @@ export function createSites({ spawnImpl = spawn, waitMs = 30_000 } = {}) {
     stop,
     stopAll() { for (const project of [...sites.keys()]) stop(project); },
     running(project) { return Boolean(sites.get(project)?.alive); },
+    list() { return [...sites.entries()].filter(([, site]) => site.alive).map(([project]) => project); },
   };
 }

@@ -404,5 +404,17 @@
         "preview_stop"
       ]
     }
+  },
+  {
+    "say": "what went wrong",
+    "expect": {
+      "direct": true
+    }
+  },
+  {
+    "say": "what is running",
+    "expect": {
+      "direct": true
+    }
   }
 ]

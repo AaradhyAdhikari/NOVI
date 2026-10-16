@@ -14,6 +14,9 @@ import path from 'node:path';
 
 // Asked for directly, these just run even though they can't be "always allowed" in Settings
 // (code_start_task: the user already named Claude). Moving files Novi picked always asks.
+// "What went wrong?" (the activity log) and "what's running?" — answered without the AI.
+const WRONG_RE = /^(?:what went wrong|what happened(?: last time| just now| there)?|why didn'?t (?:that|it|this) work|why did (?:that|it) fail|kya (?:galat )?hua(?: tha)?|kya gadbad hui)$/i;
+const RUNNING_RE = /^(?:what(?:'s| is) (?:running|going on|happening)(?: right now)?|what are you (?:doing|working on)(?: right now)?|(?:sab )?kya (?:kya )?chal raha hai|anything running)$/i;
 const DIRECT_OK = new Set(['code_start_task', 'code_send_message', 'rename_project', 'file_new_folder', 'open_project', 'file_open', 'file_rename', 'note_write', 'notes_ask', 'note_open']);
 const ASK_ANYWAY = new Set(['file_gather', 'file_undo_move', 'laptop_run', 'whatsapp_send', 'preview_show']); // preview_show: only its first start of a project's own command asks
 const MAX_ROUNDS = 10; // screen tasks: open the app, look, click, type, …
@@ -295,9 +298,11 @@ export class Agent {
     this._from = from; // who asked, for plugin approvals (phone warnings)
     this._turnYes = new Set(); // kinds of step the user said yes to in this request
     // "What went wrong?" — the last request from the activity log, in words.
-    if (this.activity && /^(?:what went wrong|what happened(?: last time| just now| there)?|why didn'?t (?:that|it|this) work|why did (?:that|it) fail|kya (?:galat )?hua(?: tha)?|kya gadbad hui)$/i.test(String(text).trim().replace(/[.!?]+$/, ''))) {
+    if (this.activity && WRONG_RE.test(String(text).trim().replace(/[.!?]+$/, ''))) {
       return this._remember(text, describeTurn(this.activity.list(1)[0]));
     }
+    const running = await this._runningCommand(text);
+    if (running) return this._remember(text, running);
     const answered = this._answerQuestion(text, from);
     if (answered) return this._remember(text, answered);
     const also = alsoCommand(text);
@@ -438,6 +443,9 @@ export class Agent {
   // (a quick yes/no/cancel, tool calls with their arguments, or a plain reply). Runs nothing and
   // leaves the conversation history alone.
   async firstStep(text) {
+    const said = String(text).trim().replace(/[.!?]+$/, '');
+    if (this.activity && WRONG_RE.test(said)) return { quick: null, calls: [], reply: describeTurn(this.activity.list(1)[0]), provider: 'direct' };
+    if (RUNNING_RE.test(said)) return { quick: null, calls: [], reply: await this._runningCommand(said), provider: 'direct' };
     const quick = quickCommand(text);
     if (quick) return { quick, calls: [], reply: null, provider: null };
     const yt = this.tools.get('play_youtube') ? youtubeCommand(text) : null;
@@ -727,6 +735,21 @@ export class Agent {
       return /declined/i.test(String(sent.error || '')) ? 'Okay, not sent.' : sent.error || sent.note || 'Okay, not sent.';
     }
     return out.error || out.note || 'Done.';
+  }
+
+  // "What's running?" — everything going on, in one answer: the coding task, previews, the next reminder.
+  async _runningCommand(text) {
+    const t = String(text).trim().replace(/[.!?]+$/, '');
+    if (!RUNNING_RE.test(t)) return null;
+    const run = async (name) => (this.tools.get(name) ? (await this._runTool({ id: `run-${name}-${Date.now()}`, function: { name, arguments: '{}' } }, { direct: true })).output || {} : {});
+    const parts = [];
+    const s = this.tasks?.status?.() || {};
+    if (s.active && s.status === 'running') parts.push(describeStatus(s));
+    const preview = (await run('preview_status')).note;
+    if (preview) parts.push(preview);
+    const next = (await run('reminder_list')).items?.[0];
+    if (next) parts.push(`Next reminder: ${next.when}: ${String(next.text).replace(/[.!]+$/, '')}.`);
+    return parts.length ? parts.join(' ') : 'Nothing is running right now.';
   }
 
   // A preview needs a project: one named, the running task's, or the last task's. Else the AI asks.
