@@ -10,6 +10,7 @@ import { controlCommand, isCancelWord, historyCommand } from './controlCommand.j
 import { browserCommand, isDoneWord } from './browserCommand.js';
 import { previewCommand } from './previewCommand.js';
 import { describeTurn } from '../activity.js';
+import { quietCommand } from '../quiet.js';
 import path from 'node:path';
 
 // Asked for directly, these just run even though they can't be "always allowed" in Settings
@@ -261,8 +262,9 @@ export function describeStatus(s) {
 }
 
 export class Agent {
-  constructor({ router, tools, approvals, memory, tasks, accounts = null, privateProviders = ['groq'], summarize = null, activity = null, logger = console, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
+  constructor({ router, tools, approvals, memory, tasks, accounts = null, privateProviders = ['groq'], summarize = null, activity = null, quiet = null, logger = console, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
     this.activity = activity; // "what happened" log (server/activity.js)
+    this.quiet = quiet; // quiet mode (server/quiet.js): no speech, everything on screen
     this.sleep = sleep;
     this.logger = logger;
     this.accounts = accounts;
@@ -297,6 +299,15 @@ export class Agent {
   async _handle(text, { from = 'local' } = {}) {
     this._from = from; // who asked, for plugin approvals (phone warnings)
     this._turnYes = new Set(); // kinds of step the user said yes to in this request
+    // "Novi, quiet" / "quiet for 30 minutes" / "talk again".
+    const hush = this.quiet && quietCommand(text);
+    if (hush) {
+      if (!hush.quiet) { this.quiet.off(); return this._remember(text, "Okay, I'm talking again."); }
+      this.quiet.on(hush.minutes);
+      return this._remember(text, hush.minutes
+        ? `Okay, quiet for ${hush.minutes} minutes. Everything will still show on screen.`
+        : 'Okay, I\'ll stay quiet. Everything will still show on screen. Say "talk again" when you want my voice back.');
+    }
     // "What went wrong?" — the last request from the activity log, in words.
     if (this.activity && WRONG_RE.test(String(text).trim().replace(/[.!?]+$/, ''))) {
       return this._remember(text, describeTurn(this.activity.list(1)[0]));
@@ -444,6 +455,8 @@ export class Agent {
   // leaves the conversation history alone.
   async firstStep(text) {
     const said = String(text).trim().replace(/[.!?]+$/, '');
+    const hush = this.quiet && quietCommand(said);
+    if (hush) return { quick: null, calls: [], reply: hush.quiet ? 'Quiet mode on.' : 'Quiet mode off.', provider: 'direct' };
     if (this.activity && WRONG_RE.test(said)) return { quick: null, calls: [], reply: describeTurn(this.activity.list(1)[0]), provider: 'direct' };
     if (RUNNING_RE.test(said)) return { quick: null, calls: [], reply: await this._runningCommand(said), provider: 'direct' };
     const quick = quickCommand(text);

@@ -81,6 +81,7 @@ export default function App() {
         muted={muted}
         onToggleMute={toggleMute}
         onOpenSettings={() => setSettingsOpen(true)}
+        quiet={state.quiet}
         handsFree={serverWake ? { supported: true, on: true, server: true, running: true, awaiting: Boolean(state.wakeHeardAt) && !state.thinking } : { supported: handsFreeSupported, on: handsFreeOn, ...handsFreeState }}
       />
       <main className="layout">

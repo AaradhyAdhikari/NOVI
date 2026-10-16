@@ -1155,3 +1155,26 @@ describe('understanding test dry run knows the new direct answers', () => {
     expect(await agent.firstStep("what's running")).toMatchObject({ provider: 'direct', reply: 'Nothing is running right now.' });
   });
 });
+
+describe('quiet mode by voice', () => {
+  it('"Novi, quiet" / "quiet for 30 minutes" / "talk again"', async () => {
+    const calls = [];
+    const quiet = { on: (m) => calls.push(['on', m]), off: () => calls.push(['off']), isOn: () => false, state: () => ({}) };
+    const agent = new Agent({ router: { chat: async () => { throw new Error('no AI'); } }, tools: new ToolRegistry(), approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) }, quiet });
+    expect(await agent.handle('Novi, quiet')).toBe("Okay, I'll stay quiet. Everything will still show on screen. Say \"talk again\" when you want my voice back.");
+    expect(await agent.handle('quiet for 30 minutes')).toBe("Okay, quiet for 30 minutes. Everything will still show on screen.");
+    expect(await agent.handle('talk again')).toBe("Okay, I'm talking again.");
+    expect(calls).toEqual([['on', null], ['on', 30], ['off']]);
+  });
+});
+
+describe('quiet mode in the understanding test dry run', () => {
+  it('answers without the AI and without changing anything', async () => {
+    const calls = [];
+    const quiet = { on: () => calls.push('on'), off: () => calls.push('off'), isOn: () => false, state: () => ({}) };
+    const agent = new Agent({ router: { chat: async () => { throw new Error('no AI'); } }, tools: new ToolRegistry(), approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) }, quiet });
+    expect(await agent.firstStep('Novi, quiet')).toMatchObject({ provider: 'direct', reply: 'Quiet mode on.' });
+    expect(await agent.firstStep('talk again')).toMatchObject({ provider: 'direct', reply: 'Quiet mode off.' });
+    expect(calls).toEqual([]);
+  });
+});

@@ -416,5 +416,17 @@
     "expect": {
       "direct": true
     }
+  },
+  {
+    "say": "Novi, quiet",
+    "expect": {
+      "direct": true
+    }
+  },
+  {
+    "say": "talk again",
+    "expect": {
+      "direct": true
+    }
   }
 ]

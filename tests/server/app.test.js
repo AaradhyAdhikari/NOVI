@@ -245,6 +245,27 @@ describe('Novi server', () => {
     ws.close();
   });
 
+  it('quiet mode: nothing is spoken, spoken-only updates show in the chat, the chip state is sent', async () => {
+    const { base, novi } = await start();
+    const ws = new WebSocket(`${base.replace('http', 'ws')}/ws`);
+    const got = [];
+    ws.on('message', (m) => got.push(JSON.parse(m)));
+    await new Promise((r) => ws.on('open', r));
+    await new Promise((r) => setTimeout(r, 50));
+    novi.setQuiet(true);
+    novi.tasks.emit('speak', 'Claude finished step 1 of 3: Write the homepage.');
+    novi.plugins.runtime.speak('Hello there.');
+    await new Promise((r) => setTimeout(r, 50));
+    expect(got.filter((m) => m.type === 'speak')).toEqual([]);
+    expect(got.find((m) => m.type === 'quiet')).toMatchObject({ on: true });
+    expect(got.filter((m) => m.type === 'chat').map((m) => m.entry.text)).toContain('Claude finished step 1 of 3: Write the homepage.');
+    novi.setQuiet(false);
+    novi.tasks.emit('speak', 'Claude finished step 2 of 3: Add the form.');
+    await new Promise((r) => setTimeout(r, 50));
+    expect(got.filter((m) => m.type === 'speak').map((m) => m.text)).toEqual(['Claude finished step 2 of 3: Add the form.']);
+    ws.close();
+  });
+
   it('Settings → Activity lists what happened in each request (laptop only)', async () => {
     const { base, novi } = await start();
     const rec = novi.activity.begin('volume 30', 'local');
