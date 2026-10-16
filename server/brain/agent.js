@@ -9,6 +9,7 @@ import { FILE_LEAD, FILE_TAIL } from './phrases.js';
 import { controlCommand, isCancelWord, historyCommand } from './controlCommand.js';
 import { browserCommand, isDoneWord } from './browserCommand.js';
 import { previewCommand } from './previewCommand.js';
+import { describeTurn } from '../activity.js';
 import path from 'node:path';
 
 // Asked for directly, these just run even though they can't be "always allowed" in Settings
@@ -257,7 +258,8 @@ export function describeStatus(s) {
 }
 
 export class Agent {
-  constructor({ router, tools, approvals, memory, tasks, accounts = null, privateProviders = ['groq'], summarize = null, logger = console, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
+  constructor({ router, tools, approvals, memory, tasks, accounts = null, privateProviders = ['groq'], summarize = null, activity = null, logger = console, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
+    this.activity = activity; // "what happened" log (server/activity.js)
     this.sleep = sleep;
     this.logger = logger;
     this.accounts = accounts;
@@ -273,9 +275,29 @@ export class Agent {
   }
 
   // from: 'local' (the laptop) or { deviceId } — approvals answered by voice check it (server/remoteTrust.js).
-  async handle(text, { from = 'local' } = {}) {
+  // Every request is recorded in the activity log: what was heard, the route, the tools, the reply.
+  async handle(text, opts = {}) {
+    const rec = this.activity?.begin(text, opts.from || 'local') || null;
+    this._rec = rec;
+    try {
+      const out = await this._handle(text, opts);
+      this.activity?.end(rec, out);
+      return out;
+    } catch (err) {
+      this.activity?.fail(rec, err);
+      throw err;
+    } finally {
+      if (this._rec === rec) this._rec = null;
+    }
+  }
+
+  async _handle(text, { from = 'local' } = {}) {
     this._from = from; // who asked, for plugin approvals (phone warnings)
     this._turnYes = new Set(); // kinds of step the user said yes to in this request
+    // "What went wrong?" — the last request from the activity log, in words.
+    if (this.activity && /^(?:what went wrong|what happened(?: last time| just now| there)?|why didn'?t (?:that|it|this) work|why did (?:that|it) fail|kya (?:galat )?hua(?: tha)?|kya gadbad hui)$/i.test(String(text).trim().replace(/[.!?]+$/, ''))) {
+      return this._remember(text, describeTurn(this.activity.list(1)[0]));
+    }
     const answered = this._answerQuestion(text, from);
     if (answered) return this._remember(text, answered);
     const also = alsoCommand(text);
@@ -351,6 +373,7 @@ export class Agent {
       let res;
       try {
         res = await this.router.chat({ messages, tools: offered, purpose, only: provider });
+        this.activity?.ai(this._rec, res?.provider);
       } catch (err) {
         if (!(err instanceof AllProvidersUnavailableError)) throw err;
         // A private turn can't fall back to another provider; a short rate-limit is worth waiting out.
@@ -436,6 +459,7 @@ export class Agent {
     if (web && this.tools.get(web.tool)) return { quick: null, calls: [{ name: web.tool, args: web.args }], reply: null, provider: 'direct' };
     const { extra, messages, offered, purpose } = await this._prepare(text);
     const res = await this.router.chat({ messages, tools: offered, purpose, only: extra.sensitive ? this.privateProviders[0] : undefined });
+    this.activity?.ai(this._rec, res?.provider);
     const calls = (res.message.tool_calls || []).map((c) => {
       let args = {};
       try { args = JSON.parse(c.function?.arguments || '{}'); } catch { /* keep {} */ }
@@ -453,7 +477,7 @@ export class Agent {
         return "Okay, I'll add that too.";
       }
       this.approvals.resolve(asking.id, true, 'voice', null, { from });
-      return `Approved. ${await this.handle(addition, { from })}`;
+      return `Approved. ${await this._handle(addition, { from })}`; // same request in the activity log
     }
     const st = this.tasks.status();
     const send = this.tools.get('code_send_message');
@@ -587,6 +611,7 @@ export class Agent {
   // direct: the user's own words named exactly this action ("make a folder called X"), so asking
   // "should I?" again is noise. Big or risky things still ask; see _skipAsking.
   async _runTool(call, { direct = false } = {}) {
+    const t0 = Date.now();
     const result = await this._runToolInner(call, { direct });
     if (result.output?.countdownUntil) this._countdown = { until: result.output.countdownUntil };
     // "her" / "him" in the next WhatsApp request = the chat Novi just checked.
@@ -596,6 +621,7 @@ export class Agent {
     try { params = JSON.parse(call.function?.arguments || '{}'); } catch { /* bad JSON: reported by the run */ }
     Promise.resolve(this.tools.afterToolCall?.({ toolName: call.function?.name, params, result: result.output, ...(err ? { error: err } : {}) })).catch(() => {});
     this.logger?.log?.(`[tool] ${call.function?.name} ${err ? `error: ${String(err).slice(0, 200)}` : 'ok'}`);
+    this.activity?.tool(this._rec, { name: call.function?.name, ok: !err, error: err, ms: Date.now() - t0 });
     return result;
   }
 

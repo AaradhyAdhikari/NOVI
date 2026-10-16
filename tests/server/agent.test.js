@@ -1107,3 +1107,21 @@ describe('preview by voice: starting a project asks first', () => {
     expect(ran).toEqual([1]);
   });
 });
+
+describe('activity log: what happened in each request', () => {
+  it('records direct tools and AI turns; "what went wrong" answers from the log', async () => {
+    const { createActivity } = await import('../../server/activity.js');
+    const dir = (await import('node:fs')).mkdtempSync((await import('node:path')).join((await import('node:os')).tmpdir(), 'novi-aa-'));
+    const activity = createActivity({ file: `${dir}/a.json` });
+    const tools = new ToolRegistry().add({ name: 'leetcode_today', description: 'l', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'l', run: async () => ({ error: 'LeetCode is not answering right now.' }) });
+    const agent = new Agent({ router: { chat: async () => reply('A joke.') }, tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) }, activity });
+    await agent.handle("what's today's leetcode problem");
+    await agent.handle('tell me a joke');
+    const [joke, leet] = activity.list();
+    expect(joke).toMatchObject({ heard: 'tell me a joke', route: 'AI (groq)', reply: 'A joke.' });
+    expect(leet).toMatchObject({ route: 'direct', tools: [{ name: 'leetcode_today', ok: false, error: 'LeetCode is not answering right now.' }] });
+    expect(await agent.handle('what went wrong?')).toBe('Last time I heard "tell me a joke". I answered with the AI (groq): A joke.');
+    await agent.handle("what's today's leetcode problem");
+    expect(await agent.handle('kya galat hua')).toBe(`Last time I heard "what's today's leetcode problem". leetcode_today failed: LeetCode is not answering right now.`);
+  });
+});

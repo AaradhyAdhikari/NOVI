@@ -1,3 +1,4 @@
+import { createActivity } from './activity.js';
 import os from 'node:os';
 import { memoryDir, createVault } from '../plugins/wiki/vault.js';
 import { buildGraph, readNote } from '../plugins/wiki/graph.js';
@@ -182,7 +183,9 @@ export function createNovi(config, overrides = {}) {
     registry: addAccountTools(new ToolRegistry(), { accounts, auth, gmail, onConnected: (a) => onConnected(a), onConnectError: (e) => onConnectError(e) }),
   }));
   const tools = plugins;
-  const agent = overrides.agent || new Agent({ router, tools, approvals, memory, tasks, accounts, privateProviders: config.privateProviders || ['groq'], summarize: (text) => plugins.runtime.privateComplete(text) });
+  // "What happened" in each request (Settings → Activity, "what went wrong?").
+  const activity = overrides.activity || createActivity({ file: path.join(config.dataDir, 'activity', 'recent.json') });
+  const agent = overrides.agent || new Agent({ router, tools, approvals, memory, tasks, accounts, privateProviders: config.privateProviders || ['groq'], summarize: (text) => plugins.runtime.privateComplete(text), activity });
   const pairing = overrides.pairing || new Pairing({ file: path.join(config.dataDir, 'devices.json') });
   const tailscaleIdentity = overrides.tailscaleIdentity || createTailscaleIdentity();
   const pairRequests = new PairRequests({ issue: (name) => pairing.issue(name, 'laptop') });
@@ -452,6 +455,7 @@ export function createNovi(config, overrides = {}) {
   // runtime.browserStatus / browserNewCode). Laptop only — the code lets a browser drive Novi's link.
   const browserInfo = () => plugins.runtime.browserStatus?.() || { connected: false, code: null };
   app.get('/api/browser', (req, res) => localOnly(req, res) && res.json(browserInfo()));
+  app.get('/api/activity', (req, res) => localOnly(req, res) && res.json({ entries: activity.list(100) }));
   app.post('/api/browser/code', (req, res) => { if (!localOnly(req, res)) return; plugins.runtime.browserNewCode?.(); res.json(browserInfo()); });
   // Settings → History: commands Novi ran (plugins/commands). Laptop only — output can be private.
   app.get('/api/commands/history', async (req, res) => {
@@ -800,5 +804,5 @@ export function createNovi(config, overrides = {}) {
     broadcast({ type: 'stop_speaking' });
   };
 
-  return { app, attachWebSocket, remotePin, setWakeTools, setSpeakerVerifier, checkVoice, stopSpeaking, wakeThreshold, snapshot, runVoiceCommand, setWakeWord, memory, accounts, approvals, tasks, router, agent, tools, plugins, pairing, broadcast };
+  return { app, activity, attachWebSocket, remotePin, setWakeTools, setSpeakerVerifier, checkVoice, stopSpeaking, wakeThreshold, snapshot, runVoiceCommand, setWakeWord, memory, accounts, approvals, tasks, router, agent, tools, plugins, pairing, broadcast };
 }
