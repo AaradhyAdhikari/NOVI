@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { previewCommand } from '../../server/brain/previewCommand.js';
+import { previewCommand, openCommand } from '../../server/brain/previewCommand.js';
 
 const show = (args) => ({ tool: 'preview_show', args });
 describe('preview by voice (no AI)', () => {
@@ -24,6 +24,19 @@ describe('preview by voice (no AI)', () => {
     expect(previewCommand('ss of the homepage')).toEqual({ tool: 'preview_show', args: { page: 'home' } });
     expect(previewCommand('take a screenshot of my laptop')).toBeNull();
     expect(previewCommand('screenshot of the github homepage')).toBeNull();
+  });
+
+  // The user (2026-10-17): "open portfolio" opened a file. Open X = the project's website; "in VS Code"
+  // = that editor; a file or folder only when they say "file" / "folder".
+  it('"open portfolio" → the site; "open portfolio in VS Code / antigravity" → that editor', () => {
+    expect(openCommand('open portfolio')).toEqual({ tool: 'preview_open', args: { project: 'portfolio' } });
+    expect(openCommand('Open my portfolio website.')).toEqual({ tool: 'preview_open', args: { project: 'portfolio' } });
+    expect(openCommand('open the portfolio project in the browser')).toEqual({ tool: 'preview_open', args: { project: 'portfolio' } });
+    expect(openCommand('open portfolio in VS Code')).toEqual({ tool: 'open_project', args: { project: 'portfolio', editor: 'vs code' } });
+    expect(openCommand('open the project portfolio in antigravity')).toEqual({ tool: 'open_project', args: { project: 'portfolio', editor: 'antigravity' } });
+    expect(openCommand('open my portfolio folder')).toBeNull();
+    expect(openCommand('open the portfolio file')).toBeNull();
+    expect(openCommand('open portfolio and add a dark mode')).toBeNull();
   });
 
   it('stop the preview', () => {

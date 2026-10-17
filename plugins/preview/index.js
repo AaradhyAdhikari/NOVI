@@ -44,26 +44,33 @@ export function createPreviewPlugin({ sites = createSites(), proxy = null, shot 
       // A name Novi doesn't know ("the portfolio site") falls back to the current coding project.
       const project = (name) => runtime.codingProject?.(name) || (name ? runtime.codingProject?.() : null) || null;
 
+      // The project's site, running and answering → { p, site }, else { error, askClaude? }.
+      async function start(name) {
+        const p = project(name);
+        if (!p) return { error: NO_PROJECT };
+        const plan = howToRun(p.path);
+        if (!plan) return { error: "I don't know how to run this project yet.", askClaude: true };
+        allowed.add(p.name);
+        try {
+          let site = await sites.start(p.name, p.path, plan);
+          // Never hand out a link to a site that isn't answering: start it once more, then say so.
+          if (!(await check(site.port))) {
+            sites.stop(p.name);
+            site = await sites.start(p.name, p.path, plan);
+            if (!(await check(site.port))) { sites.stop(p.name); return { error: `The ${p.name} site started but isn't answering. Ask Claude to check that it runs.` }; }
+          }
+          return { p, site };
+        } catch (err) { return { error: String(err.message || err) }; }
+      }
+
       api.registerTool({
         name: 'preview_show',
         description: "Show the user a page of the coding project's website (picture + live link on their device). page: home, contact, about…",
         parameters: obj({ page: { type: 'string' }, project: { type: 'string' } }),
         async execute(_id, { page, project: name } = {}) {
-          const p = project(name);
-          if (!p) return reply({ error: NO_PROJECT });
-          const plan = howToRun(p.path);
-          if (!plan) return reply({ error: "I don't know how to run this project yet.", askClaude: true });
-          allowed.add(p.name);
-          let site;
-          try {
-            site = await sites.start(p.name, p.path, plan);
-            // Never hand out a link to a site that isn't answering: start it once more, then say so.
-            if (!(await check(site.port))) {
-              sites.stop(p.name);
-              site = await sites.start(p.name, p.path, plan);
-              if (!(await check(site.port))) { sites.stop(p.name); return reply({ error: `The ${p.name} site started but isn't answering. Ask Claude to check that it runs.` }); }
-            }
-          } catch (err) { return reply({ error: String(err.message || err) }); }
+          const started = await start(name);
+          if (started.error) return reply(started);
+          const { p, site } = started;
           const where = pagePath(page, site.pages, isHome(page) ? '' : await readHome(site.port));
           const label = where.found && !isHome(page) ? `${String(page).trim().toLowerCase().replace(/\s*page$/, '')} page` : 'homepage';
           let pictured = true;
@@ -78,6 +85,27 @@ export function createPreviewPlugin({ sites = createSites(), proxy = null, shot 
             : !where.found ? `I couldn't find a ${String(page).trim().toLowerCase().replace(/\s*page$/, '')} page, so here's the homepage.`
               : `Here's the ${label}. Tap the link to open it live.`;
           return reply({ note, port: site.port });
+        },
+      });
+
+      // "Open portfolio": the site itself — in the laptop's browser when asked at the laptop, a
+      // tap-to-open link on a phone. No picture.
+      api.registerTool({
+        name: 'preview_open',
+        description: "Open the coding project's website (\"open portfolio\"): in the laptop's browser, or a link on the phone. For opening it in an editor use open_project.",
+        parameters: obj({ project: { type: 'string' } }),
+        async execute(_id, { project: name } = {}) {
+          const started = await start(name);
+          if (started.error) return reply(started);
+          const { p, site } = started;
+          const host = runtime.deviceHost?.() || 'localhost';
+          if (host === 'localhost') {
+            const out = await runtime.callTool?.('open_website', { target: `http://localhost:${site.port}/`, on: 'laptop' });
+            if (out?.error) return reply({ error: out.error });
+            return reply({ note: `Opened the ${p.name} site.`, port: site.port });
+          }
+          runtime.showLink?.({ url: link.link({ project: p.name, targetPort: site.port, host }), label: `Open the ${p.name} site` });
+          return reply({ note: `Here's the ${p.name} site. Tap the link to open it.`, port: site.port });
         },
       });
 
@@ -105,7 +133,7 @@ export function createPreviewPlugin({ sites = createSites(), proxy = null, shot 
 
       // Running the project's own command = running its code: ask once per project per Novi run.
       api.on('before_tool_call', async ({ toolName, params = {} }) => {
-        if (toolName !== 'preview_show') return undefined;
+        if (toolName !== 'preview_show' && toolName !== 'preview_open') return undefined;
         const p = project(params.project);
         if (!p || allowed.has(p.name) || sites.running(p.name)) return undefined;
         if (howToRun(p.path)?.kind !== 'command') return undefined;

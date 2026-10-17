@@ -10,7 +10,7 @@ const folder = (files = {}) => {
   for (const [n, b] of Object.entries(files)) { fs.mkdirSync(path.dirname(path.join(d, n)), { recursive: true }); fs.writeFileSync(path.join(d, n), typeof b === 'string' ? b : JSON.stringify(b)); }
   return d;
 };
-function setup({ project = { name: 'portfolio', path: folder({ '.novi/run.json': { command: 'npm run dev', pages: { contact: '/contact' } } }) }, homeHtml = '<a href="/about-me">About me</a>', shotFails = false, answers = async () => true } = {}) {
+function setup({ project = { name: 'portfolio', path: folder({ '.novi/run.json': { command: 'npm run dev', pages: { contact: '/contact' } } }) }, homeHtml = '<a href="/about-me">About me</a>', shotFails = false, answers = async () => true, host = 'laptop.tail.ts.net' } = {}) {
   const started = [];
   const shots = [];
   const shown = [];
@@ -25,15 +25,16 @@ function setup({ project = { name: 'portfolio', path: folder({ '.novi/run.json':
     list: () => (running ? ['portfolio'] : []),
   };
   const proxy = { start: async () => {}, stop: () => {}, link: ({ project: p, targetPort, host }) => `https://${host}:3005/?novi=tok-${p}-${targetPort}` };
-  const runtime = { codingProject: (name) => (name && name !== project?.name ? null : project), showImage: (i) => shown.push(i), showLink: (l) => links.push(l), deviceHost: () => 'laptop.tail.ts.net' };
-  const host = new PluginHost({ runtime, logger: { warn() {} } });
-  host.register(createPreviewPlugin({
+  const opened = [];
+  const runtime = { codingProject: (name) => (name && name !== project?.name ? null : project), showImage: (i) => shown.push(i), showLink: (l) => links.push(l), deviceHost: () => host, callTool: async (n, p) => { opened.push([n, p]); return {}; } };
+  const h = new PluginHost({ runtime, logger: { warn() {} } });
+  h.register(createPreviewPlugin({
     sites, proxy,
     shot: async (url, size) => { shots.push([url, size]); if (shotFails === 'blank') throw Object.assign(new Error('The picture came out blank (the page may still be loading)'), { blank: true }); if (shotFails) throw new Error('no edge'); return { png: Buffer.from('png') }; },
     fetchHome: async () => homeHtml,
     check: answers,
   }));
-  return { host, started, shots, shown, links, stoppedAll: () => stopped, show: host.get('preview_show'), stop: host.get('preview_stop'), status: host.get('preview_status') };
+  return { host: h, started, shots, shown, links, opened, stoppedAll: () => stopped, show: h.get('preview_show'), open: h.get('preview_open'), stop: h.get('preview_stop'), status: h.get('preview_status') };
 }
 
 describe('preview plugin', () => {
@@ -107,6 +108,21 @@ describe('preview plugin', () => {
     const s = setup();
     await s.show.run({ project: 'portfolio site' });
     expect(s.links).toHaveLength(1);
+  });
+
+  it('preview_open: from the laptop the site opens in its browser; from the phone, a tap-to-open link', async () => {
+    const laptop = setup({ host: 'localhost' });
+    const out = await laptop.open.run({ project: 'portfolio' });
+    expect(laptop.opened).toEqual([['open_website', { target: 'http://localhost:4321/', on: 'laptop' }]]);
+    expect(laptop.links).toHaveLength(0);
+    expect(laptop.shots).toHaveLength(0);
+    expect(out.note).toBe('Opened the portfolio site.');
+    const phone = setup();
+    expect((await phone.open.gate({ project: 'portfolio' })).approval).toMatchObject({ title: 'Start the portfolio site to preview it?' });
+    const p = await phone.open.run({ project: 'portfolio' });
+    expect(phone.opened).toHaveLength(0);
+    expect(phone.links[0]).toMatchObject({ label: 'Open the portfolio site' });
+    expect(p.note).toBe("Here's the portfolio site. Tap the link to open it.");
   });
 
   it('stop the preview; Novi stopping ends every site', async () => {

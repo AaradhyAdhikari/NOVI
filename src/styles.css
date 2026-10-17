@@ -176,3 +176,9 @@ code { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--m
 .code-actions { display: flex; gap: 8px; justify-content: flex-end; }
 .code-status { margin: 0; font-size: 13px; color: var(--muted); }
 .code-status.bad { color: #ff7a6b; }
+
+/* Pictures in the chat: tap to see full screen, tap again to close */
+.shot-button { display: block; padding: 0; border: 0; background: none; cursor: zoom-in; width: 100%; }
+.viewer { position: fixed; inset: 0; z-index: 50; background: rgba(0, 0, 0, 0.92); display: flex; align-items: center; justify-content: center; padding: max(12px, env(safe-area-inset-top, 0px)) 12px max(12px, env(safe-area-inset-bottom, 0px)); overflow: auto; cursor: zoom-out; }
+.viewer img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.viewer-close { position: fixed; top: max(12px, env(safe-area-inset-top, 0px)); right: 12px; border: 1px solid rgba(255, 255, 255, 0.3); background: rgba(0, 0, 0, 0.6); color: #fff; border-radius: 10px; padding: 8px 14px; }

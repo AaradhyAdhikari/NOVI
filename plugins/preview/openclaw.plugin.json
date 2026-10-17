@@ -3,7 +3,7 @@
   "name": "Preview",
   "description": "Run a coding project's website and show it on the phone: a phone-sized picture plus a protected live link (preview port, one-time link).",
   "categories": ["other"],
-  "contracts": { "tools": ["preview_show", "preview_stop", "preview_status"] },
+  "contracts": { "tools": ["preview_show", "preview_open", "preview_stop", "preview_status"] },
   "activation": { "onStartup": true },
   "configSchema": { "type": "object", "additionalProperties": false, "properties": { "port": { "type": "string" } } }
 }

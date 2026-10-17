@@ -11,7 +11,7 @@ const GROUP = {
   note_write: 'wiki', notes_ask: 'wiki', note_open: 'wiki', notes_list: 'wiki', wiki_recent: 'wiki',
   laptop_run: 'commands', commands_history: 'commands', laptop_disk: 'commands',
   whatsapp_prepare: 'whatsapp', whatsapp_send: 'whatsapp',
-  preview_show: 'preview', preview_stop: 'preview',
+  preview_show: 'preview', preview_open: 'preview', preview_stop: 'preview',
 };
 const groupOf = (name) => GROUP[name] || name.split('_')[0];
 
@@ -35,7 +35,7 @@ const WORDS = {
   browser: 'browser chrome tab tabs website site page link url login signin form fill submit click leetcode submissions',
   whatsapp: 'whatsapp message text bhej bhejo',
   leetcode: 'leetcode leet daily streak solved problem problems',
-  preview: 'preview homepage website site page dikhao',
+  preview: 'preview homepage website site page dikhao portfolio project',
   commands: 'command commands powershell terminal cmd disk space drive drives storage memory ram cpu process processes running ip network port ports installed size sizes largest biggest jpeg jpg extension extensions service services uptime',
   laptop: 'volume louder quieter mute unmute awaaz sound brightness bright brighter dim media pause resume song gaana battery charge charging wifi wi-fi bluetooth lock sleep shutdown shut restart reboot signout logout window windows switch minimize maximize close clipboard copy copied paste band chalu chrome',
   web: 'web internet online google googled search searching lookup news headlines latest won win winner score scores match price prices rate rates release released launched article articles http https',

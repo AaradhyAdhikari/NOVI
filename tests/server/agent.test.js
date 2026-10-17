@@ -1108,6 +1108,32 @@ describe('preview by voice: starting a project asks first', () => {
   });
 });
 
+describe('"open X": the project\'s site or the named editor, never a file', () => {
+  const setup = () => {
+    const ran = [];
+    const t = (name, note) => ({ name, description: name, parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => name, run: async (a) => { ran.push([name, a]); return { note }; } });
+    const tools = new ToolRegistry().add(t('preview_open', 'Opened the portfolio site.')).add(t('open_project', 'Opened portfolio in VS Code.')).add(t('file_open', 'Opened a file.'));
+    const agent = new Agent({ router: { chat: async () => reply('AI') }, tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [], findProject: (n) => (n === 'portfolio' ? { name: 'portfolio', path: '/p' } : null) }, tasks: { status: () => ({ active: false }) } });
+    return { agent, ran };
+  };
+  it('a known project opens its site; "in VS Code" opens the editor; anything else goes on to the AI', async () => {
+    const { agent, ran } = setup();
+    expect(await agent.handle('open portfolio')).toBe('Opened the portfolio site.');
+    expect(await agent.handle('open portfolio in VS Code')).toBe('Opened portfolio in VS Code.');
+    expect(await agent.handle('open spotify')).toBe('AI');
+    expect(ran).toEqual([['preview_open', { project: 'portfolio' }], ['open_project', { project: 'portfolio', editor: 'vs code' }]]);
+  });
+  it('a project with no website opens in the editor; "open novi" is not run as a project', async () => {
+    const ran = [];
+    const t = (name, out) => ({ name, description: name, parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => name, run: async (a) => { ran.push([name, a]); return out; } });
+    const tools = new ToolRegistry().add(t('preview_open', { error: "I don't know how to run this project yet.", askClaude: true })).add(t('open_project', { text: 'Opened calc-cli in VS Code.' }));
+    const agent = new Agent({ router: { chat: async () => reply('AI') }, tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [], findProject: (n) => ({ name: n, path: `/${n}` }) }, tasks: { status: () => ({ active: false }) } });
+    expect(await agent.handle('open calc-cli')).toBe('Opened calc-cli in VS Code.');
+    expect(await agent.handle('open novi')).toBe('AI');
+    expect(ran).toEqual([['preview_open', { project: 'calc-cli' }], ['open_project', { project: 'calc-cli' }]]);
+  });
+});
+
 describe('activity log: what happened in each request', () => {
   it('records direct tools and AI turns; "what went wrong" answers from the log', async () => {
     const { createActivity } = await import('../../server/activity.js');
