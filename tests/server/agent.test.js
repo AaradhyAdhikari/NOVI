@@ -1139,6 +1139,26 @@ describe('"open X": the project\'s site or the named editor, never a file', () =
   });
 });
 
+describe('LeetCode on the laptop', () => {
+  const setup = () => {
+    const opened = [];
+    const tools = new ToolRegistry()
+      .add({ name: 'leetcode_today', description: 'l', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'l', run: async () => ({ note: "Today's LeetCode: Two Sum (Easy).", link: 'https://leetcode.com/problems/two-sum/' }) })
+      .add({ name: 'open_website', description: 'o', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'o', run: async (a) => { opened.push(a); return { opened: a.target }; } });
+    const agent = new Agent({ router: { chat: async () => reply('AI') }, tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
+    return { agent, opened };
+  };
+  it('"… on my laptop" opens the problem there; a bare "on my laptop" after it does too', async () => {
+    const { agent, opened } = setup();
+    expect(await agent.handle("Show me today's LeetCode problem on my laptop.")).toBe("Today's LeetCode: Two Sum (Easy). Opened it on the laptop.");
+    expect(opened).toEqual([{ target: 'https://leetcode.com/problems/two-sum/', on: 'laptop' }]);
+    const b = setup();
+    expect(await b.agent.handle("what's today's leetcode problem")).toBe("Today's LeetCode: Two Sum (Easy).");
+    expect(await b.agent.handle('On my laptop')).toBe('Opened it on the laptop.');
+    expect(b.opened).toEqual([{ target: 'https://leetcode.com/problems/two-sum/', on: 'laptop' }]);
+  });
+});
+
 describe('activity log: what happened in each request', () => {
   it('records direct tools and AI turns; "what went wrong" answers from the log', async () => {
     const { createActivity } = await import('../../server/activity.js');

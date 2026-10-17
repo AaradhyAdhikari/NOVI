@@ -744,6 +744,15 @@ export class Agent {
   // LeetCode / WhatsApp without the AI. A WhatsApp file or folder is found first; sending always
   // asks (whatsapp_send). "done" after a pause (QR scan) tries the same send again.
   async _browserCommand(text) {
+    // "On my laptop" / "open it" right after a LeetCode answer: open that problem.
+    const t = String(text).trim().replace(/[.!?]+$/, '');
+    if (this._lastLink && Date.now() - this._lastLink.at < 5 * 60_000 && this.tools.get('open_website')) {
+      const later = /^(?:(?:ok(?:ay)?|no|i said)[, ]+)?(?:(open|show|put)(?: it| that| this| the problem| the question)?(?: up)?)?(?:\s*(?:on|in) (?:my |the )?(laptop|computer|pc))?$/i.exec(t);
+      if (later && (later[1] || later[2])) {
+        const out = await this._openLink(this._lastLink.url, later[2] ? 'laptop' : 'here');
+        return out.error || (later[2] ? 'Opened it on the laptop.' : 'Opened it.');
+      }
+    }
     let cmd = browserCommand(text, { lastTo: this._waLastTo });
     if (!cmd && this._browserPause && isDoneWord(text)) cmd = this._browserPause;
     this._browserPause = null;
@@ -763,7 +772,18 @@ export class Agent {
       const sent = await run('whatsapp_send', {});
       return /declined/i.test(String(sent.error || '')) ? 'Okay, not sent.' : sent.error || sent.note || 'Okay, not sent.';
     }
+    if (cmd.tool === 'leetcode_today' && out.link) {
+      this._lastLink = { url: out.link, at: Date.now() };
+      if (cmd.open && this.tools.get('open_website')) {
+        const opened = await this._openLink(out.link, cmd.open);
+        return `${out.note}${opened.error ? ` ${opened.error}` : cmd.open === 'laptop' ? ' Opened it on the laptop.' : ' Opened it.'}`;
+      }
+    }
     return out.error || out.note || 'Done.';
+  }
+
+  async _openLink(url, where) {
+    return (await this._runTool({ id: `link-${Date.now()}`, function: { name: 'open_website', arguments: JSON.stringify({ target: url, ...(where === 'laptop' ? { on: 'laptop' } : {}) }) } }, { direct: true })).output || {};
   }
 
   // "What's running?" — everything going on, in one answer: the coding task, previews, the next reminder.

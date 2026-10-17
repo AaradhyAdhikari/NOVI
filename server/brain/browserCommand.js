@@ -28,6 +28,9 @@ const person = (name, lastTo) => {
 };
 const msg = (to, text, via) => (to ? T('whatsapp_prepare', { to, text: text.trim(), ...VIA(via) }) : null);
 
+const LAPTOP = /\b(?:on|in) (?:my |the )?(?:laptop|computer|pc)\b|\blaptop (?:pe|par|mein|me)\b/i;
+const OPEN = /^\s*(?:(?:ok(?:ay)?|hey novi|novi|please)[, ]+)*open\b|\b(?:kholo|khol do|open karo)\b/i;
+
 export function browserCommand(text, { lastTo = null } = {}) {
   const t = clean(text).replace(/[.!?]+$/, '');
   if (!t) return null;
@@ -36,7 +39,12 @@ export function browserCommand(text, { lastTo = null } = {}) {
   // chrome" stay with the AI (browser tools).
   if (/\bleet ?code\b/i.test(t) && !/\b(?:login|log in|sign ?in|sign ?up|chrome|browser|tab)\b/i.test(t)) {
     if (/\b(?:stats?|streak|solved|progress|profile|score|rank(?:ing)?|kitne)\b/i.test(t)) return T('leetcode_stats');
-    if (/\b(?:today'?s?|daily|aaj|potd|of the day|problem|question|challenge)\b/i.test(t)) return T('leetcode_today');
+    if (/\b(?:today'?s?|daily|aaj|potd|of the day|problem|question|challenge)\b/i.test(t)) {
+      // "… on my laptop" (dropped by clean(), so read from the words as said) opens the problem there;
+      // "open …" opens it on the device that asked.
+      const open = LAPTOP.test(String(text)) ? 'laptop' : OPEN.test(String(text)) ? 'here' : null;
+      return { ...T('leetcode_today'), ...(open ? { open } : {}) };
+    }
   }
   let m = /^send (.+?) to (.+?) on (?:the |my )?whats ?app(?: (app|web))?$/i.exec(t);
   if (m) return fileOrText(m[1], m[2].trim(), m[3]);
