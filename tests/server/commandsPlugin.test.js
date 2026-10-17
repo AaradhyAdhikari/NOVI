@@ -107,3 +107,22 @@ describe('commands_history', () => {
     expect(out.sensitive).toBe(true);
   });
 });
+
+// Live (2026-10-17): "how much free space is on my C drive?" → "about 99 GB free (99,899,453,440
+// bytes)" while File Explorer counts that as 93 GB. A fixed command, and Windows' own units.
+describe('laptop_disk: free space, said the way File Explorer says it', () => {
+  it('runs one fixed read-only command and answers in Windows GB (1024³)', async () => {
+    const { host, runs } = setup({ results: [{ ok: true, exitCode: 0, output: '{"Used":410874322944,"Free":99899453440}' }] });
+    const tool = host.get('laptop_disk');
+    expect(await tool.gate({ drive: 'C' })).toEqual({});
+    const out = await tool.run({ drive: 'c' });
+    expect(runs).toEqual([{ command: 'Get-PSDrive -Name C -PSProvider FileSystem | Select-Object Used, Free | ConvertTo-Json -Compress', look: true }]);
+    expect(out).toMatchObject({ drive: 'C', freeGB: 93, totalGB: 475.7, note: 'Your C drive has 93 GB free of 475.7 GB.' });
+  });
+
+  it('a drive that does not exist, and odd input, are said plainly', async () => {
+    const { host } = setup({ results: [{ ok: false, exitCode: 1, output: "Get-PSDrive : Cannot find drive. A drive with the name 'Q' does not exist." }] });
+    expect((await host.get('laptop_disk').run({ drive: 'Q' })).error).toBe("I couldn't find a Q drive on the laptop.");
+    expect((await host.get('laptop_disk').run({ drive: 'C; rm x' })).error).toBe('Which drive? Say a letter, like C.');
+  });
+});

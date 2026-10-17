@@ -6,7 +6,7 @@ import { firstSentence } from '../narrator.js';
 import { answerKind } from './answers.js';
 import { matchAnswer, answerFor } from '../claude/questions.js';
 import { FILE_LEAD, FILE_TAIL } from './phrases.js';
-import { controlCommand, isCancelWord, historyCommand } from './controlCommand.js';
+import { controlCommand, isCancelWord, historyCommand, diskCommand } from './controlCommand.js';
 import { browserCommand, isDoneWord } from './browserCommand.js';
 import { previewCommand } from './previewCommand.js';
 import { describeTurn } from '../activity.js';
@@ -341,6 +341,11 @@ export class Agent {
     if (browse) return this._remember(text, browse);
     const preview = await this._previewCommand(text);
     if (preview) return this._remember(text, preview);
+    const disk = diskCommand(text);
+    if (disk && this.tools.get(disk.tool)) {
+      const { output } = await this._runTool({ id: `disk-${Date.now()}`, function: { name: disk.tool, arguments: JSON.stringify(disk.args) } }, { direct: true });
+      return this._remember(text, output?.error || output?.note || "I couldn't check that.");
+    }
     const hist = historyCommand(text);
     if (hist && this.tools.get(hist.tool)) {
       const { output } = await this._runTool({ id: `hist-${Date.now()}`, function: { name: hist.tool, arguments: JSON.stringify(hist.args) } }, { direct: true });
