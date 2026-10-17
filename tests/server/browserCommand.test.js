@@ -29,8 +29,14 @@ describe('browserCommand: LeetCode and WhatsApp without the AI', () => {
 });
 
 describe('LeetCode as actually said (live 2026-10-15: one phrasing went to the AI and played a video)', () => {
+  // Live (2026-10-17): "Show me today's LeetCode problem on my laptop" only answered in words.
+  it('"… on my laptop" opens the problem on the laptop; "open …" opens it where it was asked', () => {
+    expect(browserCommand("Show me today's LeetCode problem on my laptop.")).toEqual({ tool: 'leetcode_today', args: {}, open: 'laptop' });
+    expect(browserCommand('open the leetcode question of the day')).toEqual({ tool: 'leetcode_today', args: {}, open: 'here' });
+    expect(browserCommand('aaj ka leetcode problem laptop pe kholo')).toEqual({ tool: 'leetcode_today', args: {}, open: 'laptop' });
+  });
   it('any LeetCode problem-of-the-day phrasing goes straight to leetcode_today', () => {
-    for (const t of ["show me today's leetcode problem", 'open the leetcode question of the day', 'what is the leetcode problem today', 'leetcode ka aaj ka question', "tell me today's leetcode challenge", 'leetcode potd'])
+    for (const t of ["show me today's leetcode problem", 'what is the leetcode problem today', 'leetcode ka aaj ka question', "tell me today's leetcode challenge", 'leetcode potd'])
       expect(browserCommand(t), t).toEqual({ tool: 'leetcode_today', args: {} });
   });
   it('streak / solved / profile go to leetcode_stats', () => {

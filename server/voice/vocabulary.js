@@ -16,6 +16,10 @@ const C_HEARD = /(?<!\p{L})(?:sea|see|si|cee|c)\s+(?:plus\s+plus|\+\+)(?!\p{L})/
 const CSHARP_HEARD = /(?<!\p{L})(?:sea|see|si|cee|c)\s+sharp(?!\p{L})/giu;
 const CLANG_HEARD = /(?<!\p{L})(?:sea|see|si|cee)\s+(language|programming|lang)(?!\p{L})/giu;
 export const fixLanguages = (text) => String(text).replace(C_HEARD, 'C++').replace(CSHARP_HEARD, 'C#').replace(CLANG_HEARD, 'C $1');
+// "LeetCode" heard as "lead code / leet court / lit code / leak code" (live 2026-10-17); "lead code
+// review" and the like stay as said.
+const LEET_HEARD = /(?<!\p{L})(?:leet|lead|lit|leat|leed|lee|leek|leak|liet)[\s-]*(?:code|court|coat|kode|cod)(?!\p{L})(?!\s+(?:review\w*|owner|author|base|quality|change\w*))/giu;
+export const fixLeetCode = (text) => String(text).replace(LEET_HEARD, 'LeetCode');
 const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 function clean({ words = [], fixes = {} } = {}) {
@@ -59,6 +63,6 @@ export function createVocabulary({ file }) {
       return this.set({ words: saved.words, fixes: { ...saved.fixes, [from]: to } });
     },
     prompt: (base) => (saved.words.length ? `${base} ${saved.words.join(', ')}.` : base),
-    apply: (text) => fixLanguages(fixClaude(pattern ? String(text).replace(pattern, (m) => saved.fixes[m.toLowerCase()] ?? m) : String(text))),
+    apply: (text) => fixLeetCode(fixLanguages(fixClaude(pattern ? String(text).replace(pattern, (m) => saved.fixes[m.toLowerCase()] ?? m) : String(text)))),
   };
 }

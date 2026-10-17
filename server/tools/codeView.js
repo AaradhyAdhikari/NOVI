@@ -13,6 +13,47 @@ const LANG = {
 const STOP = new Set(('show me the code of file my a an please in for part section where is it its this that wala wali ka ki ke dikha dikhao do de see let look at which written you wrote just '
   + 'coder novi claude hey okay ok can could give send page app website site project we were are was our building built made making whole full entire').split(' '));
 const WINDOW = 40;
+const BLOCK_MAX = 300; // a part (an HTML element, a function, a CSS rule) longer than this gets the window
+const FULL = /\b(full|whole|entire|complete)\b/i;
+const FULL_MAX = 600; // "the full code of index.html": the whole file up to this many lines
+const VOID = /^(area|base|br|col|embed|hr|img|input|link|meta|source|track|wbr)$/i;
+
+// The whole part that starts at line `at` (0-based): <tag>…</tag>, { … } or a Python block. null = can't tell.
+function blockAt(lines, at, file) {
+  const first = lines[at];
+  const tag = /^\s*<([a-zA-Z][\w-]*)/.exec(first)?.[1];
+  if (tag) {
+    if (VOID.test(tag)) return lines.slice(at, at + 1);
+    const open = new RegExp(`<${tag}(?=[\\s>/]|$)(?![^>]*/>)`, 'gi');
+    const close = new RegExp(`</${tag}\\s*>`, 'gi');
+    let depth = 0;
+    for (let i = at; i < lines.length && i - at < BLOCK_MAX; i++) {
+      depth += (lines[i].match(open) || []).length - (lines[i].match(close) || []).length;
+      if (depth <= 0) return lines.slice(at, i + 1);
+    }
+    return null;
+  }
+  if (/\.py$/i.test(file) && /:\s*(#.*)?$/.test(first)) {
+    const indent = first.match(/^\s*/)[0].length;
+    let end = at;
+    for (let i = at + 1; i < lines.length && i - at < BLOCK_MAX; i++) {
+      if (!lines[i].trim()) continue;
+      if (lines[i].match(/^\s*/)[0].length <= indent) break;
+      end = i;
+    }
+    return lines.slice(at, end + 1);
+  }
+  let depth = 0;
+  let opened = false;
+  for (let i = at; i < lines.length && i - at < BLOCK_MAX; i++) {
+    for (const c of lines[i].replace(/(["'`])(?:\\.|(?!\1).)*\1/g, '')) {
+      if (c === '{') { depth += 1; opened = true; } else if (c === '}') depth -= 1;
+    }
+    if (opened && depth <= 0) return lines.slice(at, i + 1);
+    if (!opened && i - at >= 2) return null;
+  }
+  return null;
+}
 
 function walk(root) {
   const out = [];
@@ -48,9 +89,13 @@ export function findCode(root, query, { recent = [], whole = 0 } = {}) {
   const order = [...new Set([...recentFirst.filter((f) => all.includes(f)), ...all.sort((a, b) => a.split(path.sep).length - b.split(path.sep).length || entry(a) - entry(b) || a.localeCompare(b))])];
   const pool = exts.length ? order.filter((f) => exts.includes(path.extname(f).toLowerCase())) : order;
   if (!pool.length) return null;
-  const result = (file, at, itself = false) => {
+  const wholeUpTo = FULL.test(String(query || '')) ? Math.max(whole, FULL_MAX) : whole;
+  const result = (file, at, itself = false, def = false) => {
     const lines = read(file) || [];
-    if (itself && whole && lines.length <= whole) return { file: path.relative(root, file), start: 1, lines, total: lines.length };
+    if (itself && wholeUpTo && lines.length <= wholeUpTo) return { file: path.relative(root, file), start: 1, lines, total: lines.length };
+    // Where a thing is defined: that whole thing ("the header" = <header>…</header>), not a window.
+    const block = def ? blockAt(lines, at - 1, file) : null;
+    if (block) return { file: path.relative(root, file), start: at, lines: block, total: lines.length };
     const start = Math.max(1, at - 10);
     return { file: path.relative(root, file), start, lines: lines.slice(start - 1, start - 1 + WINDOW), total: lines.length };
   };
@@ -62,8 +107,12 @@ export function findCode(root, query, { recent = [], whole = 0 } = {}) {
     for (const f of pool) {
       const lines = read(f);
       if (!lines) continue;
-      const def = lines.findIndex((l) => terms.some((t) => new RegExp(`(function|class|const|let|var|def|id=|class=|<)\\s*["']?${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i').test(l)));
-      if (def >= 0) return result(f, def + 1);
+      // A definition, an element (<header, id="contact"), or a CSS rule (.site-footer {).
+      const def = lines.findIndex((l) => terms.some((t) => {
+        const q = t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        return new RegExp(`(function|class|const|let|var|def|id=|class=|<)\\s*["']?${q}`, 'i').test(l) || new RegExp(`^\\s*[.#]${q}\\b`, 'i').test(l);
+      }));
+      if (def >= 0) return result(f, def + 1, false, true);
       if (!mention) {
         const any = lines.findIndex((l) => terms.some((t) => l.toLowerCase().includes(t)));
         if (any >= 0) mention = [f, any + 1];

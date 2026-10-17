@@ -23,3 +23,19 @@ export function previewCommand(text) {
   }
   return null;
 }
+
+// "Open portfolio" = the project's website; "open portfolio in VS Code / antigravity" = that editor
+// (the user, 2026-10-17: a file or folder only when they say "file" / "folder"). The agent uses this
+// only for a project it knows; anything else ("open spotify") goes on as before.
+const EDITOR = /^(.+?) (?:in|on|with|using) (?:the )?(vs ?code|visual studio code|cursor|antigravity(?: ide)?|anti gravity|kiro|claude(?: code)?)(?: app| ide| editor)?$/i;
+const NOT_A_PROJECT = /\b(?:files?|folders?|pdfs?|docs?|documents?|sheets?|notes?|excel|slides?|ppt|and|it|that|this)\b/i;
+export function openCommand(text) {
+  const t = clean(text).replace(/[.!?]+$/, '');
+  const m = /^open (?:up )?(.+)$/i.exec(t);
+  if (!m || NOT_A_PROJECT.test(m[1])) return null;
+  const name = (s) => s.replace(/^(?:the |my )?(?:project )?/i, '').replace(/ (?:project|site|website|web ?site|web app|app)$/i, '').trim();
+  const ed = EDITOR.exec(m[1]);
+  if (ed) return { tool: 'open_project', args: { project: name(ed[1]), editor: ed[2].toLowerCase().replace(/\s+/g, ' ') } };
+  const project = name(m[1].replace(/ (?:in|on) (?:the )?(?:browser|chrome|edge)$/i, ''));
+  return project ? { tool: 'preview_open', args: { project } } : null;
+}

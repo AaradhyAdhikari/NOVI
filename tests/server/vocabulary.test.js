@@ -68,7 +68,13 @@ describe('built-in fix: "cloud" heard for "Claude"', () => {
 
 
 describe('programming language names as speech-to-text writes them', async () => {
-  const { fixLanguages } = await import('../../server/voice/vocabulary.js');
+  const { fixLanguages, fixLeetCode } = await import('../../server/voice/vocabulary.js');
+  // Live (2026-10-17): "LeetCode" was misheard.
+  it('"lead code / leet court / lit code" → LeetCode', () => {
+    for (const t of ["show me today's lead code problem", "today's leet court question", 'my lit code stats', 'open Leak Code', 'leetcode ka problem'])
+      expect(fixLeetCode(t), t).toMatch(/LeetCode|leetcode/);
+    expect(fixLeetCode('the lead code reviewer')).toBe('the lead code reviewer');
+  });
   it('"sea language" = C language, plus C++ and C#', () => {
     expect(fixLanguages('Open sea language folder')).toBe('Open C language folder');
     expect(fixLanguages('open see language notes')).toBe('open C language notes');

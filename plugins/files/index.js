@@ -103,7 +103,7 @@ export function createFilesPlugin({ roots, home = os.homedir(), docsDir, openPat
 
       api.registerTool({
         name: 'file_open',
-        description: 'Open a file or folder on the laptop by what the user calls it ("open my DBMS notes"). Opens it in its normal app. Read-only.',
+        description: 'Open a file or folder on the laptop by what the user calls it ("open my DBMS notes"). Opens it in its normal app. Only when the user says file, folder or a document type ("open portfolio" is the project, not a file). Read-only.',
         parameters: obj({ query: str('What the user called the file'), path: str('Optional: the exact path, when Novi already knows it (e.g. the folder it just made)') }),
         async execute(_id, { query, path: exact }) {
           if (exact && fs.existsSync(exact)) {

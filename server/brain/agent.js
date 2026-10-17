@@ -8,7 +8,7 @@ import { matchAnswer, answerFor } from '../claude/questions.js';
 import { FILE_LEAD, FILE_TAIL } from './phrases.js';
 import { controlCommand, isCancelWord, historyCommand, diskCommand } from './controlCommand.js';
 import { browserCommand, isDoneWord } from './browserCommand.js';
-import { previewCommand } from './previewCommand.js';
+import { previewCommand, openCommand } from './previewCommand.js';
 import { describeTurn } from '../activity.js';
 import { quietCommand } from '../quiet.js';
 import path from 'node:path';
@@ -19,7 +19,7 @@ import path from 'node:path';
 const WRONG_RE = /^(?:what went wrong|what happened(?: last time| just now| there)?|why didn'?t (?:that|it|this) work|why did (?:that|it) fail|kya (?:galat )?hua(?: tha)?|kya gadbad hui)$/i;
 const RUNNING_RE = /^(?:what(?:'s| is) (?:running|going on|happening)(?: right now)?|what are you (?:doing|working on)(?: right now)?|(?:sab )?kya (?:kya )?chal raha hai|anything running)$/i;
 const DIRECT_OK = new Set(['code_start_task', 'code_send_message', 'rename_project', 'file_new_folder', 'open_project', 'file_open', 'file_rename', 'note_write', 'notes_ask', 'note_open']);
-const ASK_ANYWAY = new Set(['file_gather', 'file_undo_move', 'laptop_run', 'whatsapp_send', 'preview_show']); // preview_show: only its first start of a project's own command asks
+const ASK_ANYWAY = new Set(['file_gather', 'file_undo_move', 'laptop_run', 'whatsapp_send', 'preview_show', 'preview_open']); // preview_show/open: only its first start of a project's own command asks
 const MAX_ROUNDS = 10; // screen tasks: open the app, look, click, type, …
 const MAX_HISTORY = 40;
 const SUMMARY_AT = 20; // with a summarizer, history past this many messages folds its oldest 10 into one line
@@ -31,7 +31,7 @@ export function systemPrompt({ projects, task, accounts = [] }) {
     'If the user mentions a project you do not know, ask for its folder path, then call remember_project.',
     'You can also act directly: open_website (use a full https URL when you know the site) and play_youtube open things right away on the device the user is using; open_app opens installed apps on the laptop. To watch or play anything ("show me valorant", "play X"), call play_youtube (top result by default; position for "the 5th one"); use youtube_search only when the user asks to see the options. Never read out a list of videos; after playing, just say the title. To log in, fill a form, click or read a page on a website, use browser_open and the other browser_* tools (Chrome on the laptop), not open_website. LeetCode problems and stats come from the leetcode tools; never play a video for LeetCode.',
     'To do something inside an app on the laptop that has no tool of its own (e.g. "open Claude and make a project named X"), do it yourself step by step: open_app, then screen_look, screen_click, screen_type and screen_key until it is done. Do not stop after opening the app or tell the user to do it.',
-    'Files: file_find / file_open find and open anything on the laptop by name; file_summary reads a file or Google Sheet in the background, so say you are reading it and keep helping with whatever the user asks next; file_gather moves files about a topic into a new folder.',
+    '"Open X" without the word file or folder is never file_open: a coding project → preview_open (its website), "open X in VS Code / Antigravity / Cursor…" → open_project with that editor, anything else → open_app. Files: file_find / file_open find and open files and folders on the laptop by name when the user says file, folder or a document type; file_summary reads a file or Google Sheet in the background, so say you are reading it and keep helping with whatever the user asks next; file_gather moves files about a topic into a new folder.',
     'Never say you played, opened, sent or did something unless a tool result in this turn says it happened; if you did not call the tool, call it. Never say a task is finished unless a tool result says so. If a tool returns an error, explain it briefly.',
     `Known projects: ${projects.length ? projects.map((p) => `${p.name} (${p.path})`).join('; ') : 'none yet'}.`,
     `Current coding task: ${task.active ? `${task.status} on ${task.project}: "${task.instruction}"` : 'none'}.`,
@@ -82,7 +82,8 @@ export function githubGraphCommand(text, now = new Date()) {
 // "Show me the HTML code" / "navbar ka code dikhao" → code_show with the user's words (no AI call).
 export function codeCommand(text) {
   const t = String(text || '').trim();
-  if (!/\bcode\b|कोड/i.test(t) || !/\b(show|see|dikha\w*|dekh\w*)\b|दिखा/i.test(t)) return null;
+  // Show words, or asking for "the full / whole / complete … code" in any words ("give me…", "was it the full header code?").
+  if (!/\bcode\b|कोड/i.test(t) || !(/\b(show|see|dikha\w*|dekh\w*)\b|दिखा/i.test(t) || /\b(full|whole|complete|entire|poora|pura)\b/i.test(t) || /\b(give|send|get)\b.*\bcode (of|for)\b/i.test(t))) return null;
   if (/\b(fix|change|add|write|make|remove|delete|update|bana\w*|badal\w*)\b/i.test(t) && !/\b(show|see)\b.*\b(wrote|written|did you)\b|\bdid you write\b/i.test(t)) return null;
   return t;
 }
@@ -341,6 +342,14 @@ export class Agent {
     if (browse) return this._remember(text, browse);
     const preview = await this._previewCommand(text);
     if (preview) return this._remember(text, preview);
+    const opened = this._openKnown(text);
+    if (opened) {
+      const open = async (name, args) => (await this._runTool({ id: `open-${Date.now()}`, function: { name, arguments: JSON.stringify(args) } }, { direct: true })).output || {};
+      let out = await open(opened.tool, opened.args);
+      // No website to run (a CLI, a library…): open the project in the editor instead.
+      if (out.askClaude && this.tools.get('open_project')) out = await open('open_project', { project: opened.args.project });
+      return this._remember(text, out.error || out.note || out.text || 'Done.');
+    }
     const disk = diskCommand(text);
     if (disk && this.tools.get(disk.tool)) {
       const { output } = await this._runTool({ id: `disk-${Date.now()}`, function: { name: disk.tool, arguments: JSON.stringify(disk.args) } }, { direct: true });
@@ -477,6 +486,8 @@ export class Agent {
     if (ctl && this.tools.get(ctl.tool)) return { quick: null, calls: [{ name: ctl.tool, args: ctl.args }], reply: null, provider: 'direct' };
     const pv = this._previewKnown(previewCommand(text));
     if (pv) return { quick: null, calls: [{ name: pv.tool, args: pv.args }], reply: null, provider: 'direct' };
+    const op = this._openKnown(text);
+    if (op) return { quick: null, calls: [{ name: op.tool, args: op.args }], reply: null, provider: 'direct' };
     const br = browserCommand(text, { lastTo: this._waLastTo });
     if (br && this.tools.get(br.tool)) return { quick: null, calls: [{ name: br.tool, args: br.args }], reply: null, provider: 'direct' };
     const file = fileCommand(text);
@@ -733,6 +744,15 @@ export class Agent {
   // LeetCode / WhatsApp without the AI. A WhatsApp file or folder is found first; sending always
   // asks (whatsapp_send). "done" after a pause (QR scan) tries the same send again.
   async _browserCommand(text) {
+    // "On my laptop" / "open it" right after a LeetCode answer: open that problem.
+    const t = String(text).trim().replace(/[.!?]+$/, '');
+    if (this._lastLink && Date.now() - this._lastLink.at < 5 * 60_000 && this.tools.get('open_website')) {
+      const later = /^(?:(?:ok(?:ay)?|no|i said)[, ]+)?(?:(open|show|put)(?: it| that| this| the problem| the question)?(?: up)?)?(?:\s*(?:on|in) (?:my |the )?(laptop|computer|pc))?$/i.exec(t);
+      if (later && (later[1] || later[2])) {
+        const out = await this._openLink(this._lastLink.url, later[2] ? 'laptop' : 'here');
+        return out.error || (later[2] ? 'Opened it on the laptop.' : 'Opened it.');
+      }
+    }
     let cmd = browserCommand(text, { lastTo: this._waLastTo });
     if (!cmd && this._browserPause && isDoneWord(text)) cmd = this._browserPause;
     this._browserPause = null;
@@ -752,7 +772,18 @@ export class Agent {
       const sent = await run('whatsapp_send', {});
       return /declined/i.test(String(sent.error || '')) ? 'Okay, not sent.' : sent.error || sent.note || 'Okay, not sent.';
     }
+    if (cmd.tool === 'leetcode_today' && out.link) {
+      this._lastLink = { url: out.link, at: Date.now() };
+      if (cmd.open && this.tools.get('open_website')) {
+        const opened = await this._openLink(out.link, cmd.open);
+        return `${out.note}${opened.error ? ` ${opened.error}` : cmd.open === 'laptop' ? ' Opened it on the laptop.' : ' Opened it.'}`;
+      }
+    }
     return out.error || out.note || 'Done.';
+  }
+
+  async _openLink(url, where) {
+    return (await this._runTool({ id: `link-${Date.now()}`, function: { name: 'open_website', arguments: JSON.stringify({ target: url, ...(where === 'laptop' ? { on: 'laptop' } : {}) }) } }, { direct: true })).output || {};
   }
 
   // "What's running?" — everything going on, in one answer: the coding task, previews, the next reminder.
@@ -775,6 +806,15 @@ export class Agent {
     if (!cmd || !this.tools.get(cmd.tool)) return null;
     const known = cmd.args.project || this.tasks?.status?.()?.project || this.memory?.lastTask?.()?.project;
     return known ? cmd : null;
+  }
+
+  // "Open portfolio" / "open portfolio in VS Code" — only for a project Novi knows; "open spotify" goes on.
+  _openKnown(text) {
+    const cmd = openCommand(text);
+    const known = cmd && this.tools.get(cmd.tool) && this.memory?.findProject?.(cmd.args.project);
+    // Novi's own folder: "open Novi" must never start a second Novi as a "site".
+    if (!known || (cmd.tool === 'preview_open' && known.name === 'novi')) return null;
+    return cmd;
   }
 
   // "Show me the homepage": the preview plugin answers; when it can't tell how to run the project,
