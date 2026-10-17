@@ -608,9 +608,11 @@ export function createNovi(config, overrides = {}) {
     errors: overrides.logBuffer?.recent() || [],
   }));
   const exit = overrides.exit || ((code) => process.exit(code));
+  const tellSupervisor = overrides.tellSupervisor || ((m) => { try { process.send?.(m); } catch { /* no supervisor */ } });
   app.post('/api/restart', (req, res) => {
     if (!system.supervised) return res.status(409).json({ error: 'Novi was started without the supervisor, so it cannot restart itself. Close it and double-click Start Novi.cmd.' });
     res.json({ restarting: true });
+    tellSupervisor({ type: 'restarting' });
     setTimeout(() => exit(75), 300);
   });
   // Natural voices for spoken replies (Edge neural voices); the browser falls back to its own voice on error.

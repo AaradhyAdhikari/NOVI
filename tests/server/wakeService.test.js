@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { conversationNext, keepRestarting, speakerOptions } from '../../server/voice/wakeword/service.js';
+import { conversationNext, keepRestarting, speakerOptions, releaseAfter } from '../../server/voice/wakeword/service.js';
 
 describe('conversationNext', () => {
   it('keeps listening after a reply, deaf for about as long as Novi speaks', () => {
@@ -75,5 +75,35 @@ describe('speakerOptions (only my voice + interrupt wiring)', () => {
     expect(lines).toEqual([]);
     speakerOptions({ novi: {}, env: { NOVI_WAKEWORD_DEBUG: '1' }, logger }).onRejected({ score: 0.9 });
     expect(lines[0]).toMatch(/not the owner/);
+  });
+});
+
+// Releasing PvRecorder while its read() is still running crashed Novi (exit 3221225477 =
+// access violation) when the mic switched to the earbuds (2026-10-16).
+describe('releaseAfter', () => {
+  it('releases the old mic only after its read loop has ended', async () => {
+    let end;
+    const loop = new Promise((r) => { end = r; });
+    const recorder = { released: 0, release() { this.released += 1; } };
+    const done = releaseAfter(loop, recorder, { waitMs: 1000 });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(recorder.released).toBe(0);
+    end();
+    expect(await done).toBe(true);
+    expect(recorder.released).toBe(1);
+  });
+
+  it('leaves a mic that never stops reading open instead of crashing', async () => {
+    const recorder = { released: 0, release() { this.released += 1; } };
+    const warn = vi.fn();
+    expect(await releaseAfter(new Promise(() => {}), recorder, { waitMs: 30, logger: { warn } })).toBe(false);
+    expect(recorder.released).toBe(0);
+    expect(warn).toHaveBeenCalled();
+  });
+
+  it('a loop that ended with an error still releases', async () => {
+    const recorder = { released: 0, release() { this.released += 1; } };
+    expect(await releaseAfter(Promise.reject(new Error('read failed')), recorder, { waitMs: 100 })).toBe(true);
+    expect(recorder.released).toBe(1);
   });
 });
