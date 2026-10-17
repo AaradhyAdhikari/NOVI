@@ -18,8 +18,8 @@ import path from 'node:path';
 // "What went wrong?" (the activity log) and "what's running?" — answered without the AI.
 const WRONG_RE = /^(?:what went wrong|what happened(?: last time| just now| there)?|why didn'?t (?:that|it|this) work|why did (?:that|it) fail|kya (?:galat )?hua(?: tha)?|kya gadbad hui)$/i;
 const RUNNING_RE = /^(?:what(?:'s| is) (?:running|going on|happening)(?: right now)?|what are you (?:doing|working on)(?: right now)?|(?:sab )?kya (?:kya )?chal raha hai|anything running)$/i;
-const DIRECT_OK = new Set(['code_start_task', 'code_send_message', 'rename_project', 'file_new_folder', 'open_project', 'file_open', 'file_rename', 'note_write', 'notes_ask', 'note_open']);
-const ASK_ANYWAY = new Set(['file_gather', 'file_undo_move', 'laptop_run', 'whatsapp_send', 'preview_show', 'preview_open']); // preview_show/open: only its first start of a project's own command asks
+const DIRECT_OK = new Set(['code_start_task', 'code_send_message', 'rename_project', 'file_new_folder', 'open_project', 'file_open', 'file_rename', 'note_write', 'notes_ask', 'note_open', 'whatsapp_send']); // whatsapp_send: the user's decision 2026-10-17 — their command is the yes
+const ASK_ANYWAY = new Set(['file_gather', 'file_undo_move', 'laptop_run', 'preview_show', 'preview_open']); // preview_show/open: only its first start of a project's own command asks
 const MAX_ROUNDS = 10; // screen tasks: open the app, look, click, type, …
 const MAX_HISTORY = 40;
 const SUMMARY_AT = 20; // with a summarizer, history past this many messages folds its oldest 10 into one line
@@ -405,6 +405,7 @@ export class Agent {
     let provider = extra.sensitive ? this.privateProviders[0] : undefined;
     let waited = false;
     let ranTool = false;
+    let toolFailed = false;
     let pushedBack = false;
     for (let round = 0; round < MAX_ROUNDS; round++) {
       let res;
@@ -421,7 +422,8 @@ export class Agent {
           round -= 1;
           continue;
         }
-        const fallback = notes.length ? notes.join(' ') : `My AI providers are busy right now. Try again in about ${Math.ceil(err.retryInMs / 1000)} seconds.`;
+        // A tool already did the job (the graph is on screen): no "busy" line under it, just nothing more.
+        const fallback = notes.length ? notes.join(' ') : ranTool && !toolFailed ? '' : `My AI providers are busy right now. Try again in about ${Math.ceil(err.retryInMs / 1000)} seconds.`;
         return this._remember(text, fallback);
       }
       provider = res.provider; // a turn's tool rounds stay on one provider (Gemini thought signatures)
@@ -442,6 +444,7 @@ export class Agent {
       let sensitive = false;
       for (const call of calls) {
         const result = await this._runTool(call);
+        if (result.output?.error) toolFailed = true;
         if (result.note) notes.push(result.note);
         if (result.output?.sensitive) sensitive = true;
         messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(result.output) });
@@ -691,7 +694,7 @@ export class Agent {
     for (const key of Object.keys(args)) if (key.startsWith('$')) delete args[key];
     if (tool.gate) {
       // Plugin tools: approval and blocking come from before_tool_call hooks (OpenClaw shape).
-      const gate = await tool.gate(args, { toolCallId: call.id, from: this._from || 'local' });
+      const gate = await tool.gate(args, { toolCallId: call.id, from: this._from || 'local', direct });
       if (gate.block) return { output: { error: gate.blockReason, ...(gate.details || {}) }, note: gate.blockReason };
       if (gate.approval) {
         const { title, detail, tier, prompt, choices } = gate.approval;

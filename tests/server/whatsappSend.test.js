@@ -38,15 +38,21 @@ describe('WhatsApp: prepare, then send with the question', () => {
     const gate = await send.gate({});
     expect(gate.approval.title).toBe(`Send ${out.ready.what} to Rahul Sharma?`);
     expect(gate.approval).toMatchObject({ tier: 'medium', grantable: false });
-    expect((await send.run({})).note).toBe('Sent.');
+    expect((await send.run({})).note).toBe('Sent to Rahul Sharma.');
     expect(web.sent).toBe(1);
   });
 
-  it('the app is used when its window is open (or asked for), and the question says so', async () => {
+  // Live (2026-10-17): the app driver took over the screen and was slow. WhatsApp Web in a background
+  // Chrome tab is used whenever Chrome is connected; the app only when asked for or Chrome isn't there.
+  it('Web (in the background) even when the app is open; the app when asked for or Chrome is not connected', async () => {
     const open = setup({ appOpen: true });
     await open.prep.run({ to: 'Mom', text: "I'll be late" });
-    expect(open.app.prepared[0]).toMatchObject({ to: 'Mom', text: "I'll be late" });
-    expect((await open.send.gate({})).approval.title).toBe('Send "I\'ll be late" to Rahul Sharma on WhatsApp app?');
+    expect(open.web.prepared[0]).toMatchObject({ to: 'Mom', text: "I'll be late" });
+    expect(open.app.prepared).toHaveLength(0);
+    const noChrome = setup({ connected: false });
+    await noChrome.prep.run({ to: 'Mom', text: 'hi' });
+    expect(noChrome.app.prepared).toHaveLength(1);
+    expect((await noChrome.send.gate({})).approval.title).toBe('Send "hi" to Rahul Sharma on WhatsApp app?');
     const asked = setup({ appOpen: false });
     await asked.prep.run({ to: 'Mom', text: 'hi', via: 'app' });
     expect(asked.app.prepared).toHaveLength(1);
@@ -83,5 +89,15 @@ describe('WhatsApp: prepare, then send with the question', () => {
     await s.send.gate({}, { from: { deviceId: 'p1' } });
     expect(s.shown).toHaveLength(1);
     expect((await s.send.run({})).note).toBe("WhatsApp didn't confirm it was sent — please check.");
+  });
+});
+
+describe('WhatsApp: your own command sends without a question (2026-10-17)', () => {
+  it('a direct send shows no picture on the phone and says who it went to', async () => {
+    const { prep, send, shown } = setup();
+    await prep.run({ to: 'isha', text: 'I am late' });
+    await send.gate({}, { from: { deviceId: 'p1' }, direct: true });
+    expect(shown).toHaveLength(0);
+    expect((await send.run({})).note).toBe('Sent to Rahul Sharma.');
   });
 });

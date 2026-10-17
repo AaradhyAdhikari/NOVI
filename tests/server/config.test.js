@@ -19,8 +19,8 @@ describe('loadConfig', () => {
     expect(c.providers[1].models.long).toEqual(['gemini-flash-latest', 'gemini-flash-lite-latest']);
   });
 
-  it('skips providers without keys and extras without models', () => {
-    const c = loadConfig({ GEMINI_API_KEYS: 'm1', CEREBRAS_API_KEYS: 'c1', USERPROFILE: 'C:\\nowhere' });
+  it('skips providers without keys', () => {
+    const c = loadConfig({ GEMINI_API_KEYS: 'm1', USERPROFILE: 'C:\\nowhere' });
     expect(c.providers.map((p) => p.name)).toEqual(['gemini']);
   });
 
@@ -91,5 +91,16 @@ describe('loadConfig', () => {
     expect(loadConfig({ SARVAM_API_KEYS: 'a, b' }).speechKeys.sarvam).toEqual(['a', 'b']);
     expect(loadConfig({}).speechKeys.sarvam).toEqual([]);
   });
-});
 
+  // The user's question (2026-10-17): more free providers, so Novi isn't stuck on one. Each one is used
+  // as soon as its key is in .env (models can still be changed with <NAME>_MODELS).
+  it('Cerebras, Mistral and GitHub Models work with just a key', () => {
+    const config = loadConfig({ CEREBRAS_API_KEYS: 'c', MISTRAL_API_KEYS: 'm', GITHUBMODELS_API_KEYS: 'g' });
+    const by = Object.fromEntries(config.providers.map((p) => [p.name, p]));
+    expect(by.cerebras.models.fast.length).toBeGreaterThan(0);
+    expect(by.mistral.models.fast.length).toBeGreaterThan(0);
+    expect(by.githubmodels).toMatchObject({ baseURL: 'https://models.github.ai/inference' });
+    expect(config.order.fast).toEqual(expect.arrayContaining(['cerebras', 'mistral', 'githubmodels']));
+    expect(config.privateProviders).toEqual(['groq']);
+  });
+});

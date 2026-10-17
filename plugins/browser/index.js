@@ -106,9 +106,16 @@ export function createBrowserPlugin({ bridge = null, showImage = null, webDriver
           prepared = null;
           if (!text && !target) return reply({ error: 'What should I send?' });
           const file = target ? zipForSend(target) : null;
-          const useApp = via === 'app' || (via !== 'web' && (await appIsOpen() || !link.connected()));
-          const driver = useApp ? app() : web;
-          const r = await driver.prepare({ to, text, file });
+          // WhatsApp Web in a background Chrome tab whenever Chrome is connected (fast, off the screen);
+          // the desktop app only when asked for, Chrome isn't connected, or Web isn't signed in yet.
+          let useApp = via === 'app' || (via !== 'web' && !link.connected());
+          let driver = useApp ? app() : web;
+          let r = await driver.prepare({ to, text, file });
+          if (!useApp && r.pause === 'qr' && via !== 'web' && await appIsOpen()) {
+            useApp = true;
+            driver = app();
+            r = await driver.prepare({ to, text, file });
+          }
           if (r.choose) return reply({ choose: r.choose, note: `Which ${to}: ${orList(r.choose)}?` });
           if (r.pause) return reply({ pause: r.pause, note: r.note });
           if (r.error) return reply({ error: r.error });
@@ -122,7 +129,7 @@ export function createBrowserPlugin({ bridge = null, showImage = null, webDriver
         prepared = null;
         if (!p) return reply({ error: 'Nothing is ready to send.' });
         const { sent } = await p.driver.send();
-        return reply({ sent, note: sent ? 'Sent.' : "WhatsApp didn't confirm it was sent — please check." });
+        return reply({ sent, note: sent ? `Sent to ${p.name}.` : "WhatsApp didn't confirm it was sent — please check." });
       });
 
       tool('browser_screenshot', 'Show a picture of the page to the user.', obj({}), async () => {
@@ -131,12 +138,13 @@ export function createBrowserPlugin({ bridge = null, showImage = null, webDriver
         return reply({ note: 'Here it is.' });
       });
 
-      api.on('before_tool_call', async ({ toolName, from }) => {
+      // direct: the user's own words asked for this send, so Novi won't ask (agent) — no picture either.
+      api.on('before_tool_call', async ({ toolName, from, direct }) => {
         if (toolName !== 'whatsapp_send') return undefined;
         lastFrom = from || 'local';
         if (!prepared || now() - prepared.at > PREPARED_MS) { prepared = null; return { block: true, blockReason: 'Nothing is ready to send.' }; }
         const title = `Send ${prepared.what} to ${prepared.name}${prepared.via === 'app' ? ' on WhatsApp app' : ''}?`;
-        if (fromPhone(lastFrom)) {
+        if (fromPhone(lastFrom) && !direct) {
           try {
             const png = prepared.via === 'app' ? await prepared.driver.shot?.() : (await link.request('screenshot')).png;
             if (png) show({ png: Buffer.from(png, 'base64'), caption: title });

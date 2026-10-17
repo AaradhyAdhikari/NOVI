@@ -26,7 +26,15 @@ const person = (name, lastTo) => {
   const n = name.trim().replace(ON_WA, '');
   return PRONOUN.test(n) ? lastTo || null : n;
 };
-const msg = (to, text, via) => (to ? T('whatsapp_prepare', { to, text: text.trim(), ...VIA(via) }) : null);
+// "… that I am late on WhatsApp": the end says where to send it, it isn't part of the message.
+const WA_TAIL = /\s+(?:on|in|via|pe|par) (?:the |my )?whats ?app(?: (app|web))?$/i;
+const msg = (to, text, via) => {
+  if (!to) return null;
+  let body = text.trim();
+  const tail = WA_TAIL.exec(body);
+  if (tail) { body = body.slice(0, tail.index).trim(); via = via || tail[1]; }
+  return T('whatsapp_prepare', { to, text: body, ...VIA(via) });
+};
 
 const LAPTOP = /\b(?:on|in) (?:my |the )?(?:laptop|computer|pc)\b|\blaptop (?:pe|par|mein|me)\b/i;
 const OPEN = /^\s*(?:(?:ok(?:ay)?|hey novi|novi|please)[, ]+)*open\b|\b(?:kholo|khol do|open karo)\b/i;
@@ -50,7 +58,7 @@ export function browserCommand(text, { lastTo = null } = {}) {
   if (m) return fileOrText(m[1], m[2].trim(), m[3]);
   m = /^(.+?) ko (.+?) (?:bhej do|bhejo|bhej de)(?: (?:on )?whats ?app(?: (app|web))?(?: (?:pe|par))?| whats ?app (?:pe|par))$/i.exec(t);
   if (m) return fileOrText(m[2], m[1].trim(), m[3]);
-  m = /^(?:tell|message|text) (.+?) on (?:the |my )?whats ?app(?: (app|web))?(?: that|:)? (.+)$/i.exec(t);
+  m = /^(?:tell|message|text) (.+?) on (?:the |my )?whats ?app(?: (app|web))?(?: that|:)? (?!(?:app|web)$)(.+)$/i.exec(t);
   if (m) return msg(person(m[1], lastTo), m[3], m[2]);
   // Plain "message / text someone …" (no app named) is WhatsApp; email words stay with the AI.
   if (!/\b(?:e-?mail|mail|gmail|sms)\b/i.test(t)) {
