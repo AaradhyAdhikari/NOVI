@@ -924,11 +924,11 @@ describe('Settings → Shortcuts API + galaxy dots', () => {
     const { base, novi } = await start();
     novi.shortcuts.learn('put on spotify', { tool: 'open_app', args: { name: 'Spotify' }, output: { opened: 'Spotify' } });
     const list = await (await fetch(`${base}/api/shortcuts`)).json();
-    expect(list.shortcuts).toEqual([expect.objectContaining({ key: 'put on spotify', tool: 'open_app' })]);
+    expect(list.shortcuts).toEqual(expect.arrayContaining([expect.objectContaining({ key: 'put on spotify', tool: 'open_app' }), expect.objectContaining({ key: 'what time is it', tool: 'clock_now', seed: true })]));
     const graph = await (await fetch(`${base}/api/wiki/graph`)).json();
     expect(graph.nodes).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'shortcut:put on spotify', folder: 'Shortcuts' }), expect.objectContaining({ id: 'Shortcuts' })]));
     expect(graph.links).toEqual(expect.arrayContaining([{ source: 'Shortcuts', target: 'shortcut:put on spotify' }]));
     expect((await fetch(`${base}/api/shortcuts?key=${encodeURIComponent('put on spotify')}`, { method: 'DELETE' })).status).toBe(200);
-    expect((await (await fetch(`${base}/api/shortcuts`)).json()).shortcuts).toEqual([]);
+    expect((await (await fetch(`${base}/api/shortcuts`)).json()).shortcuts.map((x) => x.key)).not.toContain('put on spotify');
   });
 });

@@ -22,6 +22,8 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
 // What to say after a replay: the tool's own words. '' = it already showed the answer (a picture).
 export function replyFrom(output = {}) {
   if (typeof output.note === 'string' && output.note) return output.note;
+  // The briefing's text is written for the AI ("Say this: … Details: …"): keep the words, drop the labels.
+  if (typeof output.text === 'string' && output.text && output.spoken) return output.text.replace(/^Say this:\s*/, '').replace(/\n\nDetails:\n/, '\n\n');
   if (typeof output.text === 'string' && output.text) return output.text;
   if (output.opened) return `Opened ${output.opened}.`;
   return '';
@@ -30,13 +32,28 @@ export function replyFrom(output = {}) {
 const day = (d, shift = 0) => { const x = new Date(d); x.setDate(x.getDate() + shift); return x.toLocaleDateString('en-CA'); };
 const RELATIVE = { $yesterday: -1, $today: 0, $tomorrow: 1 };
 
-export function createShortcuts({ file, now = () => new Date(), max = 300 } = {}) {
+// seeds: starter shortcuts ([{ words, tool, args }], server/brain/shortcutSeeds.js). Each phrase is added
+// once (remembered in shortcuts-seeded.json), so one the user removes never comes back.
+export function createShortcuts({ file, now = () => new Date(), max = 300, seeds = [] } = {}) {
   let saved = {};
   try { saved = JSON.parse(fs.readFileSync(file, 'utf8')) || {}; } catch { /* none yet */ }
   const save = () => {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, JSON.stringify(saved, null, 2));
   };
+
+  const seededFile = path.join(path.dirname(file), 'shortcuts-seeded.json');
+  let seeded = [];
+  try { seeded = JSON.parse(fs.readFileSync(seededFile, 'utf8')) || []; } catch { /* none yet */ }
+  const fresh = seeds.flatMap((s) => s.words.map((w) => ({ key: phraseKey(w), said: w, tool: s.tool, args: s.args || {} }))).filter((s) => !seeded.includes(s.key));
+  if (fresh.length) {
+    for (const s of fresh) {
+      if (!saved[s.key]) saved[s.key] = { tool: s.tool, args: s.args, said: s.said, uses: 0, at: now().toISOString(), seed: true };
+      seeded.push(s.key);
+    }
+    save();
+    fs.writeFileSync(seededFile, JSON.stringify(seeded, null, 2));
+  }
 
   // Dates become $today / $yesterday / $tomorrow; any other date or a clock time → not learnable.
   const template = (args) => {

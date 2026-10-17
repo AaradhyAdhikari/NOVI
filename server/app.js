@@ -2,6 +2,7 @@ import { createQuiet } from './quiet.js';
 import { createCodeEdits } from './codeEdits.js';
 import { createActivity } from './activity.js';
 import { createShortcuts } from './brain/shortcuts.js';
+import { SEEDS } from './brain/shortcutSeeds.js';
 import os from 'node:os';
 import { memoryDir, createVault } from '../plugins/wiki/vault.js';
 import { buildGraph, readNote } from '../plugins/wiki/graph.js';
@@ -207,7 +208,7 @@ export function createNovi(config, overrides = {}) {
   // "What happened" in each request (Settings → Activity, "what went wrong?").
   const activity = overrides.activity || createActivity({ file: path.join(config.dataDir, 'activity', 'recent.json') });
   // Learned shortcuts (server/brain/shortcuts.js): words the AI solved once with one quiet tool.
-  const shortcuts = overrides.shortcuts || createShortcuts({ file: path.join(config.dataDir, 'shortcuts.json') });
+  const shortcuts = overrides.shortcuts || createShortcuts({ file: path.join(config.dataDir, 'shortcuts.json'), seeds: SEEDS });
   const agent = overrides.agent || new Agent({ router, tools, approvals, memory, tasks, accounts, privateProviders: config.privateProviders || ['groq'], summarize: (text) => plugins.runtime.privateComplete(text), activity, quiet, shortcuts });
   const pairing = overrides.pairing || new Pairing({ file: path.join(config.dataDir, 'devices.json') });
   const tailscaleIdentity = overrides.tailscaleIdentity || createTailscaleIdentity();

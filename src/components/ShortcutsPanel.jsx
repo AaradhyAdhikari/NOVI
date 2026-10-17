@@ -23,7 +23,7 @@ export default function ShortcutsPanel({ api }) {
             <strong>“{s.said}”</strong>
             <button className="icon" aria-label={`Forget “${s.said}”`} title="Forget this shortcut" onClick={() => remove(s.key)}><Trash2 size={16} /></button>
           </div>
-          <span className="muted">→ {s.tool} · used {s.uses} time{s.uses === 1 ? '' : 's'}</span>
+          <span className="muted">→ {s.tool} · used {s.uses} time{s.uses === 1 ? '' : 's'}{s.seed ? ' · starter' : ''}</span>
         </li>
       ))}
     </ul>

@@ -55,3 +55,45 @@ describe('learned shortcuts', () => {
     expect(replyFrom({ instructions: 'Sent the graph picture.' })).toBe('');
   });
 });
+
+// "Fill the shortcuts with the simple tasks we did" (2026-10-17): everyday commands that still went
+// through the AI start as shortcuts. Added once; one the user removes never comes back.
+describe('starter shortcuts', () => {
+  const seeds = [
+    { words: ["What's the weather?", 'kal ka weather batao'], tool: 'weather_get', args: { days: 1 } },
+    { words: ['open calculator'], tool: 'open_app', args: { name: 'Calculator' } },
+  ];
+
+  it('are there from the start, matched like learned ones', () => {
+    const s = createShortcuts({ file: file(), seeds });
+    expect(s.find('okay, what is the weather')).toBe(null);
+    expect(s.find("what's the weather please")).toMatchObject({ tool: 'weather_get', args: { days: 1 } });
+    expect(s.find('Kal ka weather batao.')).toMatchObject({ tool: 'weather_get' });
+    expect(s.list().find((x) => x.key === 'open calculator')).toMatchObject({ seed: true, uses: 0 });
+  });
+
+  it('a removed one stays removed after a restart, and a learned one is never overwritten', () => {
+    const f = file();
+    const s = createShortcuts({ file: f, seeds });
+    s.learn('open calculator', { tool: 'open_app', args: { name: 'Calculator Plus' }, output: { opened: 'Calculator Plus' } });
+    expect(s.forget(phraseKey("What's the weather?"))).toBe(true);
+    const again = createShortcuts({ file: f, seeds });
+    expect(again.find("what's the weather")).toBe(null);
+    expect(again.find('open calculator').args).toEqual({ name: 'Calculator Plus' });
+  });
+
+  it("Novi's own list: only quiet tools, at least two words, nothing a direct route already does", async () => {
+    const { SEEDS } = await import('../../server/brain/shortcutSeeds.js');
+    const s = createShortcuts({ file: file(), seeds: SEEDS });
+    for (const seed of SEEDS) {
+      expect(['weather_get', 'clock_now', 'open_app', 'project_next', 'briefing_get']).toContain(seed.tool);
+      for (const w of seed.words) expect(phraseKey(w).split(' ').length).toBeGreaterThan(1);
+    }
+    expect(s.find('kal ka mausam kaisa hoga')).toMatchObject({ tool: 'weather_get', args: { days: 2 } });
+    expect(s.find('what time is it')).toMatchObject({ tool: 'clock_now' });
+  });
+
+  it('the briefing reply drops its "Say this:" label', () => {
+    expect(replyFrom({ spoken: 'Morning! Sunny.', text: 'Say this: Morning! Sunny.\n\nDetails:\nWeather: 30°' })).toBe('Morning! Sunny.\n\nWeather: 30°');
+  });
+});
