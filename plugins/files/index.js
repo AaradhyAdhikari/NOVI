@@ -192,12 +192,11 @@ export function createFilesPlugin({ roots, home = os.homedir(), docsDir, openPat
       // Where a new folder goes: Documents unless the user names Desktop / Downloads / a folder they have.
       const placeFor = (where) => {
         const w = String(where || '').trim().toLowerCase().replace(/^(?:my|the)\s+/, '').replace(/\s+folder$/, '');
-        const known = { '': docs, documents: docs, docs, desktop: path.join(home, 'Desktop'), downloads: path.join(home, 'Downloads') };
-        if (w in known) {
-          const p = known[w];
-          if (w === 'desktop' && !fs.existsSync(p) && fs.existsSync(path.join(home, 'OneDrive', 'Desktop'))) return path.join(home, 'OneDrive', 'Desktop');
-          return p;
-        }
+        // With OneDrive the real desktop is OneDrive\Desktop, even when an old C:\Users\…\Desktop is
+        // still there (live 2026-10-17: the folder went to that one and never showed up).
+        const desktop = fs.existsSync(path.join(home, 'OneDrive', 'Desktop')) ? path.join(home, 'OneDrive', 'Desktop') : path.join(home, 'Desktop');
+        const known = { '': docs, documents: docs, docs, desktop, downloads: path.join(home, 'Downloads') };
+        if (w in known) return known[w];
         const hit = index.search(`${w} folder`, { limit: 1 })[0];
         return hit?.dir ? hit.path : null;
       };

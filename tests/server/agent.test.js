@@ -1159,6 +1159,24 @@ describe('LeetCode on the laptop', () => {
   });
 });
 
+describe('a spoken yes for a card that needs the PIN', () => {
+  // Live (2026-10-17): a plain "yes" was answered "Approved." although the PIN was still missing.
+  it('says the PIN is needed instead of "Approved."', async () => {
+    const { createRemoteTrust } = await import('../../server/remoteTrust.js');
+    const approvals = new ApprovalQueue({ trust: createRemoteTrust({ hasPin: () => true, pin: () => false }) });
+    const agent = new Agent({ router: { chat: async () => reply('AI') }, tools: new ToolRegistry(), approvals, memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
+    const asked = approvals.decide({ title: 'Delete the folder test 2?', tier: 'medium', source: 'novi', pin: true });
+    expect(await agent.handle('yes')).toBe('That one needs your voice PIN. Say your PIN, or type it on the card.');
+    expect(approvals.pending()).toHaveLength(1);
+    approvals.resolve(approvals.pending()[0].id, false);
+    await asked;
+    const noPin = new ApprovalQueue({ trust: createRemoteTrust({ hasPin: () => false }) });
+    const a2 = new Agent({ router: { chat: async () => reply('AI') }, tools: new ToolRegistry(), approvals: noPin, memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
+    noPin.decide({ title: 'Delete it?', tier: 'medium', source: 'novi', pin: true });
+    expect(await a2.handle('yes')).toBe("That one needs a voice PIN, and you haven't set one yet. Set it in Settings, then say yes again.");
+  });
+});
+
 describe('activity log: what happened in each request', () => {
   it('records direct tools and AI turns; "what went wrong" answers from the log', async () => {
     const { createActivity } = await import('../../server/activity.js');

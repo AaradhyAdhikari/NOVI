@@ -62,8 +62,14 @@ const SAFE_TYPES = /^\[(?:math|datetime|system\.math|system\.datetime)\]::|^\[en
 export const SAFE_METHODS = new Set(['tostring', 'toupper', 'tolower', 'trim', 'split', 'replace', 'substring', 'contains', 'startswith', 'endswith', 'round', 'equals', 'gettype', 'tostring', 'padleft', 'padright', 'indexof', 'getfolderpath', 'adddays', 'addhours']);
 
 function dangerReason(words, raw) {
+  // .NET deletes ([IO.Directory]::Delete, (Get-Item x).Delete(), FileSystem]::DeleteDirectory…).
+  if (/(?:::|\.)delete\w*\s*\(/i.test(stripStrings(raw))) return 'it deletes files';
   for (const w of words) {
     if (DANGER.has(w)) return `it uses ${w}`;
+    // Another shell inside (cmd /c rmdir …, powershell -Command …): Novi can't check what it runs.
+    if (w === 'cmd' || w === 'powershell' || w === 'pwsh') return 'it runs another shell, so I can\'t check what it does';
+    if (w === 'robocopy' && /\/(?:mir|purge|move|mov)\b/i.test(raw)) return 'robocopy can delete files';
+    if (w === 'git' && /\bgit\s+(?:clean\b|reset\s+--hard\b)/i.test(raw)) return 'it deletes files';
     if (w === 'reg' && /\breg(?:\.exe)?\s+(?:add|delete|import|copy|restore|load|unload)\b/i.test(raw)) return 'it changes the registry';
     if (w === 'sc' && /\bsc\.exe\b/i.test(raw)) return 'it changes a service';
     if (w === 'netsh' && /\badvfirewall\b/i.test(raw)) return 'it changes the firewall';

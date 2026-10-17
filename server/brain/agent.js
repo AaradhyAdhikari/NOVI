@@ -110,6 +110,13 @@ export function claudeCommand(text) {
   return m && JOB_VERB.test(m[1]) ? m[1] : null;
 }
 
+// A spoken yes the approval queue refused (it needs more than a yes): say what's missing, never "Approved."
+function needsProof(need) {
+  if (need === 'pin') return 'That one needs your voice PIN. Say your PIN, or type it on the card.';
+  if (need === 'no-pin') return "That one needs a voice PIN, and you haven't set one yet. Set it in Settings, then say yes again.";
+  return 'Please confirm that one on screen.';
+}
+
 // "Also X" (or "yes, also X", "aur X"): X is added to the job Novi is asking about or the coder is doing.
 export function alsoCommand(text) {
   const t = String(text || '').trim().replace(/[.!?।]+$/, '');
@@ -633,14 +640,14 @@ export class Agent {
     }
     if (kind === 'approve-always') {
       if (!item.grant) {
-        this.approvals.resolve(item.id, true, 'voice', null, { from });
+        if (!this.approvals.resolve(item.id, true, 'voice', null, { from })) return needsProof(this.approvals.trust?.check?.(item, from, null)?.need);
         return "Approved. I can't remember that kind of action, so I'll ask each time.";
       }
-      this.approvals.resolve(item.id, true, 'voice', null, { always: true, from });
+      if (!this.approvals.resolve(item.id, true, 'voice', null, { always: true, from })) return needsProof(this.approvals.trust?.check?.(item, from, null)?.need);
       return `Approved. I'll always allow ${item.grant.label} from now on.`;
     }
     const allow = kind === 'approve';
-    this.approvals.resolve(item.id, allow, 'voice', null, { from });
+    if (!this.approvals.resolve(item.id, allow, 'voice', null, { from })) return needsProof(this.approvals.trust?.check?.(item, from, null)?.need);
     return allow ? 'Approved.' : 'Okay, denied.';
   }
 

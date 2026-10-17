@@ -6,7 +6,8 @@ import { confirmWithPasskey } from '../lib/passkey.js';
 
 // Shown on a phone when an allow needs more proof (server/remoteTrust.js).
 const NEED_TEXT = {
-  pin: 'Say your PIN to confirm.',
+  pin: 'This one needs your voice PIN. Say it, or type it below.',
+  'no-pin': 'This one needs a voice PIN. Set one in Settings first.',
   passkey: 'Confirm with your fingerprint or face.',
   laptop: 'This one needs you at the laptop.',
 };
@@ -43,7 +44,18 @@ export default function ApprovalCards({ approvals, onAnswer, api }) {
   return (
     <div className="approvals" role="region" aria-label="Approvals needed">
       {approvals.map((a) => a.question ? <QuestionCard key={a.id} a={a} onAnswer={onAnswer} /> : (
-        <div key={a.id} className={`approval ${a.tier}`}>
+        <ApprovalCard key={a.id} a={a} onAnswer={onAnswer} api={api} />
+      ))}
+    </div>
+  );
+}
+
+// A dangerous laptop command (a.pin) asks for the PIN from the start: no plain Allow that would only be refused.
+function ApprovalCard({ a, onAnswer, api }) {
+  const need = a.need || (a.pin ? 'pin' : null);
+  const pinOnly = need === 'pin' || need === 'no-pin';
+  return (
+        <div className={`approval ${a.tier}`}>
           <div className="approval-title">
             {a.tier === 'high' ? <ShieldAlert size={18} /> : <ShieldQuestion size={18} />}
             <span>{a.title}</span>
@@ -52,9 +64,9 @@ export default function ApprovalCards({ approvals, onAnswer, api }) {
             ? <details className="detail"><summary>{a.source === 'claude' ? 'Show the command' : 'Show details'}</summary><pre>{a.detail}</pre></details>
             : <p className="detail">{a.detail}</p>)}
           {a.tier === 'high' && <p className="warn">High risk — this needs your explicit confirmation.</p>}
-          {a.need && <p className="warn">{NEED_TEXT[a.need]}</p>}
-          {a.need === 'pin' && <PinCapture api={api} onPin={(pin) => onAnswer(a.id, true, null, { proof: pin })} />}
-          {a.need === 'passkey' && (
+          {need && <p className="warn">{NEED_TEXT[need]}</p>}
+          {need === 'pin' && <PinCapture api={api} onPin={(pin) => onAnswer(a.id, true, null, { proof: pin })} />}
+          {need === 'passkey' && (
             <button className="btn danger" onClick={async () => {
               try { onAnswer(a.id, true, null, { proof: { passkey: await confirmWithPasskey(api, a.id) } }); } catch { /* cancelled: stays pending */ }
             }}>Confirm with fingerprint / face</button>
@@ -69,11 +81,9 @@ export default function ApprovalCards({ approvals, onAnswer, api }) {
                 Always allow {a.grant.label}
               </button>
             )}
-            <button className={`btn ${a.tier === 'high' ? 'danger' : 'primary'}`} onClick={() => onAnswer(a.id, true)}>{a.tier === 'high' ? 'Yes, do it' : 'Allow'}</button>
+            {!pinOnly && <button className={`btn ${a.tier === 'high' ? 'danger' : 'primary'}`} onClick={() => onAnswer(a.id, true)}>{a.tier === 'high' ? 'Yes, do it' : 'Allow'}</button>}
           </div>
           {a.grant && <p className="muted">Or say “yes, always”.</p>}
         </div>
-      ))}
-    </div>
   );
 }

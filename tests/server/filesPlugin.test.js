@@ -123,6 +123,17 @@ describe('file_new_folder', () => {
     expect(fs.existsSync(path.join(root, 'Documents', 'College', 'Unit 2'))).toBe(true);
   });
 
+  // Live (2026-10-17): with OneDrive the real desktop is OneDrive\Desktop; an old empty
+  // C:\Users\…\Desktop next to it got the folder, so it never showed up.
+  it('"on my desktop" uses OneDrive\\Desktop when there is one', async () => {
+    const { host, root } = await setup();
+    fs.mkdirSync(path.join(root, 'Desktop'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'OneDrive', 'Desktop'), { recursive: true });
+    await host.get('file_new_folder').run({ name: 'test', where: 'desktop' });
+    expect(fs.existsSync(path.join(root, 'OneDrive', 'Desktop', 'test'))).toBe(true);
+    expect(fs.existsSync(path.join(root, 'Desktop', 'test'))).toBe(false);
+  });
+
   it('cleans unsafe names and never overwrites', async () => {
     const { host, root } = await setup();
     await host.get('file_new_folder').run({ name: 'a/b:c?' });

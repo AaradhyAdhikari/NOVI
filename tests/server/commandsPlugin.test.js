@@ -126,3 +126,22 @@ describe('laptop_disk: free space, said the way File Explorer says it', () => {
     expect((await host.get('laptop_disk').run({ drive: 'C; rm x' })).error).toBe('Which drive? Say a letter, like C.');
   });
 });
+
+// Live (2026-10-17): "make a folder test on desktop" went to C:\Users\…\Desktop while the real desktop
+// is OneDrive's, so "delete the test folder" found nothing. Desktop / Documents in a command are
+// always the real ones Windows uses (the card shows exactly what runs).
+describe('laptop_run: the real Desktop and Documents', () => {
+  it('rewrites $env:USERPROFILE\\Desktop, $HOME\\Documents, ~\\Desktop and %USERPROFILE%\\Desktop', async () => {
+    const { tool, runs } = setup();
+    const args = { command: 'New-Item -ItemType Directory -Path "$env:USERPROFILE\\Desktop\\test"', purpose: 'Create folder test on desktop' };
+    const gate = await tool.gate(args);
+    expect(gate.approval.detail || gate.approval.description).toBe('New-Item -ItemType Directory -Path "$([Environment]::GetFolderPath(\'Desktop\'))\\test"');
+    await tool.run(args);
+    expect(runs[0].command).toBe('New-Item -ItemType Directory -Path "$([Environment]::GetFolderPath(\'Desktop\'))\\test"');
+    const { knownFolders } = await import('../../plugins/commands/index.js');
+    expect(knownFolders('Get-ChildItem $HOME\\Documents')).toBe("Get-ChildItem $([Environment]::GetFolderPath('MyDocuments'))");
+    expect(knownFolders('Get-ChildItem ~\\Desktop\\a')).toBe("Get-ChildItem $([Environment]::GetFolderPath('Desktop'))\\a");
+    expect(knownFolders('cmd /c dir "%USERPROFILE%\\Desktop"')).toBe('cmd /c dir "$([Environment]::GetFolderPath(\'Desktop\'))"');
+    expect(knownFolders('Get-ChildItem C:\\Users\\a\\Downloads')).toBe('Get-ChildItem C:\\Users\\a\\Downloads');
+  });
+});
