@@ -86,3 +86,16 @@ describe('historyCommand: the command history by voice', () => {
     for (const t of ['run a command', 'what did you do today', 'command prompt kholo']) expect(historyCommand(t), t).toBe(null);
   });
 });
+
+describe('diskCommand (free space without the AI, 2026-10-17)', () => {
+  it('free space / storage questions → laptop_disk; cleaning up stays with the AI', async () => {
+    const { diskCommand } = await import('../../server/brain/controlCommand.js');
+    expect(diskCommand('Tell me how much free space is on my C drive.')).toEqual({ tool: 'laptop_disk', args: { drive: 'C' } });
+    expect(diskCommand('how much space is left on D drive')).toEqual({ tool: 'laptop_disk', args: { drive: 'D' } });
+    expect(diskCommand('how much storage is left on my laptop')).toEqual({ tool: 'laptop_disk', args: { drive: 'C' } });
+    expect(diskCommand('free space on E:')).toEqual({ tool: 'laptop_disk', args: { drive: 'E' } });
+    expect(diskCommand('C drive me kitni jagah bachi hai')).toEqual({ tool: 'laptop_disk', args: { drive: 'C' } });
+    expect(diskCommand('free up space on my C drive')).toBeNull();
+    expect(diskCommand('what is the weather')).toBeNull();
+  });
+});

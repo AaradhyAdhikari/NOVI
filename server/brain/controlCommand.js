@@ -82,3 +82,14 @@ export function historyCommand(text) {
   return /^(?:what (?:commands|command) (?:did|have) (?:you|u) (?:run|ran)(?: today)?|(?:show|read)(?: me)? (?:the |my )?command history|(?:aaj )?kaun se commands? chala(?:ye|ya|e)(?: hai)?)$/i.test(t)
     ? { tool: 'commands_history', args: { today: true } } : null;
 }
+
+// "How much free space is on my C drive?" / "storage left" / "C drive me kitni jagah bachi hai" →
+// laptop_disk (a fixed command, Windows units), no AI. "Free up space" (cleaning) stays with the AI.
+export function diskCommand(text) {
+  const t = clean(text).replace(/[.!?]+$/, '');
+  if (/\b(?:free up|clean|clear|delete|remove)\b/i.test(t)) return null;
+  const asks = /\b(?:free space|space (?:left|free|available)|storage (?:left|free|available)|how much (?:free )?(?:space|storage)|space on|kitni jagah|jagah bachi|storage kitna)\b/i.test(t);
+  if (!asks || !/\b(?:drive|disk|storage|laptop|[a-z]:|jagah)/i.test(t)) return null;
+  const m = /\b([a-z]) ?drive\b/i.exec(t) || /\b([a-z]):/i.exec(t);
+  return { tool: 'laptop_disk', args: { drive: (m ? m[1] : 'C').toUpperCase() } };
+}

@@ -9,7 +9,7 @@ const GROUP = {
   timer_set: 'reminder', conversation_history: 'memory',
   project_next: 'projects', rename_project: 'projects', study_log: 'sheets', sheets_log_link: 'sheets',
   note_write: 'wiki', notes_ask: 'wiki', note_open: 'wiki', notes_list: 'wiki', wiki_recent: 'wiki',
-  laptop_run: 'commands', commands_history: 'commands',
+  laptop_run: 'commands', commands_history: 'commands', laptop_disk: 'commands',
   whatsapp_prepare: 'whatsapp', whatsapp_send: 'whatsapp',
   preview_show: 'preview', preview_stop: 'preview',
 };

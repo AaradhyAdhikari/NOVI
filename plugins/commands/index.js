@@ -63,6 +63,31 @@ export function createCommandsPlugin({ runner = null, history = null, platform =
         },
       });
 
+      // Free space with one fixed read-only command, in Windows' own units (1 GB = 1024³ bytes, as File
+      // Explorer shows it) — the AI once turned 99,899,453,440 bytes into "99 GB" (Explorer: 93 GB).
+      api.registerTool({
+        name: 'laptop_disk',
+        description: 'Free and total space on a laptop drive (default C), as File Explorer shows it. Read-only. Use this for any "how much space / storage is left" question.',
+        parameters: { type: 'object', properties: { drive: { type: 'string', description: 'Drive letter, e.g. C' } } },
+        async execute(_id, { drive = 'C' } = {}) {
+          const letter = String(drive || 'C').trim().replace(/:$/, '').toUpperCase();
+          if (!/^[A-Z]$/.test(letter)) return reply({ error: 'Which drive? Say a letter, like C.' });
+          const command = `Get-PSDrive -Name ${letter} -PSProvider FileSystem | Select-Object Used, Free | ConvertTo-Json -Compress`;
+          let r;
+          try { r = await run.run({ command, look: true }); } catch (err) {
+            return reply({ error: String(err.message) === 'not-windows' ? 'Commands work only on Windows.' : `I couldn't check: ${err.message}` });
+          }
+          log.add({ from: lastFrom, level: 'look', purpose: `Check free space on ${letter}:`, command, ran: true, ok: Boolean(r.ok), exitCode: r.exitCode, output: cut(r.output) });
+          if (!r.ok) return reply({ error: /cannot find drive|does not exist/i.test(r.output || '') ? `I couldn't find a ${letter} drive on the laptop.` : `I couldn't check: ${firstLine(r.output)}` });
+          let used; let free;
+          try { ({ Used: used, Free: free } = JSON.parse(String(r.output).trim())); } catch { return reply({ error: "I couldn't read the drive's numbers." }); }
+          const gb = (bytes) => Math.round((Number(bytes) / 1024 ** 3) * 10) / 10;
+          const freeGB = gb(free);
+          const totalGB = gb(Number(used) + Number(free));
+          return reply({ drive: letter, freeGB, totalGB, note: `Your ${letter} drive has ${freeGB} GB free of ${totalGB} GB.` });
+        },
+      });
+
       api.registerTool({
         name: 'commands_history',
         description: 'The commands Novi ran on the laptop (newest first). Read-only.',
