@@ -40,10 +40,12 @@ export function createActivity({ file, now = Date.now } = {}) {
       turn?.tools.push({ name, ok: Boolean(ok), ...(ok ? {} : { error: cut(error || 'failed', 300) }), ms: Math.round(ms || 0) });
     },
     ai(turn, provider) { if (turn) turn.provider = provider || 'AI'; },
+    route(turn, name) { if (turn) turn.route = name; },
     end(turn, reply) {
       if (!turn) return;
-      const route = turn.provider ? `AI (${turn.provider})` : turn.tools.length ? 'direct' : 'quick';
+      const route = turn.route || (turn.provider ? `AI (${turn.provider})` : turn.tools.length ? 'direct' : 'quick');
       delete turn.provider;
+      delete turn.route;
       finish(turn, { route, reply: cut(reply, 300) });
     },
     fail(turn, err) {
