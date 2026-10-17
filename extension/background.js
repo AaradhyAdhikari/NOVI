@@ -5,24 +5,39 @@ const VERSION = chrome.runtime.getManifest().version;
 let ws = null;
 let status = 'not connected';
 
+// Why the last connection closed, in words for the popup.
+const CLOSED = {
+  'wrong code': 'wrong code — copy it again from Novi → Settings → Browser',
+  'new code': 'Novi made a new code — paste it here',
+  'already connected': 'another Chrome window is already connected to Novi',
+};
+
 async function connect() {
   const { code, port = 3003 } = await chrome.storage.local.get(['code', 'port']);
   if (!code) { status = 'no code — paste it from Novi Settings → Browser'; return; }
   if (ws && ws.readyState <= 1) return;
-  ws = new WebSocket(`ws://127.0.0.1:${port}`);
-  ws.onopen = () => { ws.send(JSON.stringify({ type: 'hello', code, version: VERSION })); status = 'connected'; };
-  ws.onclose = () => { ws = null; status = 'not connected (is Novi running?)'; };
-  ws.onerror = () => {};
-  ws.onmessage = async (e) => {
+  // Each socket has its own handlers: a late close of an older socket must not touch the new one.
+  const sock = new WebSocket(`ws://127.0.0.1:${port}`);
+  ws = sock;
+  status = 'connecting…';
+  sock.onopen = () => { sock.send(JSON.stringify({ type: 'hello', code, version: VERSION })); status = 'checking the code…'; };
+  sock.onclose = (e) => {
+    if (ws !== sock) return;
+    ws = null;
+    status = CLOSED[e?.reason] || 'not connected (is Novi running?)';
+  };
+  sock.onerror = () => {};
+  sock.onmessage = async (e) => {
     let msg;
     try { msg = JSON.parse(e.data); } catch { return; }
+    if (msg.type === 'welcome') { status = 'connected'; return; }
     if (msg.type === 'reload') return chrome.runtime.reload();
     const { id, cmd, args = {} } = msg;
     try {
       const result = await handle(cmd, args);
-      ws?.send(JSON.stringify({ id, ok: true, ...result }));
+      sock.send(JSON.stringify({ id, ok: true, ...result }));
     } catch (err) {
-      ws?.send(JSON.stringify({ id, ok: false, error: String(err?.message || err) }));
+      sock.send(JSON.stringify({ id, ok: false, error: String(err?.message || err) }));
     }
   };
 }
@@ -31,7 +46,7 @@ chrome.alarms.create('novi', { periodInMinutes: 0.5 }); // keeps the worker awak
 chrome.alarms.onAlarm.addListener(connect);
 chrome.runtime.onStartup.addListener(connect);
 chrome.runtime.onInstalled.addListener(connect);
-chrome.storage.onChanged.addListener(() => { ws?.close(); ws = null; connect(); });
+chrome.storage.onChanged.addListener(() => { const old = ws; ws = null; old?.close(); connect(); });
 chrome.runtime.onMessage.addListener((m, _s, send) => { if (m === 'status') send({ status, version: VERSION }); });
 connect();
 

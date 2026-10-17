@@ -30,6 +30,7 @@ describe('browser bridge (Novi ⇄ extension)', () => {
     await tick();
     expect(bridge.connected()).toBe(true);
     expect(state.closed).toBe(false);
+    expect(state.messages[0]).toEqual({ type: 'welcome' }); // the extension shows "connected" only now
   });
 
   it('refuses web pages and wrong codes', async () => {
