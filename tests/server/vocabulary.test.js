@@ -68,7 +68,12 @@ describe('built-in fix: "cloud" heard for "Claude"', () => {
 
 
 describe('programming language names as speech-to-text writes them', async () => {
-  const { fixLanguages, fixLeetCode } = await import('../../server/voice/vocabulary.js');
+  const { fixLanguages, fixLeetCode, fixGitHub } = await import('../../server/voice/vocabulary.js');
+  // Live (2026-10-17): "Gidhub" missed the GitHub graph shortcut and went to the (busy) AI.
+  it('"gidhub / git hub / get hub" → GitHub', () => {
+    for (const t of ['Show me my Gidhub contribution yesterday.', 'my git hub graph', 'open get hub', 'githab stats']) expect(fixGitHub(t), t).toMatch(/GitHub/);
+    expect(fixGitHub('git pull from the hub')).toBe('git pull from the hub');
+  });
   // Live (2026-10-17): "LeetCode" was misheard.
   it('"lead code / leet court / lit code" → LeetCode', () => {
     for (const t of ["show me today's lead code problem", "today's leet court question", 'my lit code stats', 'open Leak Code', 'leetcode ka problem'])

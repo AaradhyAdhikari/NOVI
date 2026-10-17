@@ -89,3 +89,25 @@ describe('commands: safety levels', () => {
     expect(isReadCommand('remove-item')).toBe(false);
   });
 });
+
+// Live (2026-10-17): a folder on the desktop was deleted after a plain "yes" — the AI wrote the delete
+// in a form the danger list didn't know (cmd /c rmdir, .NET Delete). Every delete needs the PIN.
+describe('commands: every way of deleting is danger', () => {
+  it('cmd /c, other shells, .NET deletes, robocopy /mir and git clean need the PIN', () => {
+    for (const c of [
+      'cmd /c rmdir /s /q "%USERPROFILE%\\Desktop\\test 2"',
+      'cmd.exe /c del /q C:\\x\\a.txt',
+      'powershell -Command "Remove-Item x"',
+      '[System.IO.Directory]::Delete("C:\\Users\\a\\Desktop\\test 2", $true)',
+      '[IO.File]::Delete("C:\\x\\a.txt")',
+      '(Get-Item "C:\\x\\test 2").Delete($true)',
+      '[Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory("C:\\x", "OnlyErrorDialogs", "SendToRecycleBin")',
+      'robocopy C:\\empty C:\\x\\test /mir',
+      'git clean -fdx',
+    ]) expect(classify(c).level, c).toBe('danger');
+  });
+  it('string methods and plain reads stay as they were', () => {
+    expect(classify('Get-ChildItem | ForEach-Object { $_.Name.Replace("a", "b") }').level).toBe('look');
+    expect(classify('New-Item -ItemType Directory -Path "C:\\x\\test"').level).toBe('change');
+  });
+});

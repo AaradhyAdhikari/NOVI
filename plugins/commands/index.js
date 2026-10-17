@@ -17,6 +17,15 @@ const who = (from) => (from && typeof from === 'object' && from.deviceId ? 'phon
 const question = (purpose) => `${String(purpose || 'Run this command').trim().replace(/[.!?]+$/, '')}?`;
 const firstLine = (s) => String(s || '').split('\n').map((l) => l.trim()).find(Boolean) || 'no details';
 
+// The AI writes $env:USERPROFILE\Desktop, but with OneDrive the real desktop is elsewhere (live
+// 2026-10-17: a folder "made on the desktop" never showed up, so deleting it found nothing). Desktop
+// and Documents always become the folders Windows itself uses; the card shows exactly what runs.
+const KNOWN = { desktop: 'Desktop', documents: 'MyDocuments' };
+export function knownFolders(command) {
+  return String(command || '').replace(/(?:\$env:USERPROFILE|\$\{env:USERPROFILE\}|\$HOME|%USERPROFILE%|(?<![\w$])~)\\(Desktop|Documents)(?=[\\"'\s)]|$)/gi,
+    (_, f) => `$([Environment]::GetFolderPath('${KNOWN[f.toLowerCase()]}'))`);
+}
+
 export function createCommandsPlugin({ runner = null, history = null, platform = process.platform, now = () => Date.now() } = {}) {
   return definePluginEntry({
     id: 'commands',
@@ -37,7 +46,8 @@ export function createCommandsPlugin({ runner = null, history = null, platform =
         name: 'laptop_run',
         description: 'Run ONE PowerShell command on the laptop when no other tool fits (disk space, memory/CPU use, IP, file sizes, renaming many files…). Prefer read-only commands. purpose = what it does in a few words, e.g. "Check free space on D:". The user is asked first for anything that changes something. Never ask the user to paste commands.',
         parameters: { type: 'object', properties: { command: { type: 'string', description: 'One PowerShell command line' }, purpose: { type: 'string', description: 'What it does, a few words' } }, required: ['command', 'purpose'] },
-        async execute(_id, { command, purpose } = {}) {
+        async execute(_id, { command: asked, purpose } = {}) {
+          const command = knownFolders(asked);
           const { level } = levelOf(command);
           const entry = { from: lastFrom, level, purpose, command };
           if (level === 'never') return reply({ level, error: "I won't run that." });
@@ -101,13 +111,14 @@ export function createCommandsPlugin({ runner = null, history = null, platform =
       api.on('before_tool_call', ({ toolName, params = {}, from }) => {
         if (toolName !== 'laptop_run') return undefined;
         lastFrom = who(from);
-        const { level, reason } = levelOf(params.command);
+        const command = knownFolders(params.command);
+        const { level, reason } = levelOf(command);
         if (level === 'look') return undefined;
         if (level === 'never') {
-          log.add({ from: lastFrom, level, purpose: params.purpose, command: params.command, ran: false, ok: false, output: `refused: ${reason}` });
-          return { block: true, blockReason: `I won't run that: ${reason}. Here's the command if you want to run it yourself: ${params.command}` };
+          log.add({ from: lastFrom, level, purpose: params.purpose, command, ran: false, ok: false, output: `refused: ${reason}` });
+          return { block: true, blockReason: `I won't run that: ${reason}. Here's the command if you want to run it yourself: ${command}` };
         }
-        return { requireApproval: { title: question(params.purpose), description: String(params.command || ''), severity: 'warning', category: 'commands', grantable: false, ...(level === 'danger' ? { pin: true } : {}) } };
+        return { requireApproval: { title: question(params.purpose), description: command, severity: 'warning', category: 'commands', grantable: false, ...(level === 'danger' ? { pin: true } : {}) } };
       });
 
       api.on('after_tool_call', ({ toolName, params = {}, error }) => {

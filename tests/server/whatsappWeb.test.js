@@ -5,13 +5,19 @@ import path from 'node:path';
 import AdmZip from 'adm-zip';
 import { WA, zipForSend, createWebDriver } from '../../plugins/browser/whatsapp.js';
 
-function fakeBridge({ chats = ['Rahul Sharma'], header = null, qr = false, ticks = true } = {}) {
+function fakeBridge({ chats = ['Rahul Sharma'], header = null, qr = false, ticks = true, tab = true, backgroundTyping = true } = {}) {
   const calls = [];
   let opened = null;
+  let typed = '';
+  let front = false;
   const bridge = {
     async request(cmd, args = {}) {
       calls.push([cmd, args]);
-      if (cmd === 'tabs') return { tabs: [{ id: 7, url: 'https://web.whatsapp.com/', title: 'WhatsApp' }] };
+      if (cmd === 'tabs') return { tabs: tab ? [{ id: 7, url: 'https://web.whatsapp.com/', title: 'WhatsApp' }] : [] };
+      if (cmd === 'open') return { tabId: 9 };
+      if (cmd === 'switch') front = true;
+      if (cmd === 'typeSel' && args.selector === WA.compose && (backgroundTyping || front)) typed = args.text;
+      if (cmd === 'query' && args.selector === WA.compose) return { texts: [typed] };
       if (cmd === 'waitFor') return { found: args.selector === WA.qr ? qr : !qr };
       if (cmd === 'query' && args.selector === WA.qr) return { texts: qr ? ['qr'] : [] };
       if (cmd === 'query' && args.selector === WA.chatTitles) return { texts: chats };
@@ -51,12 +57,22 @@ describe('WhatsApp Web driver', () => {
     const file = path.join(dir, 'notes.zip');
     fs.writeFileSync(file, 'zip');
     expect(await d.prepare({ to: 'rahul', file: { file, name: 'notes.zip', bytes: 3 } })).toEqual({ ok: true, name: 'Rahul Sharma' });
-    expect(calls).toContainEqual(['switch', { tabId: 7 }]);
-    expect(calls).toContainEqual(['typeSel', { selector: WA.search, text: 'rahu' }]);
+    expect(calls.some(([c]) => c === 'switch')).toBe(false); // the WhatsApp tab stays in the background
+    expect(calls).toContainEqual(['typeSel', { selector: WA.search, text: 'rahu', tabId: 7 }]);
     expect(calls.find(([c]) => c === 'attach')[1]).toMatchObject({ selector: WA.fileInput, name: 'notes.zip', b64: Buffer.from('zip').toString('base64') });
     expect(calls.some(([c, a]) => c === 'clickSel' && a.selector === WA.send)).toBe(false);
     expect(await d.send()).toEqual({ sent: true });
-    expect(calls).toContainEqual(['clickSel', { selector: WA.send }]);
+    expect(calls).toContainEqual(['clickSel', { selector: WA.send, tabId: 7 }]);
+  });
+
+  it('no WhatsApp tab yet → opens one in the background; typing that did not land is retried in front', async () => {
+    const none = fakeBridge({ tab: false });
+    await createWebDriver({ bridge: none.bridge, ...fast }).prepare({ to: 'rahul', text: 'hi' });
+    expect(none.calls).toContainEqual(['open', { url: 'https://web.whatsapp.com/', newTab: true, background: true }]);
+    expect(none.calls.find(([c, a]) => c === 'waitFor' && a.selector === WA.ready)[1].tabId).toBe(9);
+    const stuck = fakeBridge({ backgroundTyping: false });
+    expect(await createWebDriver({ bridge: stuck.bridge, ...fast }).prepare({ to: 'rahul', text: 'hi' })).toEqual({ ok: true, name: 'Rahul Sharma' });
+    expect(stuck.calls).toContainEqual(['switch', { tabId: 7 }]);
   });
 
   it('nobody, or two people → no chat is opened', async () => {
@@ -87,10 +103,10 @@ describe('WhatsApp Web driver', () => {
     const { bridge, calls } = fakeBridge({ ticks: false });
     const d = createWebDriver({ bridge, ...fast });
     await d.prepare({ to: 'Rahul', text: "I'll be late" });
-    expect(calls).toContainEqual(['typeSel', { selector: WA.compose, text: "I'll be late" }]);
+    expect(calls).toContainEqual(['typeSel', { selector: WA.compose, text: "I'll be late", tabId: 7 }]);
     expect(await d.send()).toEqual({ sent: false });
     await d.cancel();
-    expect(calls).toContainEqual(['typeSel', { selector: WA.compose, text: '' }]);
+    expect(calls).toContainEqual(['typeSel', { selector: WA.compose, text: '', tabId: 7 }]);
   });
 });
 

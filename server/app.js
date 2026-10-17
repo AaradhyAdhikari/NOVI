@@ -756,8 +756,11 @@ export function createNovi(config, overrides = {}) {
         const t0 = Date.now();
         const reply = await agent.handle(text, { from });
         console.log(`[timing] reply ${Date.now() - t0} ms`);
-        say('novi', reply, from);
-        sendTo(from, { type: 'speak', text: spokenText(reply) });
+        // An empty reply = a tool already showed the answer (and the AI had nothing to add).
+        if (reply) {
+          say('novi', reply, from);
+          sendTo(from, { type: 'speak', text: spokenText(reply) });
+        }
         return reply;
       } catch (err) {
         say('novi', `Something went wrong: ${err.message}`, from);

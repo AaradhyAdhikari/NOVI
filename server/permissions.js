@@ -71,8 +71,9 @@ export class ApprovalQueue extends EventEmitter {
   // question: { text, options, multiSelect } — one of Claude's own questions (AskUserQuestion); it is
   // answered with words (resolve(..., { answer })), never by a plain "yes", and never granted.
   // timeoutMs: null = wait as long as it takes.
-  decide({ title, detail = '', tier, source, prompt, choices, category, grantable = false, kind, addable = false, question, timeoutMs }) {
-    const canGrant = Boolean(this.grants && grantable && category && tier === 'medium' && !kind && !question);
+  // pin: a dangerous laptop command — allowed only with the voice PIN, on every device (remoteTrust).
+  decide({ title, detail = '', tier, source, prompt, choices, category, grantable = false, kind, addable = false, question, pin = false, timeoutMs }) {
+    const canGrant = Boolean(this.grants && grantable && category && tier === 'medium' && !kind && !question && !pin);
     if (canGrant && this.grants.has(category)) {
       this.grants.record({ category, title });
       this.emit('auto_allowed', { category, title });
@@ -81,7 +82,7 @@ export class ApprovalQueue extends EventEmitter {
     const approval = {
       id: crypto.randomUUID(), title, detail, tier, source, createdAt: Date.now(), ...(kind ? { kind } : {}),
       ...(prompt ? { prompt } : {}), ...(choices?.length ? { choices } : {}), ...(addable ? { addable: true } : {}),
-      ...(question ? { question } : {}),
+      ...(question ? { question } : {}), ...(pin ? { pin: true } : {}),
       ...(canGrant ? { grant: { category, label: labelFor(category) } } : {}),
     };
     return new Promise((resolve) => {

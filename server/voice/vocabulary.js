@@ -20,6 +20,9 @@ export const fixLanguages = (text) => String(text).replace(C_HEARD, 'C++').repla
 // review" and the like stay as said.
 const LEET_HEARD = /(?<!\p{L})(?:leet|lead|lit|leat|leed|lee|leek|leak|liet)[\s-]*(?:code|court|coat|kode|cod)(?!\p{L})(?!\s+(?:review\w*|owner|author|base|quality|change\w*))/giu;
 export const fixLeetCode = (text) => String(text).replace(LEET_HEARD, 'LeetCode');
+// "GitHub" heard as "Gidhub / git hub / get hub / githab" (live 2026-10-17).
+const GITHUB_HEARD = /(?<!\p{L})(?:gid|git|get|geet|kit)[\s-]?(?:hub|hab|harb)(?!\p{L})/giu;
+export const fixGitHub = (text) => String(text).replace(GITHUB_HEARD, 'GitHub');
 const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 function clean({ words = [], fixes = {} } = {}) {
@@ -63,6 +66,6 @@ export function createVocabulary({ file }) {
       return this.set({ words: saved.words, fixes: { ...saved.fixes, [from]: to } });
     },
     prompt: (base) => (saved.words.length ? `${base} ${saved.words.join(', ')}.` : base),
-    apply: (text) => fixLeetCode(fixLanguages(fixClaude(pattern ? String(text).replace(pattern, (m) => saved.fixes[m.toLowerCase()] ?? m) : String(text)))),
+    apply: (text) => fixGitHub(fixLeetCode(fixLanguages(fixClaude(pattern ? String(text).replace(pattern, (m) => saved.fixes[m.toLowerCase()] ?? m) : String(text))))),
   };
 }

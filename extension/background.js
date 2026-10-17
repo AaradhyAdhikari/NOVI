@@ -72,10 +72,11 @@ async function inPage(tabId, name, args) {
 
 async function handle(cmd, args) {
   if (cmd === 'open') {
-    const tab = args.newTab ? await chrome.tabs.create({ url: args.url, active: true }) : await chrome.tabs.update((await activeTab()).id, { url: args.url });
-    await chrome.windows.update(tab.windowId, { focused: true });
+    // background: a new tab that stays behind the one the user is looking at (WhatsApp sends).
+    const tab = args.newTab ? await chrome.tabs.create({ url: args.url, active: !args.background }) : await chrome.tabs.update((await activeTab()).id, { url: args.url });
+    if (!args.background) await chrome.windows.update(tab.windowId, { focused: true });
     await loaded(tab.id);
-    return {};
+    return { tabId: tab.id };
   }
   if (cmd === 'tabs') {
     const tabs = await chrome.tabs.query({});

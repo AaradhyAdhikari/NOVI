@@ -74,3 +74,11 @@ describe('"on my WhatsApp" (live 2026-10-17: searched "bhar", Bhargav M was ther
     expect(browserCommand('send my notes folder to Rahul on my WhatsApp')).toMatchObject({ tool: 'whatsapp_prepare', args: { to: 'Rahul' } });
   });
 });
+
+describe('WhatsApp: the app name never ends up in the message (live 2026-10-17)', () => {
+  it('"message Isha that I am late on WhatsApp" → text "I am late"', () => {
+    expect(browserCommand('Message Isha that I am late on WhatsApp.')).toEqual({ tool: 'whatsapp_prepare', args: { to: 'Isha', text: 'I am late' } });
+    expect(browserCommand('text Rahul saying see you at 5 on my WhatsApp app')).toEqual({ tool: 'whatsapp_prepare', args: { to: 'Rahul', text: 'see you at 5', via: 'app' } });
+    expect(browserCommand('message Mom that I left whatsapp group')).toEqual({ tool: 'whatsapp_prepare', args: { to: 'Mom', text: 'I left whatsapp group' } });
+  });
+});

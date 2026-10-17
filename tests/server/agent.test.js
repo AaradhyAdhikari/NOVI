@@ -102,6 +102,12 @@ describe('Agent', () => {
     expect(approvals.pending()).toHaveLength(1);
   });
 
+  // Live (2026-10-17): the GitHub graph was shown, then "My AI providers are busy…" was added below it.
+  it('after a tool already did the job, busy providers add nothing (no "busy" line)', async () => {
+    const { agent } = setup([{ message: { role: 'assistant', content: '', tool_calls: [toolCall('code_status', {})] }, provider: 'groq', model: 'm' }, new AllProvidersUnavailableError(21_000)]);
+    expect(await agent.handle('show me my github graph')).toBe('');
+  });
+
   it('says when providers are busy', async () => {
     const { agent } = setup([new AllProvidersUnavailableError(12_300)]);
     expect(await agent.handle('hello')).toBe('My AI providers are busy right now. Try again in about 13 seconds.');
@@ -988,8 +994,9 @@ describe('laptop commands: history by voice', () => {
   });
 });
 
-describe('WhatsApp by voice: find the file, prepare, then always ask before sending', () => {
-  it('"send my DBMS notes folder to Rahul on WhatsApp" finds it, prepares, asks, sends on yes', async () => {
+describe('WhatsApp by voice: find the file, prepare, send (your command is the yes)', () => {
+  // The user's decision (2026-10-17): "I am commanding it to msg, it should msg with no questions asked."
+  it('"send my DBMS notes folder to Rahul on WhatsApp" finds it, prepares and sends without asking', async () => {
     const ran = [];
     const tools = new ToolRegistry()
       .add({ name: 'file_find', description: 'f', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'f', run: async (a) => { ran.push(['file_find', a]); return { files: [{ name: 'DBMS notes', folder: '/home/me/Documents', folderItself: true }] }; } })
@@ -1002,7 +1009,8 @@ describe('WhatsApp by voice: find the file, prepare, then always ask before send
     expect(await agent.handle('send my DBMS notes folder to Rahul on WhatsApp')).toBe('Sent.');
     expect(ran[0]).toEqual(['file_find', { query: 'DBMS notes folder' }]);
     expect(ran[1][1]).toEqual({ to: 'Rahul', path: (await import('node:path')).join('/home/me/Documents', 'DBMS notes') });
-    expect(asked).toEqual(['Send DBMS notes.zip (3 MB) to Rahul Sharma?']);
+    expect(ran[2]).toEqual(['whatsapp_send']);
+    expect(asked).toEqual([]);
   });
 
   it('nothing found → says so, nothing prepared', async () => {
@@ -1035,6 +1043,19 @@ describe('WhatsApp: "her" = the last person messaged (live 2026-10-15)', () => {
     expect(await agent.handle('message Isha that hi')).toBe('Sent.');
     expect(await agent.handle('Send a message to her saying that you are short.')).toBe('Sent.');
     expect(ran[1]).toEqual({ to: 'Ishaa', text: 'you are short' });
+  });
+
+  // Live (2026-10-17): "Message Isha that I am late on WhatsApp" typed "I am late on WhatsApp".
+  it('"… on WhatsApp" at the end is where to send it, not part of the message', async () => {
+    const ran = [];
+    const tools = new ToolRegistry()
+      .add({ name: 'whatsapp_prepare', description: 'p', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'p', run: async (a) => { ran.push(a); return { ready: { name: 'Ishaa', what: `"${a.text}"`, via: 'web' } }; } })
+      .add({ name: 'whatsapp_send', description: 's', parameters: { type: 'object', properties: {} }, tier: 'medium', describe: () => 'Send?', run: async () => ({ note: 'Sent to Ishaa.' }) });
+    const approvals = new ApprovalQueue();
+    const agent = new Agent({ router: { chat: async () => { throw new Error('no AI'); } }, tools, approvals, memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
+    expect(await agent.handle('Message Isha that I am late on WhatsApp.')).toBe('Sent to Ishaa.');
+    expect(ran[0]).toEqual({ to: 'Isha', text: 'I am late' });
+    expect(approvals.pending()).toHaveLength(0);
   });
 });
 
@@ -1156,6 +1177,24 @@ describe('LeetCode on the laptop', () => {
     expect(await b.agent.handle("what's today's leetcode problem")).toBe("Today's LeetCode: Two Sum (Easy).");
     expect(await b.agent.handle('On my laptop')).toBe('Opened it on the laptop.');
     expect(b.opened).toEqual([{ target: 'https://leetcode.com/problems/two-sum/', on: 'laptop' }]);
+  });
+});
+
+describe('a spoken yes for a card that needs the PIN', () => {
+  // Live (2026-10-17): a plain "yes" was answered "Approved." although the PIN was still missing.
+  it('says the PIN is needed instead of "Approved."', async () => {
+    const { createRemoteTrust } = await import('../../server/remoteTrust.js');
+    const approvals = new ApprovalQueue({ trust: createRemoteTrust({ hasPin: () => true, pin: () => false }) });
+    const agent = new Agent({ router: { chat: async () => reply('AI') }, tools: new ToolRegistry(), approvals, memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
+    const asked = approvals.decide({ title: 'Delete the folder test 2?', tier: 'medium', source: 'novi', pin: true });
+    expect(await agent.handle('yes')).toBe('That one needs your voice PIN. Say your PIN, or type it on the card.');
+    expect(approvals.pending()).toHaveLength(1);
+    approvals.resolve(approvals.pending()[0].id, false);
+    await asked;
+    const noPin = new ApprovalQueue({ trust: createRemoteTrust({ hasPin: () => false }) });
+    const a2 = new Agent({ router: { chat: async () => reply('AI') }, tools: new ToolRegistry(), approvals: noPin, memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
+    noPin.decide({ title: 'Delete it?', tier: 'medium', source: 'novi', pin: true });
+    expect(await a2.handle('yes')).toBe("That one needs a voice PIN, and you haven't set one yet. Set it in Settings, then say yes again.");
   });
 });
 

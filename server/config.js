@@ -25,16 +25,21 @@ const PROVIDERS = {
     long: ['gemma-4-31B-it'],
     quick: ['gemma-4-31B-it'],
   },
-  cerebras: { baseURL: 'https://api.cerebras.ai/v1', fast: [], long: [] },
+  // Free backups, each used as soon as its key is in .env. A model a provider no longer has (404) is
+  // skipped by the router, and <NAME>_MODELS overrides the list. Never private: personal turns stay on Groq.
+  cerebras: { baseURL: 'https://api.cerebras.ai/v1', fast: ['gpt-oss-120b', 'llama-3.3-70b', 'qwen-3-32b'], long: ['gpt-oss-120b', 'llama-3.3-70b', 'qwen-3-32b'] },
   // Free models only (":free"; about 50 requests a day without credit). openrouter/free picks any
   // free model that can do what the request needs (tools), so the list survives model churn.
   openrouter: { baseURL: 'https://openrouter.ai/api/v1', fast: ['openai/gpt-oss-120b:free', 'openrouter/free'], long: ['openai/gpt-oss-120b:free', 'openrouter/free'] },
-  mistral: { baseURL: 'https://api.mistral.ai/v1', fast: [], long: [] },
+  // Mistral's free "Experiment" plan (phone number, no card) may use requests for training.
+  mistral: { baseURL: 'https://api.mistral.ai/v1', fast: ['mistral-small-latest', 'mistral-medium-latest'], long: ['mistral-medium-latest', 'mistral-small-latest'] },
+  // GitHub Models: free with a GitHub token (fine-grained, "Models: read"); low daily limits per model.
+  githubmodels: { baseURL: 'https://models.github.ai/inference', fast: ['openai/gpt-4.1-mini', 'openai/gpt-4o-mini'], long: ['openai/gpt-4.1-mini', 'openai/gpt-4o-mini'] },
 };
 
-const DEFAULT_FAST = ['groq', 'gemini', 'sambanova', 'cerebras', 'openrouter', 'mistral'];
+const DEFAULT_FAST = ['groq', 'gemini', 'cerebras', 'mistral', 'githubmodels', 'sambanova', 'openrouter'];
 // Groq first for both: measured ~0.5s vs Gemini 12-30s for tool-calling turns (2026-10-02).
-const DEFAULT_LONG = ['groq', 'gemini', 'sambanova', 'cerebras', 'openrouter', 'mistral'];
+const DEFAULT_LONG = ['groq', 'gemini', 'cerebras', 'mistral', 'githubmodels', 'sambanova', 'openrouter'];
 
 export function splitList(value) {
   return (value || '').split(',').map((s) => s.trim()).filter(Boolean);
