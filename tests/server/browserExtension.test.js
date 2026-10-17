@@ -72,3 +72,75 @@ describe('page.js numbering (fake page)', () => {
     expect(submit.clicked).toBe(0);
   });
 });
+
+// The popup said "saved, connecting…" forever, and a socket closed late could wipe out the new
+// one (2026-10-17). background.js runs here against a fake chrome + WebSocket.
+describe('background.js connection (fake Chrome)', () => {
+  function fakeChrome(stored = {}) {
+    const sockets = [];
+    const listeners = { changed: [], message: [] };
+    class FakeSocket {
+      constructor(url) { this.url = url; this.readyState = 0; this.sent = []; sockets.push(this); }
+      send(d) { this.sent.push(JSON.parse(d)); }
+      close() { this.readyState = 3; }
+      open() { this.readyState = 1; this.onopen?.(); }
+      receive(m) { this.onmessage?.({ data: JSON.stringify(m) }); }
+      closed(reason = '') { this.readyState = 3; this.onclose?.({ code: 1008, reason }); }
+    }
+    const store = { ...stored };
+    const chrome = {
+      runtime: { getManifest: () => ({ version: '1.0.0' }), onStartup: { addListener() {} }, onInstalled: { addListener() {} }, onMessage: { addListener: (f) => listeners.message.push(f) }, reload() {} },
+      storage: {
+        local: { get: async () => ({ ...store }), set: async (o) => { Object.assign(store, o); for (const f of listeners.changed) f(); } },
+        onChanged: { addListener: (f) => listeners.changed.push(f) },
+      },
+      alarms: { create() {}, onAlarm: { addListener() {} } },
+      tabs: {}, scripting: {},
+    };
+    vm.runInNewContext(read('background.js'), { chrome, WebSocket: FakeSocket, setTimeout, clearTimeout, console, JSON, Promise, Error, String });
+    const status = () => { let s; listeners.message[0]('status', null, (r) => { s = r.status; }); return s; };
+    return { sockets, status, store, chrome };
+  }
+  const flush = () => new Promise((r) => setTimeout(r, 0));
+
+  it('says connected only after Novi accepts the code', async () => {
+    const c = fakeChrome({ code: 'right' });
+    await flush();
+    c.sockets[0].open();
+    expect(c.sockets[0].sent[0]).toMatchObject({ type: 'hello', code: 'right' });
+    expect(c.status()).not.toBe('connected');
+    c.sockets[0].receive({ type: 'welcome' });
+    expect(c.status()).toBe('connected');
+  });
+
+  it('a wrong code says so', async () => {
+    const c = fakeChrome({ code: 'nope' });
+    await flush();
+    c.sockets[0].open();
+    c.sockets[0].closed('wrong code');
+    expect(c.status()).toMatch(/wrong code/i);
+  });
+
+  it('saving a new code: the old socket closing late does not wipe out the new one', async () => {
+    const c = fakeChrome({ code: 'old' });
+    await flush();
+    c.sockets[0].open();
+    await c.chrome.storage.local.set({ code: 'new' });
+    await flush();
+    expect(c.sockets).toHaveLength(2);
+    c.sockets[1].open();
+    c.sockets[1].receive({ type: 'welcome' });
+    c.sockets[0].closed(); // the old one's close event arrives last
+    expect(c.status()).toBe('connected');
+    c.sockets[1].receive({ id: 7, cmd: 'nosuch', args: {} });
+    await flush();
+    expect(c.sockets[1].sent.at(-1)).toMatchObject({ id: 7, ok: false }); // answers on its own socket
+  });
+});
+
+describe('popup', () => {
+  it('keeps showing the live status, not a fixed "connecting…"', () => {
+    const popup = read('popup.js');
+    expect(popup).toMatch(/setInterval\(/);
+  });
+});

@@ -41,6 +41,7 @@ export function createBridge({ port = 3003, host = '127.0.0.1', code, timeoutMs 
             paired = true;
             ext = ws;
             this.version = msg.version || null;
+            ws.send(JSON.stringify({ type: 'welcome' })); // the extension says "connected" only now
             return;
           }
           const p = pending.get(msg.id);
