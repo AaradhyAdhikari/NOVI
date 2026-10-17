@@ -149,3 +149,15 @@ describe('screen plugin', () => {
   });
 });
 
+// Live (2026-10-17): the AI deleted a folder by pressing Delete in File Explorer. Screen control never deletes.
+describe('screen control never deletes', () => {
+  it('Delete keys in File Explorer and clicks on "Delete" / "Move to Recycle Bin" are refused', async () => {
+    const s = setup({ window: 'test2 - File Explorer' });
+    for (const [tool, params] of [['screen_key', { key: 'delete', app: 'File Explorer' }], ['screen_key', { key: 'shift+delete', app: 'explorer' }], ['screen_key', { key: 'delete', app: 'test2' }], ['screen_click', { target: 'Delete', app: 'File Explorer' }], ['screen_click', { target: 'Move to Recycle Bin', app: 'Chrome' }]]) {
+      const gate = await s.gate(tool, params);
+      expect(gate, tool + JSON.stringify(params)).toMatchObject({ block: true });
+      expect(gate.blockReason).toMatch(/file_delete|PIN/);
+    }
+    expect((await s.gate('screen_key', { key: 'delete', app: 'Notepad' })).approval).toBeTruthy(); // deleting text is fine
+  });
+});

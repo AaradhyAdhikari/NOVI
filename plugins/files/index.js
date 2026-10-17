@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, execFile } from 'node:child_process';
 import { definePluginEntry } from '#plugin-sdk';
 import { createFileIndex, defaultRoots, queryOf } from './fileIndex.js';
 import { readFileText } from './readers.js';
@@ -32,6 +32,14 @@ function openOnLaptop(p) {
   }
 }
 
+// To the Recycle Bin (Windows), so a mistake can be undone there; elsewhere (tests, dev boxes) removed.
+// The path goes in an environment variable, never into the command text.
+async function recycle(target) {
+  if (process.platform !== 'win32') { fs.rmSync(target, { recursive: true, force: true }); return; }
+  const script = "Add-Type -AssemblyName Microsoft.VisualBasic; $p = $env:NOVI_DELETE_PATH; if (Test-Path -LiteralPath $p -PathType Container) { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($p, 'OnlyErrorDialogs', 'SendToRecycleBin') } else { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($p, 'OnlyErrorDialogs', 'SendToRecycleBin') }";
+  await new Promise((resolve, reject) => execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true, timeout: 30_000, env: { ...process.env, NOVI_DELETE_PATH: target } }, (err) => (err ? reject(err) : resolve())));
+}
+
 function defaultDocs(home = os.homedir()) {
   return [path.join(home, 'OneDrive', 'ドキュメント'), path.join(home, 'OneDrive', 'Documents'), path.join(home, 'Documents')].find((d) => fs.existsSync(d)) || path.join(home, 'Documents');
 }
@@ -54,7 +62,7 @@ const freeName = (dir, name) => {
   return target;
 };
 
-export function createFilesPlugin({ roots, home = os.homedir(), docsDir, openPath = openOnLaptop, onJob = () => {}, refreshMs = 15 * 60_000, readyWaitMs = 5000 } = {}) {
+export function createFilesPlugin({ roots, home = os.homedir(), docsDir, openPath = openOnLaptop, trash = recycle, onJob = () => {}, refreshMs = 15 * 60_000, readyWaitMs = 5000 } = {}) {
   let markReady;
   let isReady = false;
   const ready = new Promise((r) => { markReady = () => { isReady = true; r(); }; });
@@ -266,7 +274,51 @@ export function createFilesPlugin({ roots, home = os.homedir(), docsDir, openPat
         },
       });
 
+      // Delete one file or folder — the only way Novi deletes (live 2026-10-17: the AI deleted a folder
+      // through screen control with no PIN). Always asks for the voice PIN; to the Recycle Bin.
+      const desktopDir = () => (fs.existsSync(path.join(home, 'OneDrive', 'Desktop')) ? path.join(home, 'OneDrive', 'Desktop') : path.join(home, 'Desktop'));
+      const deleteTarget = ({ path: exact, name, where }) => {
+        if (exact) return fs.existsSync(exact) ? exact : null;
+        const clean = String(name || '').trim().replace(/^(?:the|my)\s+/i, '').replace(/\s+(?:folder|file)$/i, '');
+        if (!clean) return null;
+        const places = where ? [placeFor(where)] : [desktopDir(), docs, path.join(home, 'Downloads'), home];
+        for (const dir of places.filter(Boolean)) {
+          const hit = fs.existsSync(dir) && fs.readdirSync(dir).find((n) => n.toLowerCase() === clean.toLowerCase());
+          if (hit) return path.join(dir, hit);
+        }
+        const found = index.search(clean, { limit: 1 })[0];
+        return found && found.name.toLowerCase() === clean.toLowerCase() ? found.path : null;
+      };
+      const isProtected = (target) => {
+        const raw = String(target);
+        if (/^[a-z]:[\\/]?$/i.test(raw) || /^[a-z]:[\\/](?:windows|program files|programdata)\b/i.test(raw)) return true;
+        const r = path.resolve(raw).toLowerCase();
+        const keep = [home, desktopDir(), path.join(home, 'Desktop'), docs, path.join(home, 'Downloads'), path.join(home, 'OneDrive'), process.cwd()].map((d) => path.resolve(d).toLowerCase());
+        return r.split(/[\\/]+/).filter(Boolean).length <= 1 || keep.includes(r) || keep.some((d) => d.startsWith(r + path.sep)) || r.startsWith(path.resolve(process.cwd()).toLowerCase() + path.sep);
+      };
+      const what = (target) => `the ${fs.statSync(target).isDirectory() ? 'folder' : 'file'} ${path.basename(target)}`;
+      api.registerTool({
+        name: 'file_delete',
+        description: 'Delete ONE file or folder on the laptop (to the Recycle Bin). The ONLY way to delete files or folders: never use screen control keys/clicks or laptop_run for it. Always asks for the user\'s PIN. path = exact path when known (e.g. the folder just opened), else name (+ where: desktop/downloads/documents).',
+        parameters: obj({ path: str('Exact path, when known'), name: str('File or folder name the user said'), where: str('Optional: desktop, downloads, documents, or a folder name') }),
+        async execute(_id, params) {
+          const target = deleteTarget(params || {});
+          if (!target) return reply({ note: "I can't find that." });
+          if (isProtected(target)) return reply({ note: "I won't delete that — it's a main folder of your laptop." });
+          const label = what(target);
+          await trash(target);
+          return reply({ deleted: target, note: `Deleted ${label} (it is in the Recycle Bin).` });
+        },
+      });
+
       api.on('before_tool_call', ({ toolName, params }) => {
+        if (toolName === 'file_delete') {
+          const target = deleteTarget(params || {});
+          if (target && isProtected(target)) return { block: true, blockReason: "I won't delete that — it's a main folder of your laptop." };
+          if (!target) return params?.path && isProtected(params.path) ? { block: true, blockReason: "I won't delete that — it's a main folder of your laptop." } : undefined;
+          const title = `Delete ${what(target)}?`;
+          return { requireApproval: { title, description: `${target}\nIt goes to the Recycle Bin.`, prompt: `${title} Say your PIN.`, severity: 'warning', category: 'files', grantable: false, pin: true } };
+        }
         if (toolName === 'file_gather') {
           const { dest, files, label } = plan(params);
           if (!files.length) return undefined;
