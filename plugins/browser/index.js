@@ -7,7 +7,7 @@ import { createWebDriver, zipForSend } from './whatsapp.js';
 import { createAppDriver } from './whatsappApp.js';
 import { createControlWorker } from '../laptop-control/worker.js';
 import { findWindows } from '../laptop-control/windows.js';
-import { isSubmit, isPayment, isCardField, needsPassword, hasCaptcha, needsCode, summarizeForm, pageText } from './rules.js';
+import { isSubmit, isPayment, isCardField, needsPassword, hasCaptcha, needsCode, summarizeForm, pageText, plainError } from './rules.js';
 
 // Novi in the user's everyday Chrome (through the Novi extension). User's rules (2026-10-15):
 // final submits ask first with a summary; payments never; passwords and card details are typed by
@@ -62,7 +62,7 @@ export function createBrowserPlugin({ bridge = null, showImage = null, webDriver
       const tool = (name, description, parameters, fn) => api.registerTool({
         name, description, parameters,
         async execute(_id, params = {}) {
-          try { return await fn(params); } catch (err) { return reply({ error: String(err.message || err) }); }
+          try { return await fn(params); } catch (err) { return reply({ error: plainError(err.message || err) }); }
         },
       });
 
