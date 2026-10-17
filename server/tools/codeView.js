@@ -10,7 +10,8 @@ const LANG = {
   react: ['.jsx', '.tsx'], jsx: ['.jsx'], typescript: ['.ts', '.tsx'], ts: ['.ts', '.tsx'], python: ['.py'], py: ['.py'],
   java: ['.java'], json: ['.json'], rust: ['.rs'], go: ['.go'], php: ['.php'], sql: ['.sql'], markdown: ['.md'], readme: ['.md'],
 };
-const STOP = new Set('show me the code of file my a an please in for part section where is it its this that wala wali ka ki ke dikha dikhao do de see let look at which written you wrote just'.split(' '));
+const STOP = new Set(('show me the code of file my a an please in for part section where is it its this that wala wali ka ki ke dikha dikhao do de see let look at which written you wrote just '
+  + 'coder novi claude hey okay ok can could give send page app website site project we were are was our building built made making whole full entire').split(' '));
 const WINDOW = 40;
 
 function walk(root) {
@@ -33,24 +34,30 @@ const read = (file) => {
 };
 
 // → { file (relative), start (1-based), lines } | null
-export function findCode(root, query, { recent = [] } = {}) {
-  const words = String(query || '').toLowerCase().match(/[\p{L}\p{N}_.-]+/gu) || [];
+// whole: a file of at most this many lines comes back whole (start 1) when the match is the file
+// itself (by name or language), not a definition inside it — the chat's edit card shows all of it.
+export function findCode(root, query, { recent = [], whole = 0 } = {}) {
+  const words = (String(query || '').toLowerCase().match(/[\p{L}\p{N}_.-]+/gu) || []).map((w) => w.replace(/^[.-]+|[.-]+$/g, '')).filter(Boolean);
   const exts = words.flatMap((w) => LANG[w] || []);
-  const terms = words.filter((w) => !LANG[w] && !STOP.has(w) && w.length >= 3);
+  const terms = words.filter((w) => !LANG[w] && !STOP.has(w) && w.length >= 3)
+    .flatMap((w) => (w.length > 4 && w.endsWith('s') ? [w, w.slice(0, -1)] : [w])); // "contacts" → contact.html
   const recentFirst = [...recent].reverse().map((f) => path.resolve(root, f));
   const all = walk(root);
-  const order = [...new Set([...recentFirst.filter((f) => all.includes(f)), ...all.sort((a, b) => a.split(path.sep).length - b.split(path.sep).length || a.localeCompare(b))])];
+  // Shallowest first; at the same depth the entry file (index / main / App) comes first.
+  const entry = (f) => (/^(index|main|app)\./i.test(path.basename(f)) ? 0 : 1);
+  const order = [...new Set([...recentFirst.filter((f) => all.includes(f)), ...all.sort((a, b) => a.split(path.sep).length - b.split(path.sep).length || entry(a) - entry(b) || a.localeCompare(b))])];
   const pool = exts.length ? order.filter((f) => exts.includes(path.extname(f).toLowerCase())) : order;
   if (!pool.length) return null;
-  const result = (file, at) => {
+  const result = (file, at, itself = false) => {
     const lines = read(file) || [];
+    if (itself && whole && lines.length <= whole) return { file: path.relative(root, file), start: 1, lines, total: lines.length };
     const start = Math.max(1, at - 10);
-    return { file: path.relative(root, file), start, lines: lines.slice(start - 1, start - 1 + WINDOW) };
+    return { file: path.relative(root, file), start, lines: lines.slice(start - 1, start - 1 + WINDOW), total: lines.length };
   };
   if (terms.length) {
     // A file named after the thing first ("navbar" → Navbar.jsx), then where it's defined, then any mention.
     const named = pool.find((f) => terms.some((t) => path.basename(f).toLowerCase().includes(t)));
-    if (named) return result(named, 1);
+    if (named) return result(named, 1, true);
     let mention = null;
     for (const f of pool) {
       const lines = read(f);
@@ -65,7 +72,7 @@ export function findCode(root, query, { recent = [] } = {}) {
     if (mention) return result(...mention);
     if (!exts.length) return null;
   }
-  return result(pool[0], 1);
+  return result(pool[0], 1, true);
 }
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);

@@ -86,7 +86,8 @@ export default function App() {
       />
       <main className="layout">
         <section className="panel conversation">
-          <Transcript entries={state.transcript} thinking={state.thinking} />
+          <Transcript entries={state.transcript} thinking={state.thinking} codeSaved={state.codeSaved}
+            onCodeSave={(id, text) => send({ type: 'code_save', id, text })} />
           <Composer onSend={sendText} disabled={!novi.connected} />
         </section>
         <section className="panel">

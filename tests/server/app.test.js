@@ -288,6 +288,31 @@ describe('Novi server', () => {
     ws.close();
   });
 
+  // 2026-10-17: Approve on a code card saves the user's version and tells a running Claude.
+  it('code card: shown with the code, Approve saves it and tells the running coder', async () => {
+    const sent = [];
+    const { novi, ws } = await start();
+    const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'novi-cc-'));
+    fs.writeFileSync(path.join(folder, 'contact.html'), '<form>\n<button>Send</button>\n</form>');
+    novi.tasks.status = () => ({ active: true, status: 'running', project: 'site' });
+    novi.tasks.send = (t) => sent.push(t);
+    const c = connect(ws);
+    await c.opened;
+    await c.waitFor((m) => m.type === 'snapshot');
+    const id = novi.codeEdits.offer({ root: folder, file: 'contact.html', start: 2, lines: ['<button>Send</button>'] });
+    novi.plugins.runtime.showCode({ id, file: 'contact.html', start: 2, text: '<button>Send</button>', caption: 'site · contact.html' });
+    const card = await c.waitFor((m) => m.type === 'chat' && m.entry.code);
+    expect(card.entry.code).toEqual({ id, file: 'contact.html', start: 2, text: '<button>Send</button>' });
+    c.ws.send(JSON.stringify({ type: 'code_save', id, text: '<button>Send now</button>' }));
+    expect(await c.waitFor((m) => m.type === 'code_saved')).toMatchObject({ id, ok: true, changed: true });
+    expect(fs.readFileSync(path.join(folder, 'contact.html'), 'utf8')).toBe('<form>\n<button>Send now</button>\n</form>');
+    expect(sent[0]).toMatch(/edited contact\.html .*already saved/);
+    expect((await c.waitFor((m) => m.type === 'chat' && /Saved your change/.test(m.entry.text))).entry.text).toBe('Saved your change to contact.html, and told Claude.');
+    c.ws.send(JSON.stringify({ type: 'code_save', id: 'old', text: 'x' }));
+    expect(await c.waitFor((m) => m.type === 'code_saved' && m.id === 'old')).toMatchObject({ ok: false, error: expect.stringMatching(/ask for the code again/i) });
+    c.ws.close();
+  });
+
   it('lists and revokes permission grants, and "always" from a card stores one', async () => {
     const { base, novi } = await start();
     const pending = novi.approvals.decide({ title: 'Open Spotify', tier: 'medium', source: 'novi', category: 'apps', grantable: true });

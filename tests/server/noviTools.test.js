@@ -194,6 +194,24 @@ describe('code_show ("show me the html code")', () => {
     await expect(tool.run({ what: 'the rust code' })).rejects.toThrow(/couldn't find/);
   });
 
+  // 2026-10-17: the actual code (editable) rather than a picture, where the page can show it.
+  it('with showCode: the whole short file as text, with an edit id that saves back into the project', async () => {
+    const s = setup();
+    const folder = path.join(s.dir, 'site');
+    fs.mkdirSync(folder);
+    fs.writeFileSync(path.join(folder, 'contact.html'), '<form>\n<button>Send</button>\n</form>');
+    s.memory.rememberProject('site', folder);
+    s.tasks.status = () => ({ active: true, project: 'site', path: folder, files: [] });
+    const cards = [];
+    const { createCodeEdits } = await import('../../server/codeEdits.js');
+    const codeEdits = createCodeEdits();
+    const tools = createNoviTools({ memory: s.memory, tasks: s.tasks, showImage: () => { throw new Error('no picture'); }, showCode: (c) => cards.push(c), codeEdits });
+    await tools.get('code_show').run({ what: 'show me the code for the contacts page' });
+    expect(cards[0]).toMatchObject({ file: 'contact.html', start: 1, text: '<form>\n<button>Send</button>\n</form>', caption: 'site · contact.html · lines 1–3' });
+    codeEdits.save(cards[0].id, '<form>\n<button>Send now</button>\n</form>');
+    expect(fs.readFileSync(path.join(folder, 'contact.html'), 'utf8')).toContain('Send now');
+  });
+
   it('asks which project when there is no task', async () => {
     const s = setup();
     const tools = createNoviTools({ memory: s.memory, tasks: s.tasks, showImage: () => {} });
