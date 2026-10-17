@@ -82,7 +82,8 @@ export function githubGraphCommand(text, now = new Date()) {
 // "Show me the HTML code" / "navbar ka code dikhao" → code_show with the user's words (no AI call).
 export function codeCommand(text) {
   const t = String(text || '').trim();
-  if (!/\bcode\b|कोड/i.test(t) || !/\b(show|see|dikha\w*|dekh\w*)\b|दिखा/i.test(t)) return null;
+  // Show words, or asking for "the full / whole / complete … code" in any words ("give me…", "was it the full header code?").
+  if (!/\bcode\b|कोड/i.test(t) || !(/\b(show|see|dikha\w*|dekh\w*)\b|दिखा/i.test(t) || /\b(full|whole|complete|entire|poora|pura)\b/i.test(t) || /\b(give|send|get)\b.*\bcode (of|for)\b/i.test(t))) return null;
   if (/\b(fix|change|add|write|make|remove|delete|update|bana\w*|badal\w*)\b/i.test(t) && !/\b(show|see)\b.*\b(wrote|written|did you)\b|\bdid you write\b/i.test(t)) return null;
   return t;
 }

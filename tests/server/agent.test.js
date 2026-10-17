@@ -431,6 +431,11 @@ describe('"show me the … code" goes straight to code_show (no AI call)', async
   it('spots code requests in English and Hinglish, not other things', () => {
     expect(codeCommand('Show me the HTML code')).toBe('Show me the HTML code');
     expect(codeCommand('navbar ka code dikhao')).toBe('navbar ka code dikhao');
+    // Live (2026-10-17): asked for "the full code" in other words, the same 40 lines came back.
+    expect(codeCommand('give me the full code of the header')).toBe('give me the full code of the header');
+    expect(codeCommand('Was it the full header code?')).toBe('Was it the full header code?');
+    expect(codeCommand('send me the complete navbar code')).toBe('send me the complete navbar code');
+    expect(codeCommand('give me a code review')).toBeNull();
     expect(codeCommand('what code did you write for the button? show it')).toBeTruthy();
     expect(codeCommand('show me the weather')).toBeNull();
     expect(codeCommand('fix the code in the navbar')).toBeNull();

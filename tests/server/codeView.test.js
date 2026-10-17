@@ -73,3 +73,43 @@ describe('codeSvg', () => {
     expect(svg).not.toContain('x'.repeat(200));
   });
 });
+
+// Live (2026-10-17): "give me the full code of the header" kept showing lines 4–43 (a fixed window
+// around <header>), never the whole <header>…</header>.
+describe('findCode: the whole part that was asked for', () => {
+  const site = () => {
+    const root = project();
+    const head = ['<!doctype html>', '<html>', '<head>', ...Array.from({ length: 9 }, (_, i) => `  <meta name="m${i}">`), '</head>', '<body>'];
+    const header = ['  <header class="site-header">', '    <div class="container">', ...Array.from({ length: 50 }, (_, i) => `      <div><a href="#s${i}">Link ${i}</a></div>`), '    </div>', '  </header>'];
+    fs.writeFileSync(path.join(root, 'index.html'), [...head, ...header, '  <main>hi</main>', '</body>', '</html>'].join('\n'));
+    fs.writeFileSync(path.join(root, 'src', 'menu.js'), ['// menu', 'export function openMenu(el) {', ...Array.from({ length: 55 }, (_, i) => `  if (el.x${i}) { el.y = ${i}; }`), '}', 'export const other = 1;'].join('\n'));
+    fs.writeFileSync(path.join(root, 'src', 'style.css'), ['body { margin: 0 }', '.site-footer {', '  color: red;', '  padding: 1rem;', '}', '.x { }'].join('\n'));
+    return root;
+  };
+
+  it('an HTML part comes back from its opening tag to its closing tag', () => {
+    const found = findCode(site(), 'give me the full code of the header');
+    expect(found.file).toBe('index.html');
+    expect(found.start).toBe(15);
+    expect(found.lines[0]).toContain('<header');
+    expect(found.lines.at(-1)).toContain('</header>');
+    expect(found.lines).toHaveLength(54);
+  });
+
+  it('a function or a CSS rule comes back whole', () => {
+    const root = site();
+    const fn = findCode(root, 'show me the openMenu code');
+    expect(fn).toMatchObject({ file: path.join('src', 'menu.js'), start: 2 });
+    expect(fn.lines).toHaveLength(57);
+    expect(fn.lines.at(-1)).toBe('}');
+    const css = findCode(root, 'the css for site-footer');
+    expect(css).toMatchObject({ start: 2 });
+    expect(css.lines).toEqual(['.site-footer {', '  color: red;', '  padding: 1rem;', '}']);
+  });
+
+  it('"full code of index.html" is the whole file, even past the usual size', () => {
+    const found = findCode(site(), 'show me the full code of index.html', { whole: 40 });
+    expect(found).toMatchObject({ file: 'index.html', start: 1, total: 71 });
+    expect(found.lines).toHaveLength(71);
+  });
+});
