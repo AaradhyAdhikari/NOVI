@@ -123,7 +123,7 @@ export async function startWakeWordService({ novi, env = process.env, logger = c
       },
     });
     current = { recorder, listener, mic: mic.name, onError };
-    listener.start();
+    current.loop = listener.start();
     novi.setWakeWord('server');
     // Settings → "Hey Novi": record practice clips through this mic and change the level live.
     novi.setWakeTools?.({
@@ -140,25 +140,47 @@ export async function startWakeWordService({ novi, env = process.env, logger = c
   const runner = keepRestarting({ start, logger });
   await runner.begin();
   // Earphones plugged in or unplugged: switch to the mic that should be used now.
+  let switching = false;
   const micCheck = setInterval(() => {
     let want;
     try { want = micToUse(PvRecorder.getAvailableDevices(), env.NOVI_WAKEWORD_MIC); } catch { return; }
-    if (!current || want.name === current.mic) return;
+    if (switching || !current || want.name === current.mic) return;
     logger.log(`[wake] switching mic: ${current.mic} → ${want.name}`);
     const old = current;
+    switching = true;
     old.listener.stop();
-    try { old.recorder.release(); } catch { /* already released */ }
-    start({ onError: old.onError }).catch((err) => old.onError(err));
+    releaseAfter(old.loop, old.recorder, { logger })
+      .then(() => start({ onError: old.onError }))
+      .catch((err) => old.onError(err))
+      .finally(() => { switching = false; });
   }, 10_000);
   micCheck.unref?.();
   return {
     stop() {
       clearInterval(micCheck);
       runner.stop();
-      current?.listener.stop();
-      try { current?.recorder.release(); } catch { /* already released */ }
+      if (!current) return;
+      current.listener.stop();
+      releaseAfter(current.loop, current.recorder, { logger });
     },
   };
+}
+
+// Free a stopped mic only once its read loop has ended: releasing PvRecorder during a read
+// crashes the whole process (access violation). A loop that never ends leaves the mic open.
+export async function releaseAfter(loop, recorder, { waitMs = 2000, logger } = {}) {
+  let timer;
+  const ended = await Promise.race([
+    Promise.resolve(loop).then(() => true, () => true),
+    new Promise((r) => { timer = setTimeout(() => r(false), waitMs); }),
+  ]);
+  clearTimeout(timer);
+  if (!ended) {
+    logger?.warn?.('[wake] the old mic is still reading; leaving it open.');
+    return false;
+  }
+  try { recorder.release(); } catch { /* already released */ }
+  return true;
 }
 
 // Replies that end a conversation; anything else keeps Novi listening for ~8 s after it speaks.

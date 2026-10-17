@@ -216,8 +216,10 @@ describe('Novi server', () => {
     expect(res.status).toBe(409);
     expect(exits).toEqual([]);
     server.close();
-    const supervised = await start({ exit: (c) => exits.push(c), system: { supervised: true } });
+    const told = [];
+    const supervised = await start({ exit: (c) => exits.push(c), tellSupervisor: (m) => told.push(m), system: { supervised: true } });
     expect((await fetch(`${supervised.base}/api/restart`, { method: 'POST' })).status).toBe(200);
+    expect(told).toEqual([{ type: 'restarting' }]); // the supervisor ends Novi by force if closing freezes
     await new Promise((r) => setTimeout(r, 400));
     expect(exits).toEqual([75]);
   });

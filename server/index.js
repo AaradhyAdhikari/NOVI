@@ -50,6 +50,9 @@ if (ts) setInterval(async () => {
   if (fresh) tsContext = tls.createSecureContext({ key: fresh.key, cert: fresh.cert });
 }, 7 * 24 * 3600_000).unref();
 
+// The supervisor's message channel (restart notices) must not keep Novi alive by itself.
+process.channel?.unref();
+
 // Another Novi already owns the port (e.g. the autostarted one): exit cleanly (code 0) so the
 // supervisor stops instead of restarting into the same error forever.
 server.on('error', (err) => {

@@ -7,6 +7,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 export const RESTART_CODE = 75;
+const BUILD_TIMEOUT_MS = 180_000; // a stuck screen rebuild must not keep Novi from starting
 
 // Everything goes to the daily log file; a copy goes to the console only when there is one.
 // On Windows, writing to a pipe nobody reads blocks forever, which froze Novi (2026-10-08).
@@ -22,8 +23,13 @@ const LOOP_WINDOW_MS = 120_000;
 const LOOP_CRASHES = 5;
 const LOOP_PAUSE_MS = 300_000;
 
-export function createSupervisor({ spawnChild, now = () => Date.now(), logger = console }) {
+// Novi says { type: 'restarting' } before it exits for a restart. On Windows it can freeze while
+// closing (the mic / voice libraries), still holding port 3001, so the browser just times out
+// (2026-10-17): after killAfterMs it is ended by force and started again.
+export function createSupervisor({ spawnChild, now = () => Date.now(), logger = console, killAfterMs = 5000 }) {
   let child = null;
+  let killTimer = null;
+  let forcedRestart = false;
   let stopped = false;
   let restarts = 0;
   let backoff = 0;
@@ -37,6 +43,17 @@ export function createSupervisor({ spawnChild, now = () => Date.now(), logger = 
     startedAt = now();
     child = spawnChild(restarts);
     child.on('exit', onExit);
+    const self = child;
+    child.on('message', (m) => {
+      if (m?.type !== 'restarting' || killTimer) return;
+      killTimer = setTimeout(() => {
+        killTimer = null;
+        if (child !== self) return;
+        forcedRestart = true;
+        logger.log('[supervisor] Novi froze while closing for a restart; ending it by force.');
+        self.kill('SIGKILL');
+      }, killAfterMs);
+    });
   }
 
   function schedule(ms) {
@@ -46,7 +63,14 @@ export function createSupervisor({ spawnChild, now = () => Date.now(), logger = 
 
   function onExit(code) {
     child = null;
+    clearTimeout(killTimer);
+    killTimer = null;
     if (stopped) return;
+    if (forcedRestart) {
+      forcedRestart = false;
+      schedule(0);
+      return;
+    }
     if (code === 0) {
       logger.log('[supervisor] Novi stopped.');
       return;
@@ -96,7 +120,10 @@ function openLog(dir) {
   fs.mkdirSync(dir, { recursive: true });
   const files = fs.readdirSync(dir).filter((f) => /^novi-\d{4}-\d{2}-\d{2}\.log$/.test(f)).sort();
   for (const old of files.slice(0, Math.max(0, files.length - 6))) fs.rmSync(path.join(dir, old), { force: true });
-  return fs.createWriteStream(path.join(dir, `novi-${new Date().toISOString().slice(0, 10)}.log`), { flags: 'a' });
+  // Written at once (not buffered): the screen rebuild below blocks, and a buffered line about it
+  // would only reach the file afterwards — or never, if it hangs.
+  const file = path.join(dir, `novi-${new Date().toISOString().slice(0, 10)}.log`);
+  return { write: (text) => { try { fs.appendFileSync(file, text); } catch { /* never stop Novi over the log */ } } };
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
@@ -108,13 +135,13 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
     spawnChild: (restarts) => {
       if (uiIsStale(root)) {
         write(`${new Date().toISOString()} [supervisor] screen code changed — rebuilding\n`);
-        const b = spawnSync(process.execPath, [path.join(root, 'node_modules', 'vite', 'bin', 'vite.js'), 'build'], { cwd: root, encoding: 'utf8' });
-        write(`${new Date().toISOString()} [supervisor] rebuild ${b.status === 0 ? 'done' : `failed: ${String(b.stderr || b.error?.message || '').slice(-300)}`}\n`);
+        const b = spawnSync(process.execPath, [path.join(root, 'node_modules', 'vite', 'bin', 'vite.js'), 'build'], { cwd: root, encoding: 'utf8', timeout: BUILD_TIMEOUT_MS, windowsHide: true });
+        write(`${new Date().toISOString()} [supervisor] rebuild ${b.status === 0 ? 'done' : `failed (Novi starts with the old screen): ${String(b.error?.message || b.stderr || '').slice(-300)}`}\n`);
       }
       const c = spawn(process.execPath, ['--env-file-if-exists=.env', 'server/index.js'], {
         cwd: root,
         env: { ...process.env, NOVI_SUPERVISED: '1', NOVI_RESTARTS: String(restarts) },
-        stdio: ['ignore', 'pipe', 'pipe'],
+        stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
       });
       c.stdout.on('data', (d) => write(String(d)));
       c.stderr.on('data', (d) => write(String(d)));

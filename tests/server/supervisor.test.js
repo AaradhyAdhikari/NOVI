@@ -59,6 +59,33 @@ describe('supervisor', () => {
     expect(children).toHaveLength(2);
   });
 
+  it('force-ends a Novi that freezes while closing for a restart, then starts a new one', () => {
+    const log = [];
+    createSupervisor({ spawnChild, logger: { log: (l) => log.push(l) }, killAfterMs: 5000 }).start();
+    let killed = null;
+    children[0].kill = (sig) => { killed = sig; children[0].emit('exit', null); };
+    children[0].emit('message', { type: 'restarting' });
+    vi.advanceTimersByTime(4999);
+    expect(killed).toBe(null);
+    vi.advanceTimersByTime(1);
+    expect(killed).toBe('SIGKILL');
+    vi.advanceTimersByTime(1);
+    expect(children).toHaveLength(2);
+    expect(log.join('\n')).toMatch(/froze while closing/);
+    expect(log.join('\n')).not.toMatch(/crashed/);
+  });
+
+  it('does not kill a Novi that closes by itself after saying it restarts', () => {
+    createSupervisor({ spawnChild, logger: { log() {} }, killAfterMs: 5000 }).start();
+    let killed = false;
+    children[0].kill = () => { killed = true; };
+    children[0].emit('message', { type: 'restarting' });
+    crash(RESTART_CODE);
+    vi.advanceTimersByTime(10_000);
+    expect(killed).toBe(false);
+    expect(children).toHaveLength(2);
+  });
+
   it('stays stopped when Novi exits normally', () => {
     createSupervisor({ spawnChild, logger: { log() {} } }).start();
     crash(0);
