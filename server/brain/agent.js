@@ -9,6 +9,7 @@ import { FILE_LEAD, FILE_TAIL } from './phrases.js';
 import { controlCommand, isCancelWord, historyCommand, diskCommand } from './controlCommand.js';
 import { browserCommand, isDoneWord } from './browserCommand.js';
 import { previewCommand, openCommand } from './previewCommand.js';
+import { replyFrom } from './shortcuts.js';
 import { describeTurn } from '../activity.js';
 import { quietCommand } from '../quiet.js';
 import path from 'node:path';
@@ -277,9 +278,10 @@ export function describeStatus(s) {
 }
 
 export class Agent {
-  constructor({ router, tools, approvals, memory, tasks, accounts = null, privateProviders = ['groq'], summarize = null, activity = null, quiet = null, logger = console, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
+  constructor({ router, tools, approvals, memory, tasks, accounts = null, privateProviders = ['groq'], summarize = null, activity = null, quiet = null, shortcuts = null, logger = console, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
     this.activity = activity; // "what happened" log (server/activity.js)
     this.quiet = quiet; // quiet mode (server/quiet.js): no speech, everything on screen
+    this.shortcuts = shortcuts; // learned shortcuts (server/brain/shortcuts.js): words → one quiet tool
     this.sleep = sleep;
     this.logger = logger;
     this.accounts = accounts;
@@ -406,8 +408,23 @@ export class Agent {
       return this._remember(text, output?.error || `You made ${n} contribution${n === 1 ? '' : 's'} ${gh.when}.`);
     }
 
+    // A learned shortcut: words the AI already solved with one quiet tool → that tool at once.
+    const learned = this.shortcuts?.find(text);
+    if (learned && this.tools.get(learned.tool)) {
+      const r = await this._runTool({ id: `sc-${Date.now()}`, function: { name: learned.tool, arguments: JSON.stringify(learned.args) } });
+      if (!r.output?.error) {
+        this.shortcuts.used(learned.key);
+        this.activity?.route?.(this._rec, 'shortcut');
+        return this._remember(text, replyFrom(r.output));
+      }
+      // It doesn't work any more (app gone, file moved): forget it and let the AI work it out.
+      if (/declined/i.test(r.output.error)) return this._remember(text, 'Okay, not done.');
+      this.shortcuts.forget(learned.key);
+    }
+
     const { extra, messages, offered, purpose } = await this._prepare(text);
     const notes = [];
+    const runs = []; // { tool, args, output, asked } — one quiet successful run → a learned shortcut
     // Personal context (memories) only goes to providers the user trusts with private data.
     let provider = extra.sensitive ? this.privateProviders[0] : undefined;
     let waited = false;
@@ -444,6 +461,7 @@ export class Agent {
           messages.push({ role: 'assistant', content }, { role: 'user', content: 'You did not run any tool, so nothing happened. Call the tool that does it now, or say plainly that you can\'t.' });
           continue;
         }
+        if (runs.length === 1) this.shortcuts?.learn(text, runs[0]);
         return this._remember(text, content || notes.join(' ') || 'Done.');
       }
       ranTool = true;
@@ -451,6 +469,9 @@ export class Agent {
       let sensitive = false;
       for (const call of calls) {
         const result = await this._runTool(call);
+        let callArgs = {};
+        try { callArgs = JSON.parse(call.function?.arguments || '{}'); } catch { /* bad JSON: the tool already said so */ }
+        runs.push({ tool: call.function?.name, args: callArgs, output: result.output, asked: result.asked });
         if (result.output?.error) toolFailed = true;
         if (result.note) notes.push(result.note);
         if (result.output?.sensitive) sensitive = true;
@@ -511,6 +532,8 @@ export class Agent {
     if (file && this.tools.get(file.tool)) return { quick: null, calls: [{ name: file.tool, args: file.args }], reply: null, provider: 'direct' };
     const web = webCommand(text);
     if (web && this.tools.get(web.tool)) return { quick: null, calls: [{ name: web.tool, args: web.args }], reply: null, provider: 'direct' };
+    const sc = this.shortcuts?.find(text);
+    if (sc && this.tools.get(sc.tool)) return { quick: null, calls: [{ name: sc.tool, args: sc.args }], reply: null, provider: 'shortcut' };
     const { extra, messages, offered, purpose } = await this._prepare(text);
     const res = await this.router.chat({ messages, tools: offered, purpose, only: extra.sensitive ? this.privateProviders[0] : undefined });
     this.activity?.ai(this._rec, res?.provider);
@@ -700,11 +723,13 @@ export class Agent {
     }
     // "$"-prefixed arguments are reserved for choices the user makes (e.g. "use Claude instead"); never from the model.
     for (const key of Object.keys(args)) if (key.startsWith('$')) delete args[key];
+    let lastApproval = false;
     if (tool.gate) {
       // Plugin tools: approval and blocking come from before_tool_call hooks (OpenClaw shape).
       const gate = await tool.gate(args, { toolCallId: call.id, from: this._from || 'local', direct });
       if (gate.block) return { output: { error: gate.blockReason, ...(gate.details || {}) }, note: gate.blockReason };
       if (gate.approval) {
+        lastApproval = true;
         const { title, detail, tier, prompt, choices } = gate.approval;
         // Which kind of action this is, and whether "always allow" may apply (never for sends/deletes/high risk).
         const { category, grantable } = classifyApproval({ toolName: tool.name, pluginId: tool.pluginId, tier, choices, category: gate.approval.category, grantable: gate.approval.grantable });
@@ -735,9 +760,11 @@ export class Agent {
         if (decision.addition) args.instruction += `\n\nAlso: ${decision.addition}`;
       }
     }
+    // asked: this kind of action needs an approval (even when it was skipped) — never a learned shortcut.
+    const asked = Boolean(tool.gate ? lastApproval : tool.tier !== 'low');
     try {
       const output = await tool.run(args, { toolCallId: call.id });
-      return { output, note: output?.note };
+      return { output, note: output?.note, asked };
     } catch (err) {
       return { output: { error: err.message }, note: err instanceof UserFacingError ? err.message : undefined };
     }

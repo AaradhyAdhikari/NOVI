@@ -1229,6 +1229,35 @@ describe('deleting by voice always needs the PIN', () => {
   });
 });
 
+describe('learned shortcuts in the agent', () => {
+  it('a phrase the AI solved with one quiet tool runs straight away next time, without the AI', async () => {
+    const { createShortcuts } = await import('../../server/brain/shortcuts.js');
+    const dir = (await import('node:fs')).mkdtempSync((await import('node:path')).join((await import('node:os')).tmpdir(), 'novi-sca-'));
+    const shortcuts = createShortcuts({ file: `${dir}/s.json` });
+    const ran = [];
+    const tools = new ToolRegistry().add({ name: 'open_app', description: 'o', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'o', run: async (a) => { ran.push(a); return { opened: a.name }; } });
+    const router = scriptedRouter([{ message: { role: 'assistant', content: '', tool_calls: [toolCall('open_app', { name: 'Spotify' })] }, provider: 'groq', model: 'm' }, reply('Opened Spotify for you.')]);
+    const agent = new Agent({ router, tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) }, shortcuts });
+    expect(await agent.handle('put on spotify')).toBe('Opened Spotify for you.');
+    expect(router.calls).toHaveLength(2);
+    expect(await agent.handle('Put on Spotify.')).toBe('Opened Spotify.');
+    expect(router.calls).toHaveLength(2); // no AI the second time
+    expect(ran).toEqual([{ name: 'Spotify' }, { name: 'Spotify' }]);
+    expect(shortcuts.list()[0]).toMatchObject({ key: 'put on spotify', uses: 1 });
+  });
+
+  it('a shortcut that now fails is forgotten and the AI handles it', async () => {
+    const { createShortcuts } = await import('../../server/brain/shortcuts.js');
+    const dir = (await import('node:fs')).mkdtempSync((await import('node:path')).join((await import('node:os')).tmpdir(), 'novi-scb-'));
+    const shortcuts = createShortcuts({ file: `${dir}/s.json` });
+    shortcuts.learn('put on spotify', { tool: 'open_app', args: { name: 'Spotify' }, output: { opened: 'Spotify' } });
+    const tools = new ToolRegistry().add({ name: 'open_app', description: 'o', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'o', run: async () => { throw new UserFacingError('Spotify is not installed.'); } });
+    const agent = new Agent({ router: scriptedRouter([reply('Spotify is not installed on this laptop.')]), tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) }, shortcuts });
+    expect(await agent.handle('put on spotify')).toBe('Spotify is not installed on this laptop.');
+    expect(shortcuts.list()).toEqual([]);
+  });
+});
+
 describe('activity log: what happened in each request', () => {
   it('records direct tools and AI turns; "what went wrong" answers from the log', async () => {
     const { createActivity } = await import('../../server/activity.js');

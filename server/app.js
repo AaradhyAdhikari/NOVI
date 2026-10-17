@@ -1,6 +1,7 @@
 import { createQuiet } from './quiet.js';
 import { createCodeEdits } from './codeEdits.js';
 import { createActivity } from './activity.js';
+import { createShortcuts } from './brain/shortcuts.js';
 import os from 'node:os';
 import { memoryDir, createVault } from '../plugins/wiki/vault.js';
 import { buildGraph, readNote } from '../plugins/wiki/graph.js';
@@ -205,7 +206,9 @@ export function createNovi(config, overrides = {}) {
   };
   // "What happened" in each request (Settings → Activity, "what went wrong?").
   const activity = overrides.activity || createActivity({ file: path.join(config.dataDir, 'activity', 'recent.json') });
-  const agent = overrides.agent || new Agent({ router, tools, approvals, memory, tasks, accounts, privateProviders: config.privateProviders || ['groq'], summarize: (text) => plugins.runtime.privateComplete(text), activity, quiet });
+  // Learned shortcuts (server/brain/shortcuts.js): words the AI solved once with one quiet tool.
+  const shortcuts = overrides.shortcuts || createShortcuts({ file: path.join(config.dataDir, 'shortcuts.json') });
+  const agent = overrides.agent || new Agent({ router, tools, approvals, memory, tasks, accounts, privateProviders: config.privateProviders || ['groq'], summarize: (text) => plugins.runtime.privateComplete(text), activity, quiet, shortcuts });
   const pairing = overrides.pairing || new Pairing({ file: path.join(config.dataDir, 'devices.json') });
   const tailscaleIdentity = overrides.tailscaleIdentity || createTailscaleIdentity();
   const pairRequests = new PairRequests({ issue: (name) => pairing.issue(name, 'laptop') });
@@ -474,7 +477,25 @@ export function createNovi(config, overrides = {}) {
   app.post('/api/vocabulary/fix', (req, res) => localOnly(req, res) && tryJson(res, () => vocabulary.addFix(req.body?.from, req.body?.to)));
   // Settings → Memory: the notes galaxy (read-only; the laptop and paired phones).
   const wikiVault = createVault(config.memoryDir || memoryDir({ home: os.homedir() }));
-  app.get('/api/wiki/graph', (req, res) => res.json(buildGraph(wikiVault)));
+  // The galaxy: notes + one dot per learned shortcut, joined at a "Shortcuts" dot.
+  app.get('/api/wiki/graph', (req, res) => {
+    const graph = buildGraph(wikiVault);
+    const learned = shortcuts.list();
+    if (learned.length) {
+      graph.nodes.push({ id: 'Shortcuts', title: 'Shortcuts', folder: 'Shortcuts', excerpt: `${learned.length} thing${learned.length === 1 ? '' : 's'} Novi does at once, without the AI.` });
+      const home = graph.nodes.find((n) => n.title === 'Novi Memory');
+      if (home) graph.links.push({ source: home.id, target: 'Shortcuts' });
+      for (const sc of learned) {
+        const id = `shortcut:${sc.key}`;
+        graph.nodes.push({ id, title: sc.said, folder: 'Shortcuts', updated: sc.lastUsed || sc.at, excerpt: `“${sc.said}” → ${sc.tool} · used ${sc.uses} time${sc.uses === 1 ? '' : 's'}` });
+        graph.links.push({ source: 'Shortcuts', target: id });
+      }
+    }
+    res.json(graph);
+  });
+  // Settings → Shortcuts (laptop only): see and remove what Novi learned.
+  app.get('/api/shortcuts', (req, res) => localOnly(req, res) && res.json({ shortcuts: shortcuts.list() }));
+  app.delete('/api/shortcuts', (req, res) => localOnly(req, res) && res.json({ removed: shortcuts.forget(String(req.query.key || '')) }));
   app.get('/api/wiki/note', (req, res) => tryJson(res, () => readNote(wikiVault, req.query.id)));
   app.get('/api/voice-log', (req, res) => localOnly(req, res) && res.json({ entries: voiceLog.recent(30) }));
   // Settings → Browser: the Novi Chrome extension's status and pairing code (plugins/browser sets
@@ -848,5 +869,5 @@ export function createNovi(config, overrides = {}) {
     broadcast({ type: 'stop_speaking' });
   };
 
-  return { app, activity, codeEdits, setQuiet: (on, minutes) => (on ? quiet.on(minutes) : quiet.off()), attachWebSocket, remotePin, setWakeTools, setSpeakerVerifier, checkVoice, stopSpeaking, wakeThreshold, snapshot, runVoiceCommand, setWakeWord, memory, accounts, approvals, tasks, router, agent, tools, plugins, pairing, broadcast };
+  return { app, activity, shortcuts, codeEdits, setQuiet: (on, minutes) => (on ? quiet.on(minutes) : quiet.off()), attachWebSocket, remotePin, setWakeTools, setSpeakerVerifier, checkVoice, stopSpeaking, wakeThreshold, snapshot, runVoiceCommand, setWakeWord, memory, accounts, approvals, tasks, router, agent, tools, plugins, pairing, broadcast };
 }

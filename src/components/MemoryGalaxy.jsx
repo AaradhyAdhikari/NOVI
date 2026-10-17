@@ -4,7 +4,7 @@ import { X, Search } from 'lucide-react';
 // Settings → Memory: the notes in Documents\Novi Memory as a galaxy. Each note is a star coloured
 // by folder and sized by its links; tap one to fly to it and read it. Narrow screens get a list.
 // The note text is shown as plain text (<pre>), never as HTML.
-const COLORS = { Notes: '#00f2fe', Actions: '#ffb547', Home: '#e8ecf4' };
+const COLORS = { Notes: '#00f2fe', Actions: '#ffb547', Home: '#e8ecf4', Shortcuts: '#7cf29a' };
 const colorOf = (folder) => COLORS[folder] || '#b18cff';
 const NARROW = 600;
 
@@ -33,6 +33,8 @@ export default function MemoryGalaxy({ api, onClose }) {
 
   async function show(node) {
     if (!node) return;
+    // Learned shortcuts aren't files: their dot already says what they do.
+    if (node.folder === 'Shortcuts') { setOpen({ id: node.id, title: node.title, text: node.excerpt || '' }); return; }
     try {
       const res = await api(`/api/wiki/note?id=${encodeURIComponent(node.id)}`);
       const body = await res.json();
