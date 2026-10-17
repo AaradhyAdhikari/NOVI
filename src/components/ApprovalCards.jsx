@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { foldDetail } from '../lib/approvalText.js';
 import { MessageCircleQuestion, ShieldAlert, ShieldQuestion } from 'lucide-react';
 import PinCapture from './PinCapture.jsx';
 import { confirmWithPasskey } from '../lib/passkey.js';
@@ -47,7 +48,9 @@ export default function ApprovalCards({ approvals, onAnswer, api }) {
             {a.tier === 'high' ? <ShieldAlert size={18} /> : <ShieldQuestion size={18} />}
             <span>{a.title}</span>
           </div>
-          {a.detail && <p className="detail">{a.detail}</p>}
+          {a.detail && (foldDetail(a.detail)
+            ? <details className="detail"><summary>{a.source === 'claude' ? 'Show the command' : 'Show details'}</summary><pre>{a.detail}</pre></details>
+            : <p className="detail">{a.detail}</p>)}
           {a.tier === 'high' && <p className="warn">High risk — this needs your explicit confirmation.</p>}
           {a.need && <p className="warn">{NEED_TEXT[a.need]}</p>}
           {a.need === 'pin' && <PinCapture api={api} onPin={(pin) => onAnswer(a.id, true, null, { proof: pin })} />}

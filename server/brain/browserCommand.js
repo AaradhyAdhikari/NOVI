@@ -20,7 +20,12 @@ function fileOrText(what, to, via) {
 
 // "her" / "him" / "them" / "usko" = the last person messaged on WhatsApp (lastTo), else unknown.
 const PRONOUN = /^(?:her|him|them|usko|use|isko|ise|unko)$/i;
-const person = (name, lastTo) => (PRONOUN.test(name.trim()) ? lastTo || null : name.trim());
+// A name never keeps "on (my) WhatsApp" ("message Bhargav on my WhatsApp that …").
+const ON_WA = /\s+(?:on|in|pe|par) (?:the |my )?whats ?app(?: (?:app|web))?$/i;
+const person = (name, lastTo) => {
+  const n = name.trim().replace(ON_WA, '');
+  return PRONOUN.test(n) ? lastTo || null : n;
+};
 const msg = (to, text, via) => (to ? T('whatsapp_prepare', { to, text: text.trim(), ...VIA(via) }) : null);
 
 export function browserCommand(text, { lastTo = null } = {}) {
@@ -33,11 +38,11 @@ export function browserCommand(text, { lastTo = null } = {}) {
     if (/\b(?:stats?|streak|solved|progress|profile|score|rank(?:ing)?|kitne)\b/i.test(t)) return T('leetcode_stats');
     if (/\b(?:today'?s?|daily|aaj|potd|of the day|problem|question|challenge)\b/i.test(t)) return T('leetcode_today');
   }
-  let m = /^send (.+?) to (.+?) on (?:the )?whats ?app(?: (app|web))?$/i.exec(t);
+  let m = /^send (.+?) to (.+?) on (?:the |my )?whats ?app(?: (app|web))?$/i.exec(t);
   if (m) return fileOrText(m[1], m[2].trim(), m[3]);
   m = /^(.+?) ko (.+?) (?:bhej do|bhejo|bhej de)(?: (?:on )?whats ?app(?: (app|web))?(?: (?:pe|par))?| whats ?app (?:pe|par))$/i.exec(t);
   if (m) return fileOrText(m[2], m[1].trim(), m[3]);
-  m = /^(?:tell|message|text) (.+?) on (?:the )?whats ?app(?: (app|web))?(?: that|:)? (.+)$/i.exec(t);
+  m = /^(?:tell|message|text) (.+?) on (?:the |my )?whats ?app(?: (app|web))?(?: that|:)? (.+)$/i.exec(t);
   if (m) return msg(person(m[1], lastTo), m[3], m[2]);
   // Plain "message / text someone …" (no app named) is WhatsApp; email words stay with the AI.
   if (!/\b(?:e-?mail|mail|gmail|sms)\b/i.test(t)) {

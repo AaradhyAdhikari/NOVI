@@ -29,7 +29,7 @@ function setup({ project = { name: 'portfolio', path: folder({ '.novi/run.json':
   const host = new PluginHost({ runtime, logger: { warn() {} } });
   host.register(createPreviewPlugin({
     sites, proxy,
-    shot: async (url, size) => { shots.push([url, size]); if (shotFails) throw new Error('no edge'); return { png: Buffer.from('png') }; },
+    shot: async (url, size) => { shots.push([url, size]); if (shotFails === 'blank') throw Object.assign(new Error('The picture came out blank (the page may still be loading)'), { blank: true }); if (shotFails) throw new Error('no edge'); return { png: Buffer.from('png') }; },
     fetchHome: async () => homeHtml,
   }));
   return { host, started, shots, shown, links, stoppedAll: () => stopped, show: host.get('preview_show'), stop: host.get('preview_stop'), status: host.get('preview_status') };
@@ -78,6 +78,13 @@ describe('preview plugin', () => {
     const out = await s.show.run({});
     expect(s.links).toHaveLength(1);
     expect(out.note).toBe("I couldn't take a picture, but here's the live link.");
+  });
+
+  it('a blank picture is never sent; the note says why', async () => {
+    const s = setup({ shotFails: 'blank' });
+    const out = await s.show.run({});
+    expect(s.shown).toHaveLength(0);
+    expect(out.note).toBe("The picture came out blank (the page may still be loading). Tap the live link to see it.");
   });
 
   it('stop the preview; Novi stopping ends every site', async () => {
