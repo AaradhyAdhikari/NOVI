@@ -5,20 +5,20 @@ import path from 'node:path';
 import AdmZip from 'adm-zip';
 import { WA, zipForSend, createWebDriver } from '../../plugins/browser/whatsapp.js';
 
-function fakeBridge({ chats = ['Rahul Sharma'], header = null, qr = false, ticks = true, tab = true, backgroundTyping = true } = {}) {
+function fakeBridge({ chats = ['Rahul Sharma'], header = null, qr = false, ticks = true, tab = true, backgroundTyping = true, loads = true } = {}) {
   const calls = [];
   let opened = null;
   let typed = '';
   let front = false;
   const bridge = {
-    async request(cmd, args = {}) {
-      calls.push([cmd, args]);
+    async request(cmd, args = {}, opts) {
+      calls.push(opts ? [cmd, args, opts] : [cmd, args]);
       if (cmd === 'tabs') return { tabs: tab ? [{ id: 7, url: 'https://web.whatsapp.com/', title: 'WhatsApp' }] : [] };
       if (cmd === 'open') return { tabId: 9 };
       if (cmd === 'switch') front = true;
       if (cmd === 'typeSel' && args.selector === WA.compose && (backgroundTyping || front)) typed = args.text;
       if (cmd === 'query' && args.selector === WA.compose) return { texts: [typed] };
-      if (cmd === 'waitFor') return { found: args.selector === WA.qr ? qr : !qr };
+      if (cmd === 'waitFor') return { found: args.selector === WA.qr ? qr : !qr && (loads === true || (loads === 'front' && front)) };
       if (cmd === 'query' && args.selector === WA.qr) return { texts: qr ? ['qr'] : [] };
       if (cmd === 'query' && args.selector === WA.chatTitles) return { texts: chats };
       if (cmd === 'query' && args.selector === WA.header) return { texts: [header ?? opened ?? ''] };
@@ -92,6 +92,22 @@ describe('WhatsApp Web driver', () => {
     const { bridge, calls } = fakeBridge({ header: 'Rahul K' });
     expect(await createWebDriver({ bridge, ...fast }).prepare({ to: 'Rahul Sharma', text: 'hi' })).toEqual({ error: 'I opened Rahul K instead of Rahul Sharma, so I stopped.' });
     expect(calls.some(([c]) => c === 'attach' || (c === 'typeSel' && calls.find(() => false)))).toBe(false);
+  });
+
+  // Live 2026-10-17: "timeout" — the page wait was 20 s but Chrome's answer was given up on after 15 s.
+  it('waits for WhatsApp Web to load longer than the page wait itself', async () => {
+    const { bridge, calls } = fakeBridge({ tab: false });
+    await createWebDriver({ bridge, ...fast }).prepare({ to: 'Rahul', text: 'hi' });
+    const [, args, opts] = calls.find(([c, a]) => c === 'waitFor' && a.selector === WA.ready);
+    expect(opts.timeoutMs).toBeGreaterThan(args.ms);
+  });
+
+  it('still loading in the background → the tab comes forward once; never loads → says so plainly', async () => {
+    const slow = fakeBridge({ loads: 'front' });
+    expect(await createWebDriver({ bridge: slow.bridge, ...fast }).prepare({ to: 'Rahul', text: 'hi' })).toMatchObject({ name: 'Rahul Sharma' });
+    expect(slow.calls.filter(([c]) => c === 'switch')).toHaveLength(1);
+    const dead = fakeBridge({ loads: false });
+    expect(await createWebDriver({ bridge: dead.bridge, ...fast }).prepare({ to: 'Rahul', text: 'hi' })).toEqual({ error: "WhatsApp Web didn't finish loading in Chrome. Check it opens on the laptop, then try again." });
   });
 
   it('not logged in → asks to scan the QR code', async () => {

@@ -111,8 +111,18 @@ export function createWebDriver({ bridge, sleep = (ms) => new Promise((r) => set
         const opened = await bridge.request('open', { url: 'https://web.whatsapp.com/', newTab: true, background: true });
         tabId = opened?.tabId ?? ((await bridge.request('tabs')).tabs || []).find(isWa)?.id ?? null;
       }
-      await ask('waitFor', { selector: WA.ready, ms: 20_000 });
-      if ((await q(WA.qr)).length) return { pause: 'qr', note: 'Scan the QR code in WhatsApp on your phone, then say done.' };
+      // Chrome's answer is waited for longer than the page wait itself (live: the 15 s default gave up first → "timeout").
+      const loaded = async () => (await ask('waitFor', { selector: WA.ready, ms: 20_000 }, { timeoutMs: 25_000 })).found;
+      const needsQr = async () => (await q(WA.qr)).length > 0;
+      let ready = await loaded();
+      if (!ready && !(await needsQr())) {
+        // Chrome may hold back a page that is still loading in the background: bring it forward once.
+        log('[whatsapp] web: still loading in the background, bringing the tab forward');
+        await bridge.request('switch', { tabId });
+        ready = await loaded();
+      }
+      if (await needsQr()) return { pause: 'qr', note: 'Scan the QR code in WhatsApp on your phone, then say done.' };
+      if (!ready) return { error: "WhatsApp Web didn't finish loading in Chrome. Check it opens on the laptop, then try again." };
       const word = searchWord(to);
       await ask('typeSel', { selector: WA.search, text: word });
       await sleep(800);
