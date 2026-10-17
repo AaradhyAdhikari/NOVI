@@ -26,7 +26,12 @@ function pagePath(page, pages, homeHtml) {
   return { path: '/', found: false };
 }
 
-export function createPreviewPlugin({ sites = createSites(), proxy = null, shot = pageShot, fetchHome = null } = {}) {
+// Does the site answer at all? (any HTTP reply within 5 s)
+async function answersHttp(port) {
+  try { await fetch(`http://localhost:${port}/`, { signal: AbortSignal.timeout(5000) }); return true; } catch { return false; }
+}
+
+export function createPreviewPlugin({ sites = createSites(), proxy = null, shot = pageShot, fetchHome = null, check = answersHttp } = {}) {
   return definePluginEntry({
     id: 'preview',
     name: 'Preview',
@@ -36,7 +41,8 @@ export function createPreviewPlugin({ sites = createSites(), proxy = null, shot 
       const link = proxy || createPreviewProxy({ port: Number(api.pluginConfig?.port || process.env.NOVI_PREVIEW_PORT) || 3005, tls: runtime.tls || null });
       const readHome = fetchHome || (async (port) => { try { return await (await fetch(`http://localhost:${port}/`)).text(); } catch { return ''; } });
       const allowed = new Set(); // projects whose command the user already OK'd in this run
-      const project = (name) => runtime.codingProject?.(name) || null;
+      // A name Novi doesn't know ("the portfolio site") falls back to the current coding project.
+      const project = (name) => runtime.codingProject?.(name) || (name ? runtime.codingProject?.() : null) || null;
 
       api.registerTool({
         name: 'preview_show',
@@ -49,7 +55,15 @@ export function createPreviewPlugin({ sites = createSites(), proxy = null, shot 
           if (!plan) return reply({ error: "I don't know how to run this project yet.", askClaude: true });
           allowed.add(p.name);
           let site;
-          try { site = await sites.start(p.name, p.path, plan); } catch (err) { return reply({ error: String(err.message || err) }); }
+          try {
+            site = await sites.start(p.name, p.path, plan);
+            // Never hand out a link to a site that isn't answering: start it once more, then say so.
+            if (!(await check(site.port))) {
+              sites.stop(p.name);
+              site = await sites.start(p.name, p.path, plan);
+              if (!(await check(site.port))) { sites.stop(p.name); return reply({ error: `The ${p.name} site started but isn't answering. Ask Claude to check that it runs.` }); }
+            }
+          } catch (err) { return reply({ error: String(err.message || err) }); }
           const where = pagePath(page, site.pages, isHome(page) ? '' : await readHome(site.port));
           const label = where.found && !isHome(page) ? `${String(page).trim().toLowerCase().replace(/\s*page$/, '')} page` : 'homepage';
           let pictured = true;

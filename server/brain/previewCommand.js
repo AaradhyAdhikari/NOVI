@@ -15,5 +15,11 @@ export function previewCommand(text) {
   if (m) return show(m[1], m[2]);
   m = /^(?:(.+?) ka )?(home ?page|site|website|preview|[a-z]+ page) (?:dikhao|dikha do|dikhaao)$/i.exec(t);
   if (m) return show(m[2], m[1]);
+  // "A screenshot / picture / ss of the homepage (of the portfolio)": the project's page, not the laptop.
+  if (/\b(?:screen ?shot|ss|picture|pic|photo|image)\b/i.test(t) && !/\b(?:laptop|screen|desktop|computer|pc|window)\b/i.test(t.replace(/screen ?shot/gi, ''))) {
+    const named = /\b(?!home\b)([a-z]+) page\b/i.exec(t);
+    if (named) return show(`${named[1]} page`);
+    if (/\b(?:home ?page|website|site|portfolio)\b/i.test(t)) return show('home');
+  }
   return null;
 }

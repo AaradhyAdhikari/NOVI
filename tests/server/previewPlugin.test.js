@@ -10,7 +10,7 @@ const folder = (files = {}) => {
   for (const [n, b] of Object.entries(files)) { fs.mkdirSync(path.dirname(path.join(d, n)), { recursive: true }); fs.writeFileSync(path.join(d, n), typeof b === 'string' ? b : JSON.stringify(b)); }
   return d;
 };
-function setup({ project = { name: 'portfolio', path: folder({ '.novi/run.json': { command: 'npm run dev', pages: { contact: '/contact' } } }) }, homeHtml = '<a href="/about-me">About me</a>', shotFails = false } = {}) {
+function setup({ project = { name: 'portfolio', path: folder({ '.novi/run.json': { command: 'npm run dev', pages: { contact: '/contact' } } }) }, homeHtml = '<a href="/about-me">About me</a>', shotFails = false, answers = async () => true } = {}) {
   const started = [];
   const shots = [];
   const shown = [];
@@ -31,6 +31,7 @@ function setup({ project = { name: 'portfolio', path: folder({ '.novi/run.json':
     sites, proxy,
     shot: async (url, size) => { shots.push([url, size]); if (shotFails === 'blank') throw Object.assign(new Error('The picture came out blank (the page may still be loading)'), { blank: true }); if (shotFails) throw new Error('no edge'); return { png: Buffer.from('png') }; },
     fetchHome: async () => homeHtml,
+    check: answers,
   }));
   return { host, started, shots, shown, links, stoppedAll: () => stopped, show: host.get('preview_show'), stop: host.get('preview_stop'), status: host.get('preview_status') };
 }
@@ -85,6 +86,27 @@ describe('preview plugin', () => {
     const out = await s.show.run({});
     expect(s.shown).toHaveLength(0);
     expect(out.note).toBe("The picture came out blank (the page may still be loading). Tap the live link to see it.");
+  });
+
+  // Live (2026-10-17): a link was sent for a site that wasn't answering ("The site is not answering").
+  it('a site that does not answer is started again once; still silent → no link, said so', async () => {
+    let calls = 0;
+    const once = setup({ answers: async () => (calls += 1) > 1 });
+    const out = await once.show.run({});
+    expect(once.started).toHaveLength(2);
+    expect(once.links).toHaveLength(1);
+    expect(out.note).toMatch(/Here's the homepage/);
+    const never = setup({ answers: async () => false });
+    const bad = await never.show.run({});
+    expect(never.links).toHaveLength(0);
+    expect(never.shown).toHaveLength(0);
+    expect(bad.error).toBe("The portfolio site started but isn't answering. Ask Claude to check that it runs.");
+  });
+
+  it('a project name Novi doesn\'t know ("the homepage of the portfolio site") falls back to the current project', async () => {
+    const s = setup();
+    await s.show.run({ project: 'portfolio site' });
+    expect(s.links).toHaveLength(1);
   });
 
   it('stop the preview; Novi stopping ends every site', async () => {

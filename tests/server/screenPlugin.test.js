@@ -119,6 +119,13 @@ describe('screen plugin', () => {
     expect(out.sensitive).toBe(true);
   });
 
+  // Live (2026-10-17): asked for the portfolio's homepage, the AI also sent the laptop screen and
+  // called it the portfolio.
+  it('screen_show tells the AI it is never a project website (that is preview_show)', async () => {
+    const { host } = setup();
+    expect(host.get('screen_show').description).toMatch(/Never use it for a coding project's website.*preview_show/);
+  });
+
   it('screen_show refuses on password / payment screens', async () => {
     const { run, shown } = setup({ window: 'Sign in - Google Accounts' });
     const out = await run('screen_show', {});

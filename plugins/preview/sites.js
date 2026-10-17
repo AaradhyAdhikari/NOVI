@@ -69,8 +69,13 @@ export function createSites({ spawnImpl = spawn, waitMs = 30_000 } = {}) {
         finish(new Error(`The site didn't start: ${lines.at(-1) || 'it stopped right away'}`));
       });
       child.on('error', (err) => finish(new Error(`The site didn't start: ${err.message}`)));
-      // No address printed but run.json names a port: use it once it answers.
-      const poll = setInterval(async () => { if (plan.port && await accepts(plan.port)) finish(null, plan.port); }, 500);
+      // No address printed but run.json names a port: use it once it answers — and only while our own
+      // command is still running after a moment (something else may already hold that port).
+      const born = Date.now();
+      const poll = setInterval(async () => {
+        if (!plan.port || !site.alive || Date.now() - born < 1500) return;
+        if (await accepts(plan.port) && site.alive) finish(null, plan.port);
+      }, 500);
       const timer = setTimeout(() => finish(new Error("The site didn't say which address it uses.")), waitMs);
     });
   }

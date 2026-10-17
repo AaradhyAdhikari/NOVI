@@ -17,6 +17,15 @@ describe('preview by voice (no AI)', () => {
     expect(previewCommand('contact page dikhao')).toEqual(show({ page: 'contact' }));
     expect(previewCommand('show me the preview')).toEqual(show({ page: 'home' }));
   });
+  // Live (2026-10-17): this went to the AI, which also sent a laptop screenshot and called it the site.
+  it('"screenshot / picture of the homepage (of the portfolio)" is the preview too', () => {
+    expect(previewCommand('I meant the portfolio screenshot, the homepage of the portfolio.')).toEqual({ tool: 'preview_show', args: { page: 'home' } });
+    expect(previewCommand('send me a screenshot of the contact page')).toEqual({ tool: 'preview_show', args: { page: 'contact' } });
+    expect(previewCommand('ss of the homepage')).toEqual({ tool: 'preview_show', args: { page: 'home' } });
+    expect(previewCommand('take a screenshot of my laptop')).toBeNull();
+    expect(previewCommand('screenshot of the github homepage')).toBeNull();
+  });
+
   it('stop the preview', () => {
     for (const t of ['stop the preview', 'close the preview', 'preview band karo']) expect(previewCommand(t), t).toEqual({ tool: 'preview_stop', args: {} });
   });
