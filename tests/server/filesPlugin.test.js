@@ -174,3 +174,39 @@ describe('file_rename and file_open by path', () => {
     expect(opened).toContain(dir);
   });
 });
+
+// Live (2026-10-17): "delete this folder" deleted test2 with no PIN (the AI pressed Delete in File
+// Explorer through screen control). Deleting has one way now: file_delete, which always asks for the PIN.
+describe('file_delete', () => {
+  const make = async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'novi-del-'));
+    fs.mkdirSync(path.join(root, 'OneDrive', 'Desktop', 'test2'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'Documents'), { recursive: true });
+    const trashed = [];
+    const host = new PluginHost({ logger: { warn() {} }, env: {}, runtime: { dataDir: path.join(root, 'data') } });
+    const plugin = createFilesPlugin({ roots: [root], home: root, docsDir: path.join(root, 'Documents'), openPath: async () => {}, refreshMs: 0, trash: async (p) => { trashed.push(p); fs.rmSync(p, { recursive: true, force: true }); } });
+    host.register(plugin);
+    await host.startServices?.();
+    await plugin.ready;
+    return { host, root, trashed, del: host.get('file_delete') };
+  };
+
+  it('asks for the PIN (never "always allow"), then sends it to the Recycle Bin', async () => {
+    const { del, root, trashed } = await make();
+    const target = path.join(root, 'OneDrive', 'Desktop', 'test2');
+    const gate = await del.gate({ name: 'test2', where: 'desktop' });
+    expect(gate.approval).toMatchObject({ title: 'Delete the folder test2?', pin: true, grantable: false });
+    expect(gate.approval.detail).toContain(target);
+    expect((await del.run({ name: 'test2', where: 'desktop' })).note).toBe('Deleted the folder test2 (it is in the Recycle Bin).');
+    expect(trashed).toEqual([target]);
+    expect((await del.run({ path: target })).note).toBe("I can't find that.");
+  });
+
+  it('never deletes a drive, the home folder, Desktop / Documents themselves or Windows', async () => {
+    const { del, root, trashed } = await make();
+    for (const p of [root, path.join(root, 'OneDrive', 'Desktop'), path.join(root, 'Documents'), 'C:\\', 'C:\\Windows\\System32']) {
+      expect(await del.gate({ path: p })).toMatchObject({ block: true });
+    }
+    expect(trashed).toEqual([]);
+  });
+});

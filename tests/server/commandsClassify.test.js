@@ -104,6 +104,7 @@ describe('commands: every way of deleting is danger', () => {
       '[Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory("C:\\x", "OnlyErrorDialogs", "SendToRecycleBin")',
       'robocopy C:\\empty C:\\x\\test /mir',
       'git clean -fdx',
+      '(New-Object -ComObject Shell.Application).Namespace(0).ParseName("C:\\x\\test2").InvokeVerb("delete")',
     ]) expect(classify(c).level, c).toBe('danger');
   });
   it('string methods and plain reads stay as they were', () => {

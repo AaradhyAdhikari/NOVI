@@ -64,6 +64,8 @@ export const SAFE_METHODS = new Set(['tostring', 'toupper', 'tolower', 'trim', '
 function dangerReason(words, raw) {
   // .NET deletes ([IO.Directory]::Delete, (Get-Item x).Delete(), FileSystem]::DeleteDirectory…).
   if (/(?:::|\.)delete\w*\s*\(/i.test(stripStrings(raw))) return 'it deletes files';
+  // Shell.Application InvokeVerb("delete"), or any other way of saying delete/remove/erase.
+  if (/\binvokeverb(?:ex)?\s*\(\s*["']?(?:delete|remove)/i.test(raw) || /\b(?:delete|erase|rmdir|unlink|shred|wipe|purge)\b/i.test(stripStrings(raw))) return 'it can delete things';
   for (const w of words) {
     if (DANGER.has(w)) return `it uses ${w}`;
     // Another shell inside (cmd /c rmdir …, powershell -Command …): Novi can't check what it runs.

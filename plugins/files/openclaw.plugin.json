@@ -13,7 +13,8 @@
       "file_gather",
       "file_undo_move",
       "file_new_folder",
-      "file_rename"
+      "file_rename",
+      "file_delete"
     ]
   },
   "activation": {

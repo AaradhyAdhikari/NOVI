@@ -31,7 +31,7 @@ export function systemPrompt({ projects, task, accounts = [] }) {
     'If the user mentions a project you do not know, ask for its folder path, then call remember_project.',
     'You can also act directly: open_website (use a full https URL when you know the site) and play_youtube open things right away on the device the user is using; open_app opens installed apps on the laptop. To watch or play anything ("show me valorant", "play X"), call play_youtube (top result by default; position for "the 5th one"); use youtube_search only when the user asks to see the options. Never read out a list of videos; after playing, just say the title. To log in, fill a form, click or read a page on a website, use browser_open and the other browser_* tools (Chrome on the laptop), not open_website. LeetCode problems and stats come from the leetcode tools; never play a video for LeetCode.',
     'To do something inside an app on the laptop that has no tool of its own (e.g. "open Claude and make a project named X"), do it yourself step by step: open_app, then screen_look, screen_click, screen_type and screen_key until it is done. Do not stop after opening the app or tell the user to do it.',
-    '"Open X" without the word file or folder is never file_open: a coding project → preview_open (its website), "open X in VS Code / Antigravity / Cursor…" → open_project with that editor, anything else → open_app. Files: file_find / file_open find and open files and folders on the laptop by name when the user says file, folder or a document type; file_summary reads a file or Google Sheet in the background, so say you are reading it and keep helping with whatever the user asks next; file_gather moves files about a topic into a new folder.',
+    'Deleting a file or folder: only file_delete (it asks for the PIN). Never delete with screen control (keys, clicks) or laptop_run. "Open X" without the word file or folder is never file_open: a coding project → preview_open (its website), "open X in VS Code / Antigravity / Cursor…" → open_project with that editor, anything else → open_app. Files: file_find / file_open find and open files and folders on the laptop by name when the user says file, folder or a document type; file_summary reads a file or Google Sheet in the background, so say you are reading it and keep helping with whatever the user asks next; file_gather moves files about a topic into a new folder.',
     'Never say you played, opened, sent or did something unless a tool result in this turn says it happened; if you did not call the tool, call it. Never say a task is finished unless a tool result says so. If a tool returns an error, explain it briefly.',
     `Known projects: ${projects.length ? projects.map((p) => `${p.name} (${p.path})`).join('; ') : 'none yet'}.`,
     `Current coding task: ${task.active ? `${task.status} on ${task.project}: "${task.instruction}"` : 'none'}.`,
@@ -136,6 +136,9 @@ export function fileCommand(text) {
     || /^(.+?)\s+naam\s+ka\s+(?:naya\s+)?folder\s+(?:banao|bana do|banado|bana de)$/i.exec(t);
   if (nf) return { tool: 'file_new_folder', args: { name: nf[1].trim(), ...(nf[2] ? { where: nf[2].trim() } : {}) } };
   if (/^open (?:up )?(?:my |the )?claude(?: code)?(?: app)?$/i.test(t)) return { tool: 'open_project', args: { editor: 'claude-code' } };
+  // "Delete the test2 folder (on my desktop)" → file_delete (always asks for the PIN). "this/it" is memoryCommand's.
+  const del = /^(?:(?:i meant|no|i said|now)[, ]+)?(?:please\s+)?(?:delete|remove|trash)\s+(?:the\s+|my\s+)?(?:(?:folder|file)\s+(?:called\s+|named\s+)?)?(.+?)(?:\s+(?:folder|file))?(?:\s+(?:on|in|from)\s+(?:my\s+|the\s+)?(desktop|downloads|documents))?$/i.exec(t);
+  if (del && !/^(?:it|this|that|them|these|those)$/i.test(del[1]) && /\b(?:folder|file)\b|\.\w{2,4}$/i.test(t)) return { tool: 'file_delete', args: { name: del[1].trim(), ...(del[2] ? { where: del[2].toLowerCase() } : {}) } };
   const g = /^(?:take|move|put|gather|collect|arrange)\s+all\s+(?:the\s+|my\s+)?(pdfs?|documents?|docs?|sheets?|spreadsheets?|slides?|presentations?|pictures?|photos?|images?|files?)\s+(?:about|of|on|for|related to)\s+(.+?)(?:\s+(?:and\s+)?(?:put|move)\s+them)?\s+(?:in|into|to)\s+(?:(?:a|the|one)\s+)?(?:new\s+)?folder(?:\s+(?:called|named)\s+(.+))?$/i.exec(t);
   if (g) {
     const kind = GATHER_KIND[g[1].toLowerCase().replace(/s$/, '')] || 'any';
@@ -180,7 +183,7 @@ export function webReply(out = {}) {
 // recent = wiki_recent actions, newest first; null = not read yet → { needsRecent: true } when the
 // words need them (so the log is read only for "rename it" / "open that" / "what did you do").
 const isPath = (a) => a.path && !/^https?:/i.test(a.path);
-const NEEDS_RECENT = /^(?:rename (?:it|that|this)\b|open (?:it|that|the (?:folder|file|project|one) (?:you|u)\b)|what (?:all )?(?:did|have) (?:you|u)\b|(?:tumne )?aaj kya kiya)/i;
+const NEEDS_RECENT = /^(?:rename (?:it|that|this)\b|open (?:it|that|the (?:folder|file|project|one) (?:you|u)\b)|(?:(?:now|ok(?:ay)?|and)[, ]+)?(?:delete|remove) (?:it|that|this)\b|what (?:all )?(?:did|have) (?:you|u)\b|(?:tumne )?aaj kya kiya)/i;
 export function memoryCommand(text, recent = [], now = new Date()) {
   const t = String(text || '').trim().replace(/[.!?।]+$/, '').replace(FILE_LEAD, '').replace(FILE_TAIL, '');
   if (recent === null) {
@@ -192,6 +195,10 @@ export function memoryCommand(text, recent = [], now = new Date()) {
   if (ren) {
     if (!target) return { reply: 'Rename what? Tell me the name.' };
     return target.project ? { tool: 'rename_project', args: { name: target.name, newName: ren[1].trim() } } : { tool: 'file_rename', args: { path: target.path, newName: ren[1].trim() } };
+  }
+  // "Now delete this folder" = the newest thing with a path; file_delete always asks for the PIN.
+  if (/^(?:(?:now|ok(?:ay)?|and)[, ]+)?(?:delete|remove) (?:it|that|this)(?: (?:folder|file|one))?$/i.test(t)) {
+    return target ? { tool: 'file_delete', args: { path: target.path } } : { reply: 'Delete what? Tell me the name.' };
   }
   if (/^open (?:it|that|the (?:folder|file|project|one) (?:you|u) (?:just )?(?:made|created|opened|renamed|moved))$/i.test(t)) {
     return target ? { tool: 'file_open', args: { path: target.path } } : { reply: 'Open what? Tell me the name.' };
@@ -675,8 +682,9 @@ export class Agent {
   // No question when the user asked for exactly this, or already said yes to this kind of step in
   // this request (screen tasks: one yes, not one per click). Never for high risk, sends/deletes/
   // payments (kind), choices, or moving files Novi picked herself.
-  _skipAsking(name, { tier, kind, grantable, category }, direct) {
-    if (tier === 'high' || kind || ASK_ANYWAY.has(name)) return false;
+  _skipAsking(name, { tier, kind, grantable, category, pin }, direct) {
+    // A PIN card (deletes, dangerous commands) is never skipped — not even after a yes in this request.
+    if (tier === 'high' || kind || pin || ASK_ANYWAY.has(name)) return false;
     if (direct && (grantable || DIRECT_OK.has(name))) return true;
     return Boolean(grantable && this._turnYes?.has(category));
   }
@@ -700,7 +708,7 @@ export class Agent {
         const { title, detail, tier, prompt, choices } = gate.approval;
         // Which kind of action this is, and whether "always allow" may apply (never for sends/deletes/high risk).
         const { category, grantable } = classifyApproval({ toolName: tool.name, pluginId: tool.pluginId, tier, choices, category: gate.approval.category, grantable: gate.approval.grantable });
-        const skip = this._skipAsking(tool.name, { tier, kind: gate.approval.kind, grantable: grantable && !choices?.length, category }, direct);
+        const skip = this._skipAsking(tool.name, { tier, kind: gate.approval.kind, grantable: grantable && !choices?.length, category, pin: gate.approval.pin }, direct);
         const decision = skip ? { allow: true } : await this.approvals.decide({
           title, detail: detail || '', tier, source: 'novi', prompt,
           choices: choices?.map(({ id, label }) => ({ id, label })),

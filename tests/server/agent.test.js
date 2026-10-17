@@ -769,6 +769,13 @@ describe('memory by voice: "it", "what did you do", notes', async () => {
     expect(memoryCommand('rename it to demo', [], NOW)).toEqual({ reply: 'Rename what? Tell me the name.' });
   });
 
+  // Live (2026-10-17): "Now delete this folder." went to the AI, which deleted it through screen control.
+  it('"delete this folder" / "delete it" → file_delete on that exact path', () => {
+    expect(memoryCommand('Now delete this folder.', null)).toEqual({ needsRecent: true });
+    expect(memoryCommand('Now delete this folder.', recent, NOW)).toEqual({ tool: 'file_delete', args: { path: 'C:\\D\\test' } });
+    expect(memoryCommand('delete it', [], NOW)).toEqual({ reply: 'Delete what? Tell me the name.' });
+  });
+
   it('"open the folder you just made" / "open it" opens that exact path', () => {
     expect(memoryCommand('open the folder you just made', recent, NOW)).toEqual({ tool: 'file_open', args: { path: 'C:\\D\\test' } });
     expect(memoryCommand('open it', recent, NOW)).toEqual({ tool: 'file_open', args: { path: 'C:\\D\\test' } });
@@ -1195,6 +1202,30 @@ describe('a spoken yes for a card that needs the PIN', () => {
     const a2 = new Agent({ router: { chat: async () => reply('AI') }, tools: new ToolRegistry(), approvals: noPin, memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
     noPin.decide({ title: 'Delete it?', tier: 'medium', source: 'novi', pin: true });
     expect(await a2.handle('yes')).toBe("That one needs a voice PIN, and you haven't set one yet. Set it in Settings, then say yes again.");
+  });
+});
+
+describe('deleting by voice always needs the PIN', () => {
+  it('"delete the test2 folder on my desktop" goes to file_delete, and its PIN card is never skipped', async () => {
+    const { fileCommand } = await import('../../server/brain/agent.js');
+    expect(fileCommand('I meant delete the test2 folder.')).toEqual({ tool: 'file_delete', args: { name: 'test2' } });
+    expect(fileCommand('delete the test2 folder on my desktop')).toEqual({ tool: 'file_delete', args: { name: 'test2', where: 'desktop' } });
+    expect(fileCommand('delete my resume.pdf file from downloads')).toEqual({ tool: 'file_delete', args: { name: 'resume.pdf', where: 'downloads' } });
+    const ran = [];
+    const tools = new ToolRegistry().add({
+      name: 'file_delete', description: 'd', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'd',
+      gate: async () => ({ approval: { title: 'Delete the folder test2?', tier: 'medium', category: 'files', grantable: false, pin: true } }),
+      run: async () => { ran.push(1); return { note: 'Deleted.' }; },
+    });
+    const approvals = new ApprovalQueue();
+    const asked = [];
+    approvals.on('added', (a) => { asked.push(a); approvals.resolve(a.id, false); });
+    const agent = new Agent({ router: { chat: async () => { throw new Error('no AI'); } }, tools, approvals, memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
+    agent._turnYes = new Set(['files']);
+    await agent.handle('delete the test2 folder on my desktop');
+    expect(asked).toHaveLength(1);
+    expect(asked[0].pin).toBe(true);
+    expect(ran).toEqual([]);
   });
 });
 

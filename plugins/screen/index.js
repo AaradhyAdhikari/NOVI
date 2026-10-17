@@ -178,7 +178,15 @@ export function createScreenPlugin({ driver = windowsDriver } = {}) {
         },
       });
 
+      // Screen control never deletes (live 2026-10-17: Delete in File Explorer removed a folder with no
+      // PIN). Deleting files goes through file_delete, which asks for the PIN.
+      const NO_DELETE = { block: true, blockReason: "I don't delete things with screen control. Ask me to delete the file or folder by name — that asks for your PIN (file_delete)." };
+      // Delete keys only where they edit text; anywhere else (File Explorer windows are titled with just
+      // the folder's name) they could delete files.
+      const textApp = (app) => /notepad|word|code|cursor|antigravity|kiro|chrome|edge|firefox|brave|whatsapp|telegram|discord|slack|excel|powerpoint|docs|terminal|obsidian|notion/i.test(String(app || ''));
       api.on('before_tool_call', ({ toolName, params }) => {
+        if (toolName === 'screen_key' && /^(?:shift\+)?(?:ctrl\+)?(?:delete|del)$|^ctrl\+d$/i.test(normKey(params.key)) && !textApp(params.app)) return NO_DELETE;
+        if (toolName === 'screen_click' && /\b(?:delete|remove|recycle bin|trash|move to bin|permanently)\b/i.test(String(params.target || ''))) return NO_DELETE;
         const approve = (title, description = '') => ({ requireApproval: { title, description, severity: 'warning', category: 'screen', grantable: true } });
         if (toolName === 'screen_click') return approve(`Click “${params.target}”`, params.app ? `in ${params.app}` : '');
         if (toolName === 'screen_type') return approve('Type text on screen', String(params.text || '').slice(0, 300));
