@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { TaskManager, permissionTitle } from '../../server/claude/taskManager.js';
+import { TaskManager, permissionTitle, claudeAsk } from '../../server/claude/taskManager.js';
 import { ClaudeSession } from '../../server/claude/session.js';
 import { Memory } from '../../server/memory.js';
 import { ApprovalQueue } from '../../server/permissions.js';
@@ -61,7 +61,7 @@ describe('TaskManager', () => {
     expect(tm.status()).toMatchObject({ active: true, project: 'portfolio', status: 'running' });
     await until(() => tm.status().status === 'done');
     expect(asked).toHaveLength(1);
-    expect(asked[0]).toMatchObject({ tier: 'medium', source: 'claude', title: 'Claude wants to create/overwrite src/login.js' });
+    expect(asked[0]).toMatchObject({ tier: 'medium', source: 'claude', title: 'Claude wants to write login.js' });
     expect(fed).toContain('Reading app.js');
     expect(spoken.at(-1)).toBe('Claude finished. Finished: add login.');
     expect(memory.lastTask()).toMatchObject({ project: 'portfolio', status: 'done', sessionId: 'fake-session-1' });
@@ -126,6 +126,26 @@ describe('permissionTitle', () => {
     expect(permissionTitle('Bash', { command: 'npm i' })).toBe('Claude wants to run: npm i');
     expect(permissionTitle('Edit', { file_path: 'a.js' })).toBe('Claude wants to edit a.js');
     expect(permissionTitle('WebFetch', {})).toBe('Claude wants to use WebFetch');
+  });
+
+  // Live (2026-10-17): the card and the voice read out a 20-line headless-browser command.
+  it('long commands: what it is for (Claude\'s description), never the command itself', () => {
+    const command = 'B="/c/Program Files/Google/Chrome/Application/chrome.exe"\n"$B" --headless=new --disable-gpu --hide-scrollbars --virtual-time-budget=3000 --window-size=1280,1400 --screenshot="$TEMP/pf-projects2.png" http://localhost:8765/projects.html 2>/dev/null';
+    const ask = claudeAsk('Bash', { command }, 'Re-capture screenshots after animations settle.');
+    expect(ask.title).toBe('Claude wants to run a command: Re-capture screenshots after animations settle');
+    expect(ask.prompt).toBe('Claude wants to re-capture screenshots after animations settle.');
+    expect(ask.detail).toBe(command); // the command stays on the card, folded away
+    const bare = claudeAsk('Bash', { command });
+    expect(bare.title).toBe('Claude wants to run a command');
+    expect(bare.prompt).toBe('Claude wants to run a command.');
+    expect(claudeAsk('Bash', { command: 'npm i' })).toMatchObject({ title: 'Claude wants to run: npm i', prompt: 'Claude wants to run npm i.' });
+  });
+
+  it('file edits name the file, not the whole path', () => {
+    const ask = claudeAsk('Edit', { file_path: 'C:\\Users\\Aaradhy\\OneDrive\\Projects\\portfolio\\src\\index.html' }, '', 'Claude');
+    expect(ask.title).toBe('Claude wants to edit index.html');
+    expect(ask.prompt).toBe('Claude wants to edit index.html.');
+    expect(ask.detail).toMatch(/portfolio/);
   });
 });
 

@@ -7,6 +7,30 @@ import { spokenQuestion } from './questions.js';
 
 const SKIPPED = 'The user skipped this question; choose sensibly and say what you chose.';
 
+const fileName = (p) => String(p || '').split(/[\\/]/).filter(Boolean).pop() || String(p || '');
+const words = (text, max) => { const w = String(text).trim().replace(/\s+/g, ' ').replace(/[.!?]+$/, '').split(' '); return w.slice(0, max).join(' '); };
+
+// What the card says and what Novi says aloud for one of the coder's permission requests: what it is
+// for, in a few words (Claude's own description of a command, or the file's name). The command or
+// full path stays on the card, folded away — nobody wants a 20-line command read out (2026-10-17).
+export function claudeAsk(toolName, input = {}, description = '', agentName = 'Claude') {
+  if (toolName === 'Bash' || toolName === 'PowerShell') {
+    const command = String(input.command || '');
+    if (description) {
+      const what = words(description, 12);
+      return { title: `${agentName} wants to run a command: ${what}`, prompt: `${agentName} wants to ${what.charAt(0).toLowerCase()}${what.slice(1)}.`, detail: command };
+    }
+    if (!command.includes('\n') && command.length <= 40) return { title: `${agentName} wants to run: ${command}`, prompt: `${agentName} wants to run ${command}.`, detail: '' };
+    return { title: `${agentName} wants to run a command`, prompt: `${agentName} wants to run a command.`, detail: command };
+  }
+  const target = input.file_path || input.notebook_path;
+  if (target && (toolName === 'Write' || EDIT_TOOLS.has(toolName))) {
+    const verb = toolName === 'Write' ? 'write' : 'edit';
+    return { title: `${agentName} wants to ${verb} ${fileName(target)}`, prompt: `${agentName} wants to ${verb} ${fileName(target)}.`, detail: String(target) };
+  }
+  return { title: permissionTitle(toolName, input, agentName), prompt: '', detail: description || '' };
+}
+
 export function permissionTitle(toolName, input = {}, agentName = 'Claude') {
   if (toolName === 'Bash' || toolName === 'PowerShell') return `${agentName} wants to run: ${input.command}`;
   if (toolName === 'Write') return `${agentName} wants to create/overwrite ${input.file_path}`;
@@ -181,7 +205,8 @@ export class TaskManager extends EventEmitter {
     if (tier === 'medium' && task.allowEdits && EDIT_TOOLS.has(toolName)) return { allow: true };
     // "Always allow" categories: edits inside the project and ordinary commands (high-risk ones never).
     const category = EDIT_TOOLS.has(toolName) ? 'files' : /^(Bash|PowerShell)$/.test(toolName) ? 'commands' : null;
-    const allow = await this.approvals.request({ title: permissionTitle(toolName, input, task.agentName || this.agentName), detail: description || '', tier, source: 'claude', category, grantable: Boolean(category) && tier === 'medium' });
+    const ask = claudeAsk(toolName, input, description, task.agentName || this.agentName);
+    const allow = await this.approvals.request({ title: ask.title, detail: ask.detail, ...(ask.prompt ? { prompt: ask.prompt } : {}), tier, source: 'claude', category, grantable: Boolean(category) && tier === 'medium' });
     return allow ? { allow: true } : { allow: false, message: 'The user denied this action. Do not retry it; continue without it or explain what you need.' };
   }
 

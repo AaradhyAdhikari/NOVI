@@ -53,12 +53,14 @@ export function createPreviewPlugin({ sites = createSites(), proxy = null, shot 
           const where = pagePath(page, site.pages, isHome(page) ? '' : await readHome(site.port));
           const label = where.found && !isHome(page) ? `${String(page).trim().toLowerCase().replace(/\s*page$/, '')} page` : 'homepage';
           let pictured = true;
+          let blank = false;
           try {
             const { png } = await shot(`http://localhost:${site.port}${where.path}`, PHONE);
             runtime.showImage?.({ png, caption: `${p.name} — ${label}` });
-          } catch { pictured = false; }
+          } catch (err) { pictured = false; blank = Boolean(err?.blank); }
           runtime.showLink?.({ url: link.link({ project: p.name, targetPort: site.port, host: runtime.deviceHost?.() || 'localhost' }), label: `Open the ${p.name} ${label} live` });
-          const note = !pictured ? "I couldn't take a picture, but here's the live link."
+          const note = blank ? 'The picture came out blank (the page may still be loading). Tap the live link to see it.'
+            : !pictured ? "I couldn't take a picture, but here's the live link."
             : !where.found ? `I couldn't find a ${String(page).trim().toLowerCase().replace(/\s*page$/, '')} page, so here's the homepage.`
               : `Here's the ${label}. Tap the link to open it live.`;
           return reply({ note, port: site.port });

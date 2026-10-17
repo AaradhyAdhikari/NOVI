@@ -59,3 +59,12 @@ describe('WhatsApp as actually said (live 2026-10-15: "send a message to her say
     for (const t of ['send an email to Rahul saying hi', 'message Rahul on email that hi', 'send a mail to Isha saying hi']) expect(browserCommand(t), t).toBe(null);
   });
 });
+
+describe('"on my WhatsApp" (live 2026-10-17: searched "bhar", Bhargav M was there, but Novi wanted "Bhargav on my WhatsApp")', () => {
+  it('the name never keeps "on my / the WhatsApp"', () => {
+    expect(browserCommand('Message Bhargav on my WhatsApp that you are late.')).toEqual({ tool: 'whatsapp_prepare', args: { to: 'Bhargav', text: 'you are late' } });
+    expect(browserCommand('tell Isha on my whatsapp that I am coming')).toEqual({ tool: 'whatsapp_prepare', args: { to: 'Isha', text: 'I am coming' } });
+    expect(browserCommand('send a message to Rahul on my WhatsApp saying hi')).toEqual({ tool: 'whatsapp_prepare', args: { to: 'Rahul', text: 'hi' } });
+    expect(browserCommand('send my notes folder to Rahul on my WhatsApp')).toMatchObject({ tool: 'whatsapp_prepare', args: { to: 'Rahul' } });
+  });
+});
