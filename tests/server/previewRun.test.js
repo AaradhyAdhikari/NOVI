@@ -19,6 +19,18 @@ describe('preview: how to run a project (no AI)', () => {
     const d = dir({ '.novi/run.json': { command: 'npm run dev', port: 5173, pages: { home: '/', contact: '/contact' } }, 'package.json': { scripts: { start: 'node x' } } });
     expect(howToRun(d)).toEqual({ kind: 'command', command: 'npm run dev', port: 5173, pages: { home: '/', contact: '/contact' } });
   });
+  // Live (2026-10-17): Claude's run.json said "python -m http.server 8765"; that port was still held by
+  // Claude's own server, which then went away — "The site is not answering". Plain file servers are
+  // replaced by Novi's own static server (no outside program, no port clash).
+  it('a plain file-server command in run.json → Novi serves the files itself', () => {
+    for (const command of ['python -m http.server 8765', 'python3 -m http.server', 'py -m http.server 8000', 'npx serve .', 'npx http-server -p 8080', 'npx live-server', 'serve -l 3000']) {
+      const d = dir({ '.novi/run.json': { command, port: 8765, pages: { contact: '/contact.html' } }, 'index.html': '<h1>x</h1>' });
+      expect(howToRun(d), command).toEqual({ kind: 'static', root: d, pages: { contact: '/contact.html' } });
+    }
+    const app = dir({ '.novi/run.json': { command: 'npm run dev', port: 5173 }, 'index.html': '<div id=root>' });
+    expect(howToRun(app).kind).toBe('command');
+  });
+
   it('package.json dev, else start', () => {
     expect(howToRun(dir({ 'package.json': { scripts: { dev: 'vite', start: 'node s' } } }))).toEqual({ kind: 'command', command: 'npm run dev', port: null, pages: {} });
     expect(howToRun(dir({ 'package.json': { scripts: { start: 'node s' } } }))).toEqual({ kind: 'command', command: 'npm start', port: null, pages: {} });

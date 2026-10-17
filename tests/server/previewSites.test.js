@@ -60,6 +60,16 @@ describe('preview: running sites', () => {
     await expect(sites.start('b', project({ '.novi/run.json': { command: `"${process.execPath}" -e "setTimeout(()=>{},5000)"` } }))).rejects.toThrow("The site didn't say which address it uses.");
   });
 
+  it('a port that something else already answers on is not "our site": a command that dies fails', async () => {
+    const other = (await import('node:http')).createServer((q, r) => r.end('someone else')).listen(0, '127.0.0.1');
+    await new Promise((r) => other.once('listening', r));
+    const busy = other.address().port;
+    sites = createSites({ waitMs: 4000 });
+    const dies = `"${process.execPath}" -e "setTimeout(()=>{console.error('Error: listen EADDRINUSE: address already in use :::${busy}');process.exit(1)},800)"`;
+    await expect(sites.start('p', project({ '.novi/run.json': { command: dies, port: busy } }))).rejects.toThrow(/EADDRINUSE/);
+    other.close();
+  });
+
   it('lists the sites that are running', async () => {
     sites = createSites();
     await sites.start('site', project({ 'index.html': 'x' }));

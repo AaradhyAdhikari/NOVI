@@ -101,7 +101,7 @@ export function createScreenPlugin({ driver = windowsDriver } = {}) {
       };
       api.registerTool({
         name: 'screen_show',
-        description: 'Send the user a screenshot (picture) of the laptop screen right now, e.g. "show me the screen", "send me a screenshot". Read-only.',
+        description: 'Send the user a screenshot (picture) of the whole laptop screen right now, e.g. "show me my laptop screen". Read-only. Never use it for a coding project\'s website or page (homepage, contact page, portfolio): that is preview_show. Never call the picture anything but the laptop screen.',
         parameters: obj({}),
         async execute() {
           if (SENSITIVE.test(await driver.window())) return refuse('take a screenshot');
