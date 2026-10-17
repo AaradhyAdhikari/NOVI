@@ -155,12 +155,14 @@ export function createNovi(config, overrides = {}) {
         return ws ? ws.host.replace(/:\d+$/, '') : tsName || 'localhost';
       },
       // The coding project a request is about: the one named, else the running or last task's project.
+      // working: the coder is busy on that project right now (a picture may be out of date soon).
       codingProject: (name) => {
-        const pick = (n) => { const p = n && memory.findProject(n); return p?.path ? { name: p.name, path: p.path } : null; };
-        if (name) return pick(name);
         const status = tasks.status?.() || {};
+        const busy = (n) => Boolean(status.active && status.status === 'running' && status.project === n);
+        const pick = (n) => { const p = n && memory.findProject(n); return p?.path ? { name: p.name, path: p.path, working: busy(p.name) } : null; };
+        if (name) return pick(name);
         const last = memory.lastTask?.();
-        return pick(status.project) || pick(last?.project) || (last?.path ? { name: last.project, path: last.path } : null);
+        return pick(status.project) || pick(last?.project) || (last?.path ? { name: last.project, path: last.path, working: busy(last.project) } : null);
       },
       tls: overrides.tls || null,
       dataDir: config.dataDir, logger: console },

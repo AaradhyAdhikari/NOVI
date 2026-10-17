@@ -234,7 +234,12 @@ describe('Novi server', () => {
     expect(rt.codingProject('portfolio')).toMatchObject({ name: 'portfolio', path: dir });
     expect(rt.codingProject('nope')).toBe(null);
     novi.memory.addTask({ id: 't1', project: 'portfolio', path: dir, status: 'done', prompt: 'x' });
-    expect(rt.codingProject()).toMatchObject({ name: 'portfolio', path: dir });
+    expect(rt.codingProject()).toMatchObject({ name: 'portfolio', path: dir, working: false });
+    // The coder busy on it: a preview picture says it may change and follows up when it's done.
+    const status = novi.tasks.status;
+    novi.tasks.status = () => ({ active: true, status: 'running', project: 'portfolio' });
+    expect(rt.codingProject('portfolio')).toMatchObject({ working: true });
+    novi.tasks.status = status;
     expect(rt.deviceHost()).toBe('localhost');
     const ws = new WebSocket(`${base.replace('http', 'ws')}/ws`);
     const got = [];

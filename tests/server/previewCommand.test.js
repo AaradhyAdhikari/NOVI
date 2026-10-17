@@ -39,6 +39,14 @@ describe('preview by voice (no AI)', () => {
     expect(openCommand('open portfolio and add a dark mode')).toBeNull();
   });
 
+  // Live (2026-10-17): this sent a laptop screenshot; it means the project the coder is working on.
+  it('"a screenshot of the work you are doing" is the project\'s site', () => {
+    for (const t of ["Send me the screenshot of the work you're doing right now.", 'show me what you are building', 'send me a picture of your progress', 'show me the work so far', 'kaam ka screenshot bhejo'])
+      expect(previewCommand(t), t).toEqual({ tool: 'preview_show', args: { page: 'home' } });
+    expect(previewCommand('take a screenshot of my laptop')).toBeNull();
+    expect(previewCommand('what are you doing')).toBeNull();
+  });
+
   it('stop the preview', () => {
     for (const t of ['stop the preview', 'close the preview', 'preview band karo']) expect(previewCommand(t), t).toEqual({ tool: 'preview_stop', args: {} });
   });

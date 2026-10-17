@@ -10,7 +10,7 @@ const folder = (files = {}) => {
   for (const [n, b] of Object.entries(files)) { fs.mkdirSync(path.dirname(path.join(d, n)), { recursive: true }); fs.writeFileSync(path.join(d, n), typeof b === 'string' ? b : JSON.stringify(b)); }
   return d;
 };
-function setup({ project = { name: 'portfolio', path: folder({ '.novi/run.json': { command: 'npm run dev', pages: { contact: '/contact' } } }) }, homeHtml = '<a href="/about-me">About me</a>', shotFails = false, answers = async () => true, host = 'laptop.tail.ts.net' } = {}) {
+function setup({ project = { name: 'portfolio', path: folder({ '.novi/run.json': { command: 'npm run dev', pages: { contact: '/contact' } } }) }, homeHtml = '<a href="/about-me">About me</a>', shotFails = false, answers = async () => true, host = 'laptop.tail.ts.net', followEveryMs = 0 } = {}) {
   const started = [];
   const shots = [];
   const shown = [];
@@ -33,8 +33,9 @@ function setup({ project = { name: 'portfolio', path: folder({ '.novi/run.json':
     shot: async (url, size) => { shots.push([url, size]); if (shotFails === 'blank') throw Object.assign(new Error('The picture came out blank (the page may still be loading)'), { blank: true }); if (shotFails) throw new Error('no edge'); return { png: Buffer.from('png') }; },
     fetchHome: async () => homeHtml,
     check: answers,
+    followEveryMs,
   }));
-  return { host: h, started, shots, shown, links, opened, stoppedAll: () => stopped, show: h.get('preview_show'), open: h.get('preview_open'), stop: h.get('preview_stop'), status: h.get('preview_status') };
+  return { project, host: h, started, shots, shown, links, opened, stoppedAll: () => stopped, show: h.get('preview_show'), open: h.get('preview_open'), stop: h.get('preview_stop'), status: h.get('preview_status') };
 }
 
 describe('preview plugin', () => {
@@ -138,5 +139,23 @@ describe('preview plugin', () => {
     expect((await s.status.run({})).note).toBe('');
     await s.show.run({});
     expect((await s.status.run({})).note).toBe('The portfolio preview is running.');
+  });
+
+  // Live (2026-10-17): the picture still had the old button — Claude was still working when it was
+  // taken. Now Novi says so and sends a fresh picture by itself when Claude finishes.
+  it('while Claude is working: says so, then sends a fresh picture when Claude is done', async () => {
+    const s = setup({ followEveryMs: 5 });
+    s.project.working = true;
+    const out = await s.show.run({});
+    expect(out.note).toBe("Claude is still working on portfolio, so this is how it looks right now. I'll send a fresh picture when Claude finishes.");
+    expect(s.shown).toHaveLength(1);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(s.shown).toHaveLength(1); // still working: nothing new yet
+    s.project.working = false;
+    await new Promise((r) => setTimeout(r, 40));
+    expect(s.shown).toHaveLength(2);
+    expect(s.shown[1].caption).toBe('portfolio — homepage, after Claude finished');
+    await new Promise((r) => setTimeout(r, 30));
+    expect(s.shown).toHaveLength(2); // only once
   });
 });
