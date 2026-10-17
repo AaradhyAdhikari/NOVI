@@ -220,3 +220,28 @@ describe('the coder\'s plan ("what\'s the progress" / "what\'s next")', async ()
     await tm.shutdown();
   });
 });
+
+// User's decision (2026-10-17): Claude's ordinary terminal commands run without asking, in every
+// project; risky ones still ask, and so do edits outside the project and Claude's own questions.
+describe('coder commands without asking', () => {
+  const task = { path: '/tmp/portfolio', agentName: 'Claude' };
+  it('ordinary commands run at once (a feed line says so); risky ones still ask', async () => {
+    const { tm } = makeManager();
+    const auto = [];
+    approvals.on('auto_allowed', (a) => auto.push(a.title));
+    expect(await tm._onPermission(task, { toolName: 'Bash', input: { command: 'npm install' }, description: 'Install dependencies' })).toEqual({ allow: true });
+    expect(await tm._onPermission(task, { toolName: 'PowerShell', input: { command: 'Get-ChildItem' } })).toEqual({ allow: true });
+    expect(asked).toHaveLength(0);
+    expect(auto).toEqual(['Claude wants to run a command: Install dependencies', 'Claude wants to run: Get-ChildItem']);
+    for (const command of ['git push origin main', 'rm -rf build', 'reg delete HKCU\\Software\\X /f', 'npm install -g serve', 'sudo apt install x']) {
+      await tm._onPermission(task, { toolName: 'Bash', input: { command } });
+    }
+    expect(asked.map((a) => a.tier)).toEqual(['high', 'high', 'high', 'high', 'high']);
+  });
+
+  it('file edits are unchanged: they still ask unless the task allows edits', async () => {
+    const { tm } = makeManager();
+    await tm._onPermission(task, { toolName: 'Write', input: { file_path: '/tmp/portfolio/index.html' } });
+    expect(asked).toHaveLength(1);
+  });
+});

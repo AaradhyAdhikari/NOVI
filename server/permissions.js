@@ -20,6 +20,16 @@ export const HIGH_RISK_COMMANDS = [
   /\bformat\s+[a-z]:/i,
   /\bshutdown\b/i,
   /\b(curl|wget|iwr|Invoke-WebRequest)\b.*\|\s*(sh|bash|iex|Invoke-Expression)\b/i,
+  // Ordinary coder commands now run without asking, so anything that reaches outside the project
+  // or changes the machine still asks.
+  /\breg(?:\.exe)?\s+(add|delete|import)\b/i,
+  /\b(Set|New|Remove)-ItemProperty\b.*\bHK(LM|CU)\b/i,
+  /\bsudo\b|\brunas\b|-Verb\s+RunAs/i,
+  /\bSet-ExecutionPolicy\b/i,
+  /\b(npm|pnpm|yarn)\s+(i|install|add)\b.*\s(-g|--global)\b|\byarn\s+global\b/i,
+  /\b(winget|choco|scoop|apt|apt-get|brew)\s+(install|uninstall|remove)\b/i,
+  /\b(Stop|Restart)-Computer\b|\bmkfs\b|\bdd\s+if=/i,
+  /\bschtasks\b|\bRegister-ScheduledTask\b|\bsc(?:\.exe)?\s+(create|delete|config)\b/i,
 ];
 
 export function isInside(projectPath, target) {

@@ -147,7 +147,7 @@ describe('agent and voice', () => {
 });
 
 describe('coding agent and plugins pass categories', () => {
-  it('coder edits inside the project are "files", shell commands "commands"; risky ones stay high', async () => {
+  it('coder edits inside the project are "files"; risky shell commands stay high and ask', async () => {
     const { TaskManager } = await import('../../server/claude/taskManager.js');
     const seen = [];
     const approvals = { request: async (o) => { seen.push(o); return true; } };
@@ -156,7 +156,8 @@ describe('coding agent and plugins pass categories', () => {
     await tm._onPermission(task, { toolName: 'Edit', input: { file_path: 'C:\proj\a.js' } });
     await tm._onPermission(task, { toolName: 'Bash', input: { command: 'npm test' } });
     await tm._onPermission(task, { toolName: 'Bash', input: { command: 'git push' } });
-    expect(seen.map((o) => [o.category, o.grantable])).toEqual([['files', true], ['commands', true], ['commands', false]]);
+    // Ordinary commands no longer ask at all (user's decision 2026-10-17); risky ones still do.
+    expect(seen.map((o) => [o.category, o.grantable])).toEqual([['files', true], ['commands', false]]);
   });
 
   it('a plugin can name its own category or mark an approval as never grantable', async () => {
