@@ -31,7 +31,7 @@ async function answersHttp(port) {
   try { await fetch(`http://localhost:${port}/`, { signal: AbortSignal.timeout(5000) }); return true; } catch { return false; }
 }
 
-export function createPreviewPlugin({ sites = createSites(), proxy = null, shot = pageShot, fetchHome = null, check = answersHttp } = {}) {
+export function createPreviewPlugin({ sites = createSites(), proxy = null, shot = pageShot, fetchHome = null, check = answersHttp, followEveryMs = 5000 } = {}) {
   return definePluginEntry({
     id: 'preview',
     name: 'Preview',
@@ -43,6 +43,26 @@ export function createPreviewPlugin({ sites = createSites(), proxy = null, shot 
       const allowed = new Set(); // projects whose command the user already OK'd in this run
       // A name Novi doesn't know ("the portfolio site") falls back to the current coding project.
       const project = (name) => runtime.codingProject?.(name) || (name ? runtime.codingProject?.() : null) || null;
+
+      // A picture taken while the coder is still working may be out of date in a minute (live
+      // 2026-10-17: the old button colour): once the coder is done, send a fresh one (once, ≤20 min).
+      const following = new Set();
+      function followUp(p, url, label) {
+        if (following.has(p.name)) return;
+        following.add(p.name);
+        const until = Date.now() + 20 * 60_000;
+        const tick = async () => {
+          const now = project(p.name);
+          if (now?.working && Date.now() < until) { setTimeout(tick, followEveryMs).unref?.(); return; }
+          following.delete(p.name);
+          if (!now || now.working) return;
+          try {
+            const { png } = await shot(url, PHONE);
+            runtime.showImage?.({ png, caption: `${p.name} — ${label}, after Claude finished` });
+          } catch { /* the site was stopped or the picture failed: the live link still works */ }
+        };
+        setTimeout(tick, followEveryMs).unref?.();
+      }
 
       // The project's site, running and answering → { p, site }, else { error, askClaude? }.
       async function start(name) {
@@ -75,12 +95,15 @@ export function createPreviewPlugin({ sites = createSites(), proxy = null, shot 
           const label = where.found && !isHome(page) ? `${String(page).trim().toLowerCase().replace(/\s*page$/, '')} page` : 'homepage';
           let pictured = true;
           let blank = false;
+          const url = `http://localhost:${site.port}${where.path}`;
           try {
-            const { png } = await shot(`http://localhost:${site.port}${where.path}`, PHONE);
+            const { png } = await shot(url, PHONE);
             runtime.showImage?.({ png, caption: `${p.name} — ${label}` });
           } catch (err) { pictured = false; blank = Boolean(err?.blank); }
+          if (p.working) followUp(p, url, label);
           runtime.showLink?.({ url: link.link({ project: p.name, targetPort: site.port, host: runtime.deviceHost?.() || 'localhost' }), label: `Open the ${p.name} ${label} live` });
-          const note = blank ? 'The picture came out blank (the page may still be loading). Tap the live link to see it.'
+          const note = p.working ? `Claude is still working on ${p.name}, so this is how it looks right now. I'll send a fresh picture when Claude finishes.`
+            : blank ? 'The picture came out blank (the page may still be loading). Tap the live link to see it.'
             : !pictured ? "I couldn't take a picture, but here's the live link."
             : !where.found ? `I couldn't find a ${String(page).trim().toLowerCase().replace(/\s*page$/, '')} page, so here's the homepage.`
               : `Here's the ${label}. Tap the link to open it live.`;
