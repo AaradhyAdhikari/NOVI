@@ -33,7 +33,7 @@ const folderName = (name) => String(name || '').replace(/[<>:"/\\|?*\x00-\x1f]/g
 // coder: default coding agent; alternativeAvailable: whether the other coder can be offered by voice.
 // takeOver: async () => { project } — stops the background Claude run and opens it interactively (laptop).
 // projectsDir: where new projects are made (code_new_project is offered only when set).
-export function createNoviTools({ memory, tasks, coder = 'novi-coder', alternativeAvailable = false, takeOver = null, projectsDir = null, showImage = null }) {
+export function createNoviTools({ memory, tasks, coder = 'novi-coder', alternativeAvailable = false, takeOver = null, projectsDir = null, showImage = null, showCode = null, codeEdits = null }) {
   // A folder in the Projects folder Novi never remembered ("Sample-Project" for "sample project"):
   // remember it under its folder name and use it.
   const adoptFolder = (name) => {
@@ -161,7 +161,7 @@ export function createNoviTools({ memory, tasks, coder = 'novi-coder', alternati
         return { allowEdits: Boolean(allow) };
       },
     });
-  if (showImage) {
+  if (showImage || showCode) {
     registry.add({
       name: 'code_show',
       description: 'Show the user the exact code they ask for, as a picture on the device they are using ("show me the HTML code", "show me the navbar code", "the CSS for the button"). Finds it in the current coding task\'s project (or the named project). Read-only. Then say only which file it is, in a few words.',
@@ -175,11 +175,14 @@ export function createNoviTools({ memory, tasks, coder = 'novi-coder', alternati
         const root = named?.path || (st.active ? st.path || memory.findProject(st.project)?.path : null);
         const name = named?.name || st.project;
         if (!root) throw new UserFacingError('Which project should I look in?');
-        const found = findCode(root, what, { recent: named && named.name !== st.project ? [] : st.files || [] });
-        if (!found) throw new UserFacingError(`I couldn't find ${what} in ${name}.`);
+        const found = findCode(root, what, { recent: named && named.name !== st.project ? [] : st.files || [], whole: showCode ? 150 : 0 });
+        if (!found) throw new UserFacingError(`I couldn't find that code in ${name}. Try naming the page or file, like "the contact page code".`);
         const lines = `${found.start}–${found.start + Math.max(0, found.lines.length - 1)}`;
-        showImage({ svg: codeSvg(found), caption: `${name} · ${found.file} · lines ${lines}` });
-        return { file: found.file, lines, instructions: 'Sent the code picture. Say only the file name in a few words; do not read the code out.' };
+        const caption = `${name} · ${found.file} · lines ${lines}`;
+        // The actual code (editable: Edit / Approve) where the page can show it; else a picture.
+        if (showCode && codeEdits) showCode({ id: codeEdits.offer({ root, file: found.file, start: found.start, lines: found.lines }), file: found.file, start: found.start, text: found.lines.join('\n'), caption });
+        else showImage({ svg: codeSvg(found), caption });
+        return { file: found.file, lines, instructions: 'Sent the code. Say only the file name in a few words; do not read the code out.' };
       },
     });
   }

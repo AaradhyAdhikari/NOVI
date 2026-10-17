@@ -1,4 +1,5 @@
 import { createQuiet } from './quiet.js';
+import { createCodeEdits } from './codeEdits.js';
 import { createActivity } from './activity.js';
 import os from 'node:os';
 import { memoryDir, createVault } from '../plugins/wiki/vault.js';
@@ -133,6 +134,13 @@ export function createNovi(config, overrides = {}) {
         const image = svg ? `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}` : `data:image/png;base64,${Buffer.from(png).toString('base64')}`;
         sendTo(active, { type: 'chat', entry: { role: 'novi', text: caption, at, image } });
       },
+      // The actual code in the chat of whoever asked, with Edit / Approve (server/codeEdits.js saves it).
+      showCode: ({ id, file, start, text, caption = '' }) => {
+        const at = new Date().toISOString();
+        const entry = { role: 'novi', text: caption, at, code: { id, file, start, text } };
+        transcript.push({ ...entry, device: deviceKey(active) });
+        sendTo(active, { type: 'chat', entry });
+      },
       // A tap-to-open link in the chat of whoever asked (the preview plugin's live link).
       showLink: ({ url, label = '' }) => {
         const at = new Date().toISOString();
@@ -176,7 +184,8 @@ export function createNovi(config, overrides = {}) {
     watchWindows.openTakeOver(handed);
     return handed;
   }
-  plugins.register(wrapRegistryAsPlugin({ id: 'coding', name: 'Coding tasks', registry: createNoviTools({ memory, tasks, coder: defaultCoder, alternativeAvailable: defaultCoder === 'claude' || claudeInstalled, takeOver: claudeInstalled ? takeOverTask : null, projectsDir: config.projectsDir, showImage: (img) => plugins.runtime.showImage(img) }) }));
+  const codeEdits = overrides.codeEdits || createCodeEdits();
+  plugins.register(wrapRegistryAsPlugin({ id: 'coding', name: 'Coding tasks', registry: createNoviTools({ memory, tasks, coder: defaultCoder, alternativeAvailable: defaultCoder === 'claude' || claudeInstalled, takeOver: claudeInstalled ? takeOverTask : null, projectsDir: config.projectsDir, showImage: (img) => plugins.runtime.showImage(img), showCode: (c) => plugins.runtime.showCode(c), codeEdits }) }));
   plugins.register(wrapRegistryAsPlugin({ id: 'laptop', name: 'Laptop basics', registry: addLaptopTools(new ToolRegistry(), { askedFromPhone, ...overrides.laptop }) }));
   plugins.register(wrapRegistryAsPlugin({
     id: 'accounts',
@@ -756,6 +765,19 @@ export function createNovi(config, overrides = {}) {
       }
     } else if (msg.type === 'approval') {
       approvals.resolve(msg.id, Boolean(msg.allow), 'screen', typeof msg.choice === 'string' ? msg.choice : null, { always: msg.always === true, from, proof: await approvalProof(msg, from), ...(typeof msg.answer === 'string' ? { answer: msg.answer.slice(0, 500) } : {}) });
+    } else if (msg.type === 'code_save' && typeof msg.id === 'string' && typeof msg.text === 'string') {
+      // Approve on a code card: the user's version goes into the project now; a running coder is told.
+      try {
+        const saved = codeEdits.save(msg.id, msg.text.slice(0, 200_000));
+        const running = tasks.status?.().status === 'running';
+        if (saved.changed && running) tasks.send(`The user edited ${saved.file} (lines ${saved.start}-${saved.end}) by hand and it is already saved. Keep their change: don't overwrite or redo it, and build on it.`);
+        sendTo(from, { type: 'code_saved', id: msg.id, ok: true, changed: saved.changed });
+        say('novi', !saved.changed ? `No changes to ${saved.file}.` : `Saved your change to ${saved.file}${running ? ', and told Claude' : ''}.`, from);
+        if (saved.changed) broadcast({ type: 'feed', text: `You edited ${saved.file} (lines ${saved.start}–${saved.end}).` });
+      } catch (err) {
+        sendTo(from, { type: 'code_saved', id: msg.id, ok: false, error: err.message });
+        say('novi', err.message, from);
+      }
     } else if (msg.type === 'allow_edits') {
       tasks.setAllowEdits(Boolean(msg.allow));
     } else if (msg.type === 'stop') {
@@ -821,5 +843,5 @@ export function createNovi(config, overrides = {}) {
     broadcast({ type: 'stop_speaking' });
   };
 
-  return { app, activity, setQuiet: (on, minutes) => (on ? quiet.on(minutes) : quiet.off()), attachWebSocket, remotePin, setWakeTools, setSpeakerVerifier, checkVoice, stopSpeaking, wakeThreshold, snapshot, runVoiceCommand, setWakeWord, memory, accounts, approvals, tasks, router, agent, tools, plugins, pairing, broadcast };
+  return { app, activity, codeEdits, setQuiet: (on, minutes) => (on ? quiet.on(minutes) : quiet.off()), attachWebSocket, remotePin, setWakeTools, setSpeakerVerifier, checkVoice, stopSpeaking, wakeThreshold, snapshot, runVoiceCommand, setWakeWord, memory, accounts, approvals, tasks, router, agent, tools, plugins, pairing, broadcast };
 }

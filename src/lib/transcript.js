@@ -1,6 +1,6 @@
 // The server keeps only text in its transcript (pictures are too big to resend on every refresh),
 // so a refreshed list keeps the pictures, videos and links this page already received.
-const EXTRAS = ['image', 'video', 'link'];
+const EXTRAS = ['image', 'video', 'link', 'code'];
 const key = (e) => `${e.at}|${e.role}|${e.text}`;
 
 export function mergeTranscript(shown, fromServer) {
@@ -14,3 +14,6 @@ export function mergeTranscript(shown, fromServer) {
     return { ...e, ...extra };
   });
 }
+
+// A link in the chat reads "Open …" — once, even when its label already starts with "Open".
+export const linkLabel = (text) => (/^open\b/i.test(String(text || '').trim()) ? String(text).trim() : `Open ${text || 'link'}`);

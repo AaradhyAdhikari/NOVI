@@ -24,3 +24,18 @@ describe('mergeTranscript (a refresh must not erase pictures, videos or links)',
     expect(mergeTranscript([{ role: 'novi', text: 'x', at: 't' }], undefined)).toEqual([{ role: 'novi', text: 'x', at: 't' }]);
   });
 });
+
+describe('chat extras (2026-10-17)', () => {
+  it('a code card the page already has survives a refresh', async () => {
+    const { mergeTranscript } = await import('../../src/lib/transcript.js');
+    const code = { id: 'c1', file: 'contact.html', start: 1, text: '<form/>' };
+    const shown = [{ role: 'novi', text: 'site · contact.html', at: 't', code }];
+    expect(mergeTranscript(shown, [{ role: 'novi', text: 'site · contact.html', at: 't' }])[0].code).toEqual(code);
+  });
+
+  it('link labels never say "Open Open …"', async () => {
+    const { linkLabel } = await import('../../src/lib/transcript.js');
+    expect(linkLabel('Open the portfolio homepage live')).toBe('Open the portfolio homepage live');
+    expect(linkLabel('the portfolio site')).toBe('Open the portfolio site');
+  });
+});

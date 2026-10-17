@@ -38,6 +38,31 @@ describe('findCode ("show me the html code", "show me the navbar code")', () => 
   });
 });
 
+// Live (2026-10-17): "Coder, show me the code." and "Show me its code." found nothing (the full stop
+// stayed on "code." and "coder" became a search word).
+describe('findCode as actually said', () => {
+  it('plain "show me the code" shows the main file; filler and full stops are ignored', () => {
+    const root = project();
+    expect(findCode(root, 'Coder, show me the code.')).toMatchObject({ file: 'index.html' });
+    expect(findCode(root, 'Show me its code.')).toMatchObject({ file: 'index.html' });
+    expect(findCode(root, 'Novi, show me the HTML code.')).toMatchObject({ file: 'index.html' });
+  });
+
+  it('"the code for the contacts page of the app we were building" → contact.html', () => {
+    const root = project();
+    fs.writeFileSync(path.join(root, 'contact.html'), '<form id="contact"></form>\n');
+    expect(findCode(root, 'show me the code for contacts page of the app we were building')).toMatchObject({ file: 'contact.html' });
+  });
+
+  it('whole: a short file comes back whole (for the edit card); a definition keeps its window', () => {
+    const root = project();
+    expect(findCode(root, 'html', { whole: 150 })).toMatchObject({ file: 'index.html', start: 1, total: 7 });
+    expect(findCode(root, 'html', { whole: 150 }).lines).toHaveLength(7);
+    const nav = findCode(root, 'show me the Navbar code', { whole: 150 });
+    expect(nav.lines.length).toBeLessThanOrEqual(40);
+  });
+});
+
 describe('codeSvg', () => {
   it('draws numbered, escaped lines as a picture', () => {
     const svg = codeSvg({ file: 'index.html', start: 3, lines: ['<b>&</b>', 'x'.repeat(300)] });
