@@ -203,6 +203,12 @@ export class TaskManager extends EventEmitter {
     const tier = classifyClaudeTool(toolName, input, task.path);
     if (tier === 'low') return { allow: true };
     if (tier === 'medium' && task.allowEdits && EDIT_TOOLS.has(toolName)) return { allow: true };
+    // The user's decision (2026-10-17): the coder's ordinary terminal commands run without asking,
+    // in every project (a feed line still shows each one). Risky ones (HIGH_RISK_COMMANDS) ask.
+    if (tier === 'medium' && /^(Bash|PowerShell)$/.test(toolName)) {
+      this.approvals.emit?.('auto_allowed', { category: 'commands', title: claudeAsk(toolName, input, description, task.agentName || this.agentName).title });
+      return { allow: true };
+    }
     // "Always allow" categories: edits inside the project and ordinary commands (high-risk ones never).
     const category = EDIT_TOOLS.has(toolName) ? 'files' : /^(Bash|PowerShell)$/.test(toolName) ? 'commands' : null;
     const ask = claudeAsk(toolName, input, description, task.agentName || this.agentName);
