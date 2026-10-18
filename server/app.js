@@ -3,6 +3,7 @@ import { createCodeEdits } from './codeEdits.js';
 import { createActivity } from './activity.js';
 import { createShortcuts } from './brain/shortcuts.js';
 import { SEEDS } from './brain/shortcutSeeds.js';
+import { createLaptopState } from './laptopState.js';
 import os from 'node:os';
 import { memoryDir, createVault } from '../plugins/wiki/vault.js';
 import { buildGraph, readNote } from '../plugins/wiki/graph.js';
@@ -91,6 +92,8 @@ export function createNovi(config, overrides = {}) {
       : new FreeCoderSession({ router, ...opts })),
   });
   // Every feature is an OpenClaw-shaped plugin; built-ins wrap the existing tool registries.
+  // What Novi is doing on the laptop (listening / thinking / speaking / quiet), for the desktop orb.
+  const laptopState = createLaptopState();
   const plugins = new PluginHost({
     runtime: {
       memory, accounts, secrets, tasks, openUrl,
@@ -183,6 +186,15 @@ export function createNovi(config, overrides = {}) {
         try { res = await ask(prefer); } catch (err) { if (!prefer) throw err; res = await ask(); }
         return String(res.message?.content || '').trim();
       },
+      // The desktop orb and dictation (plugins/orb, plugins/dictation).
+      laptopState: { on: (fn) => laptopState.on(fn), get: () => laptopState.get() },
+      wake: {
+        listen: (opts) => wakeTools?.listen?.(opts), // "Hey Novi" without saying it (a tap on the orb)
+        hold: (opts) => wakeTools?.hold?.(opts), // dictation keys down: record everything
+        release: () => wakeTools?.release?.() ?? null, // keys up: the recording as 16 kHz WAV (or null)
+      },
+      // Speech → words, with the user's word fixes (Settings → Words).
+      hear: async (wav) => (await hear(wav, 'audio/wav', 'dictation')).text,
       tls: overrides.tls || null,
       dataDir: config.dataDir, logger: console },
   });
@@ -283,11 +295,14 @@ export function createNovi(config, overrides = {}) {
   const speakLocal = (text) => {
     if (!localSpeaker) return;
     if (++talking === 1) wakeTools?.setSpeaking?.(true);
+    laptopState.speaking(true);
     Promise.resolve(localSpeaker(text)).catch(() => {}).finally(() => {
       if (--talking === 0) wakeTools?.setSpeaking?.(false);
+      laptopState.speaking(false);
     });
   };
   const broadcast = (msg) => {
+    laptopState.feed(msg);
     for (const ws of clients) send(ws, msg);
     if (msg.type === 'speak' && clients.size === 0 && msg.text && !quiet.isOn()) speakLocal(msg.text);
   };
@@ -304,6 +319,7 @@ export function createNovi(config, overrides = {}) {
       return;
     }
     const key = deviceKey(from);
+    if (key === 'local') laptopState.feed(msg);
     let reached = 0;
     for (const ws of clients) if (viewerKey(ws) === key) { send(ws, msg); reached += 1; }
     if (msg.type === 'speak' && msg.text && !reached && key === 'local') speakLocal(msg.text);

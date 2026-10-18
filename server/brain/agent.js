@@ -11,6 +11,7 @@ import { browserCommand, isDoneWord } from './browserCommand.js';
 import { previewCommand, openCommand } from './previewCommand.js';
 import { replyFrom } from './shortcuts.js';
 import { briefCommand, changeCommand } from './briefCommand.js';
+import { dictationCommand } from './dictationCommand.js';
 import { describeTurn } from '../activity.js';
 import { quietCommand } from '../quiet.js';
 import path from 'node:path';
@@ -364,6 +365,12 @@ export class Agent {
     if (control) return this._remember(text, control);
     const browse = await this._browserCommand(text);
     if (browse) return this._remember(text, browse);
+    // "Type: …" / "likho …": those exact words into the app in front (plugins/dictation), no AI.
+    const dictate = this.tools.get('dictate_type') ? dictationCommand(text) : null;
+    if (dictate) {
+      const { output } = await this._runTool({ id: `type-${Date.now()}`, function: { name: 'dictate_type', arguments: JSON.stringify(dictate) } }, { direct: true });
+      return this._remember(text, output?.error || output?.note || 'Typed.');
+    }
     const preview = await this._previewCommand(text);
     if (preview) return this._remember(text, preview);
     const opened = this._openKnown(text);

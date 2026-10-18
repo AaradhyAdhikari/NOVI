@@ -1,0 +1,9 @@
+{
+  "id": "dictation",
+  "name": "Dictation",
+  "description": "Types your spoken words into the app in front on the laptop (never presses Enter).",
+  "categories": ["other"],
+  "contracts": { "tools": ["dictate_type"] },
+  "activation": { "onStartup": true },
+  "configSchema": { "type": "object", "additionalProperties": false }
+}

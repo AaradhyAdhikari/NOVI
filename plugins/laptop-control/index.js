@@ -118,8 +118,8 @@ export function createLaptopControlPlugin({
           return { note: `${DONE[action]} ${label}.` };
         });
 
-      tool(api, 'laptop_clipboard', 'Clipboard: read what was copied, copy the selection in the app the user is working in, copy given text (set), or paste into an app (never sends).',
-        obj({ do: { type: 'string', enum: ['read', 'copy', 'set', 'paste'] }, text: { type: 'string' }, app: { type: 'string' } }, ['do']),
+      tool(api, 'laptop_clipboard', 'Clipboard: read what was copied, copy the selection in the app the user is working in, copy given text (set), paste into an app, or type given text into an app (never sends).',
+        obj({ do: { type: 'string', enum: ['read', 'copy', 'set', 'paste', 'type'] }, text: { type: 'string' }, app: { type: 'string' } }, ['do']),
         async ({ do: action, text, app }) => {
           if (action === 'read') {
             const t = String((await run('clip-get', {})).text || '').trim();
@@ -144,6 +144,22 @@ export function createLaptopControlPlugin({
             if (looksSecret(t)) return { note: 'Copied.' };
             const words = t.split(/\s+/);
             return { note: `Copied: ${words.slice(0, 8).join(' ')}${words.length > 8 ? '…' : '.'}` };
+          }
+          // Dictation: the words go in through the clipboard, then what was copied before is put back.
+          if (action === 'type') {
+            if (!String(text || '').trim()) return { error: "There's nothing to type." };
+            const before = String((await run('clip-get', {})).text ?? '');
+            await run('clip-set', { text: String(text) });
+            const list = await windows();
+            const target = app ? findWindows(list, app)[0] : workWindow(list);
+            if (target) {
+              await run('window', { id: target.id, do: 'focus' });
+              await pause(150);
+              await run('keys', { combo: 'paste' }); // never Enter: sending stays the user's
+              await pause(300);
+            }
+            if (before) await run('clip-set', { text: before });
+            return target ? { note: `Typed into ${appLabel(target)}.` } : { error: `I don't see a window for ${app || 'that'}.`, notFound: true };
           }
           if (action === 'paste') {
             const list = await windows();

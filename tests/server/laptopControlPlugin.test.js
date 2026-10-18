@@ -140,6 +140,15 @@ describe('laptop control: clipboard', () => {
     expect(calls.at(-1)).toEqual(['clip-set', { text: 'hello world' }]);
   });
 
+  // Dictation (2026-10-18): the words go into the app in front, and what was copied before comes back.
+  it('type = the words pasted into the app in front, the old clipboard put back, never Enter', async () => {
+    const { tool, calls } = setup({ clip: 'my old copy' });
+    expect(await tool('laptop_clipboard').gate({ do: 'type', text: 'see you at 5' })).toEqual({});
+    expect((await tool('laptop_clipboard').run({ do: 'type', text: 'see you at 5' })).note).toBe('Typed into WhatsApp.');
+    expect(calls).toEqual([['clip-get', {}], ['clip-set', { text: 'see you at 5' }], ['windows', {}], ['window', { id: 2, do: 'focus' }], ['keys', { combo: 'paste' }], ['clip-set', { text: 'my old copy' }]]);
+    expect((await tool('laptop_clipboard').run({ do: 'type', text: '  ' })).error).toBe("There's nothing to type.");
+  });
+
   it('paste into an app: focus + Ctrl+V, never Enter', async () => {
     const { tool, calls } = setup();
     expect(await tool('laptop_clipboard').gate({ do: 'paste', app: 'whatsapp' })).toEqual({});
