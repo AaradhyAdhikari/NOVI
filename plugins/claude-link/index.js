@@ -33,6 +33,7 @@ export function createClaudeLinkPlugin({ driver = null, listCode = () => listCla
       const connected = () => Boolean(rt.browserStatus?.().connected && getWeb());
       const onWeb = (name) => state.web.some((n) => key(n) === key(name));
       const pending = new Set(); // claude.ai projects being made right now
+      const displayOf = (at, fallback) => (at?.path ? path.basename(at.path) : fallback);
 
       // Claude Code's folders → Novi's projects. Returns what changed.
       function syncCode() {
@@ -46,39 +47,102 @@ export function createClaudeLinkPlugin({ driver = null, listCode = () => listCla
           if (known.some((k) => key(k.name) === key(p.name))) { taken.push(p.name); continue; }
           try { known.push(rt.projects.remember(p.name, p.path)); } catch (err) { log(`[claude-link] ${p.path}: ${err.message}`); continue; }
           added.push(p.name);
+          (state.folderNoted ||= {})[key(p.name)] = true;
           rt.wikiWrite?.({ title: `${p.name} project`, text: `Folder: ${p.path}\nLast worked on in Claude Code: ${new Date(p.lastUsed).toLocaleDateString('en-CA')} (${count(p.sessions, 'conversation', 'conversations')})${p.about ? `\nAbout: ${p.about}` : ''}` });
         }
         save();
         return { found, added, taken };
       }
 
+      // claude.ai's projects → Novi (user, 2026-10-18: "every project I have on Claude… so I can handle them
+      // with Novi from anywhere"): each one's link is kept; one with a folder on the laptop is linked to it,
+      // one without is a claude.ai-only project. Each gets a note once.
+      const squash = (s) => key(s).replace(/[^\p{L}\p{N}]+/gu, '');
+      function syncWeb(list) {
+        state.web = list.names;
+        state.webProjects = list.projects || list.names.map((name) => ({ name, url: null }));
+        state.webAt = now().toISOString();
+        state.noted ||= {};
+        const both = [];
+        const only = [];
+        for (const p of state.webProjects) {
+          const at = rt.codingProject?.(p.name);
+          if (at?.path) {
+            both.push(p.name);
+            if (p.url && !state.linked[key(at.name)]?.url) state.linked[key(at.name)] = { url: p.url, at: now().toISOString() };
+          } else only.push(p.name);
+          if (state.noted[key(p.name)]) continue;
+          state.noted[key(p.name)] = true;
+          const title = `${at?.path ? displayOf(at, p.name) : p.name} project`;
+          rt.wikiWrite?.({ title, text: `On claude.ai: ${p.url || 'claude.ai/projects'}\n${at?.path ? `Folder: ${at.path}` : 'No folder on the laptop yet.'}` });
+        }
+        save();
+        if (!state.webProjects.length) return "You don't have any projects on claude.ai yet.";
+        const parts = [`On claude.ai you have ${count(state.webProjects.length, 'project', 'projects')}: ${list.names.join(', ')}.`];
+        const tail = [];
+        if (both.length) tail.push(`${both.length} ${both.length === 1 ? 'is a folder' : 'are folders'} on the laptop too (${both.join(', ')})`);
+        if (only.length) tail.push(`${only.length} ${only.length === 1 ? 'is' : 'are'} only on claude.ai (${only.join(', ')})`);
+        if (tail.length) parts.push(`${tail.join('; ')}.`);
+        return parts.join(' ');
+      }
+      // Names Novi should expect to hear (the speech-to-text hint).
+      if (api.runtime) api.runtime.claudeProjectNames = () => (state.webProjects || []).map((p) => p.name);
+
       api.registerService({
         id: 'claude-link-sync',
         async start() {
-          const run = () => { try { const { added } = syncCode(); if (added.length) log(`[claude-link] new projects from Claude Code: ${added.join(', ')}`); } catch (err) { log(`[claude-link] sync failed: ${err.message}`); } };
-          setTimeout(run, 5_000).unref?.();
+          const run = async () => {
+            try { const { added } = syncCode(); if (added.length) log(`[claude-link] new projects from Claude Code: ${added.join(', ')}`); } catch (err) { log(`[claude-link] sync failed: ${err.message}`); }
+            // claude.ai once a day, in a background tab, while Chrome is connected.
+            if (connected() && (!state.webAt || now() - new Date(state.webAt) > 20 * 3600_000)) {
+              try { const list = await getWeb().list(); if (list.names) syncWeb(list); } catch (err) { log(`[claude-link] claude.ai sync failed: ${err.message}`); }
+            }
+          };
+          setTimeout(run, 30_000).unref?.();
           if (syncEveryMs > 0) setInterval(run, syncEveryMs).unref?.();
         },
       });
 
       api.registerTool({
         name: 'claude_projects_sync',
-        description: 'Connect Novi to Claude: remember every project Claude Code has worked on (folders on the laptop) as Novi\'s projects, and read the list of the user\'s claude.ai Projects. "sync my Claude projects", "bring in my old projects".',
+        description: 'Connect Novi to Claude: remember every project Claude Code has worked on (folders on the laptop) and every claude.ai Project (with its link) as Novi\'s projects. "sync my Claude projects", "bring in my old projects".',
         parameters: obj({}),
         async execute() {
           const { found, added, taken } = syncCode();
-          if (!found.length) return reply({ added, note: "I didn't find any Claude Code projects on this laptop." });
-          const parts = [`I know ${count(found.length, 'Claude Code project', 'Claude Code projects')} now: ${added.length ? `${added.length} new (${added.join(', ')})` : 'none new'}.`];
+          const parts = [found.length
+            ? `I know ${count(found.length, 'Claude Code project', 'Claude Code projects')} now: ${added.length ? `${added.length} new (${added.join(', ')})` : 'none new'}.`
+            : "I didn't find any Claude Code projects on this laptop."];
           if (taken.length) parts.push(`${taken.length} ${taken.length === 1 ? 'has' : 'have'} a name I already use (${taken.join(', ')}).`);
           if (connected()) {
             const list = await getWeb().list();
-            if (list.names) {
-              state.web = list.names;
-              save();
-              parts.push(list.names.length ? `On claude.ai you have ${count(list.names.length, 'project', 'projects')}: ${list.names.join(', ')}.` : "You don't have any projects on claude.ai yet.");
-            } else parts.push(list.error);
+            parts.push(list.names ? syncWeb(list) : list.error);
           } else parts.push("Chrome isn't connected, so I didn't check claude.ai.");
           return reply({ added, taken, web: state.web, note: parts.join(' ') });
+        },
+      });
+
+      // "Open TraceBite on Claude": the project's claude.ai page on the device that asked (a tap-to-open
+      // link on a phone). Any spelling that names one project ("medikiosk" = "MediKiosk AI").
+      function findWeb(name) {
+        const q = squash(name);
+        const all = state.webProjects || [];
+        const exact = all.filter((p) => squash(p.name) === q);
+        const near = exact.length ? exact : all.filter((p) => q && (squash(p.name).startsWith(q) || q.startsWith(squash(p.name))));
+        if (near.length === 1) return near[0];
+        const at = rt.codingProject?.(name);
+        const linked = at && state.linked[key(at.name)];
+        return linked?.url ? { name: displayOf(at, name), url: linked.url } : null;
+      }
+      api.registerTool({
+        name: 'claude_project_open',
+        description: 'Open one of the user\'s claude.ai Projects ("open TraceBite on claude.ai", "open my FlexR Claude project") on the device that asked.',
+        parameters: obj({ project: str('Project name') }, ['project']),
+        async execute(_id, { project } = {}) {
+          const p = findWeb(project);
+          if (!p) return reply({ error: `I don't know a claude.ai project called ${project}. Say "sync my Claude projects" first.` });
+          if (!p.url) return reply({ error: `I don't have the link for ${p.name} yet. Say "sync my Claude projects" with Chrome open.` });
+          await rt.callTool('open_website', { url: p.url });
+          return reply({ opened: p.name, note: `Opened ${p.name} on claude.ai.` });
         },
       });
 
@@ -89,9 +153,9 @@ export function createClaudeLinkPlugin({ driver = null, listCode = () => listCla
         pending.add(k);
         try {
           const list = await getWeb().list();
-          if (list.names) { state.web = list.names; save(); }
+          if (list.names) syncWeb(list);
           if (onWeb(display) || onWeb(project)) {
-            state.linked[k] = { url: null, at: now().toISOString() };
+            state.linked[k] ||= { url: (state.webProjects || []).find((p) => key(p.name) === key(display) || key(p.name) === k)?.url || null, at: now().toISOString() };
             save();
             rt.say?.(`${display} is already on claude.ai.`, { kind: null });
             return;
@@ -108,12 +172,13 @@ export function createClaudeLinkPlugin({ driver = null, listCode = () => listCla
           if (out.error) { rt.say?.(out.error, { kind: null }); return; }
           state.linked[k] = { url: out.url, at: now().toISOString() };
           state.web = [...state.web, display];
+          state.webProjects = [...(state.webProjects || []), { name: display, url: out.url }];
+          (state.noted ||= {})[key(display)] = true;
           save();
           rt.wikiWrite?.({ title: `${display} project`, text: `On claude.ai: ${out.url} (made ${now().toLocaleDateString('en-CA')})` });
           rt.say?.(`Made the ${display} project on claude.ai${out.instructionsMissed ? ", but I couldn't add its instructions — add them on the project page" : ''}.`, { kind: null });
         } finally { pending.delete(k); }
       }
-      const displayOf = (at, fallback) => (at?.path ? path.basename(at.path) : fallback);
 
       api.registerTool({
         name: 'claude_project_make',
@@ -145,10 +210,17 @@ export function createClaudeLinkPlugin({ driver = null, listCode = () => listCla
         if (error || result?.error) return;
         const project = toolName === 'code_new_project' && result.created ? result.project || params.name
           : toolName === 'code_start_task' && result.started ? params.project : null;
-        if (!project || !connected()) return;
+        if (!project) return;
         const at = rt.codingProject?.(project);
         if (!at) return;
         const k = key(at.name);
+        // Its dot in Novi Memory (the brief, README and pictures hang off it), Chrome or not.
+        if (at.path && !(state.folderNoted ||= {})[k]) {
+          state.folderNoted[k] = true;
+          save();
+          rt.wikiWrite?.({ title: `${displayOf(at, project)} project`, text: `Folder: ${at.path}${toolName === 'code_new_project' && params.description ? `\nAbout: ${params.description}` : ''}` });
+        }
+        if (!connected()) return;
         if (state.linked[k] || pending.has(k)) return;
         track(make({ project: at.name, description: toolName === 'code_new_project' ? params.description : '', display: displayOf(at, project) }).catch((err) => log(`[claude-link] ${err.message}`)));
       });

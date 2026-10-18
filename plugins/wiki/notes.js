@@ -26,7 +26,15 @@ export function createNotes({ vault, now = () => new Date() }) {
       const rel = path.join('Notes', `${t}.md`);
       const today = day(now());
       const linked = link(String(text).trim(), t);
-      const existing = vault.read(rel);
+      let existing = vault.read(rel);
+      // "portfolio brief" → "Portfolio brief": an all-lowercase title takes the capitals it's given.
+      const wanted = safeTitle(title || '');
+      if (existing !== null && wanted !== t && wanted.toLowerCase() === t.toLowerCase() && t === t.toLowerCase()) {
+        const to = path.join('Notes', `${wanted}.md`);
+        vault.rename(rel, to);
+        vault.write(to, existing.replace(new RegExp(`^# ${escape(t)}$`, 'm'), `# ${wanted}`));
+        return this.write({ title: wanted, text });
+      }
       if (existing === null) {
         vault.write(rel, `---\ncreated: ${today}\nupdated: ${today}\nsource: novi\n---\n\n# ${t}\n\n${linked}\n`);
         return { title: t, created: true };

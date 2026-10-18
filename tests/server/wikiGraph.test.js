@@ -60,3 +60,39 @@ describe('readNote: one note for the side panel', () => {
     expect(text.indexOf('new')).toBeLessThan(text.indexOf('old'));
   });
 });
+
+// A project's notes as one group (2026-10-18): "X brief" hangs off "X project", which hangs off
+// Novi Memory; a note that mentions nothing else still joins Novi Memory instead of floating alone.
+describe('buildGraph: project groups', () => {
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'novi-portfolio-'));
+  fs.writeFileSync(path.join(folder, 'README.md'), '# Portfolio\n\nMy **site** with a blog.');
+  fs.writeFileSync(path.join(folder, 'logo.png'), 'x');
+  fs.mkdirSync(path.join(folder, 'public', 'images'), { recursive: true });
+  fs.writeFileSync(path.join(folder, 'public', 'images', 'hero.jpg'), 'x');
+  fs.mkdirSync(path.join(folder, 'node_modules', 'pkg'), { recursive: true });
+  fs.writeFileSync(path.join(folder, 'node_modules', 'pkg', 'icon.png'), 'x');
+  const vault = vaultWith({
+    'Notes/Portfolio project.md': `# Portfolio project\n\nFolder: ${folder}\nOn claude.ai: https://claude.ai/project/p`,
+    'Notes/Portfolio logo ideas.md': '# Portfolio logo ideas\n\nround, blue',
+    'Notes/portfolio brief.md': '# portfolio brief\n\n## 2026-10-18\nWhat you asked: a blog',
+    'Notes/Groceries.md': '# Groceries\n\nmilk',
+  });
+  const g = buildGraph(vault);
+  const has = (a, b) => g.links.some((l) => (l.source === a && l.target === b) || (l.source === b && l.target === a));
+  it('brief → project → Novi Memory; lonely notes → Novi Memory', () => {
+    expect(has('Notes/portfolio brief.md', 'Notes/Portfolio project.md')).toBe(true);
+    expect(has('Notes/Portfolio project.md', 'Novi Memory.md')).toBe(true);
+    expect(has('Notes/portfolio brief.md', 'Novi Memory.md')).toBe(false);
+    expect(has('Notes/Groceries.md', 'Novi Memory.md')).toBe(true);
+  });
+  it('every note named after the project hangs off it', () => {
+    expect(has('Notes/Portfolio logo ideas.md', 'Notes/Portfolio project.md')).toBe(true);
+  });
+  it("the project's README, logo and pictures are dots on it (never node_modules)", () => {
+    const files = g.nodes.filter((n) => n.folder === 'Project files');
+    expect(files.map((n) => n.title).sort()).toEqual(['README.md', 'hero.jpg', 'logo.png']);
+    for (const f of files) expect(has(f.id, 'Notes/Portfolio project.md')).toBe(true);
+    expect(files.find((n) => n.title === 'README.md').excerpt).toBe('Portfolio My site with a blog.');
+    expect(files.find((n) => n.title === 'logo.png').excerpt).toBe(`Picture in Portfolio: ${path.join(folder, 'logo.png')}`);
+  });
+});

@@ -77,7 +77,12 @@
       const all = [...document.querySelectorAll(selector)].filter(visible);
       return { count: all.length, text: all.length ? String(all.at(-1).innerText || '').trim().slice(0, 20000) : '' };
     },
-    query({ selector }) { return { texts: [...document.querySelectorAll(selector)].filter(visible).map((el) => clean(el.getAttribute('title') || el.innerText)) }; },
+    // firstLine: a card's name (its first line); attr: that attribute of each match too (a link's href).
+    query({ selector, firstLine = false, attr = null }) {
+      const els = [...document.querySelectorAll(selector)].filter(visible);
+      const text = (el) => (firstLine ? String(el.innerText || '').split('\n').map((l) => l.trim()).find(Boolean) || '' : el.getAttribute('title') || el.innerText);
+      return { texts: els.map((el) => clean(text(el))), ...(attr ? { values: els.map((el) => el.getAttribute(attr) || '') } : {}) };
+    },
     clickSel({ selector, text }) {
       const el = [...document.querySelectorAll(selector)].filter(visible).find((x) => !text || clean(x.getAttribute('title') || x.innerText).toLowerCase() === String(text).toLowerCase());
       if (!el) return { error: 'I could not find that on the page.' };

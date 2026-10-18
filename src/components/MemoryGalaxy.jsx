@@ -4,7 +4,9 @@ import { X, Search } from 'lucide-react';
 // Settings → Memory: the notes in Documents\Novi Memory as a galaxy. Each note is a star coloured
 // by folder and sized by its links; tap one to fly to it and read it. Narrow screens get a list.
 // The note text is shown as plain text (<pre>), never as HTML.
-const COLORS = { Notes: '#00f2fe', Actions: '#ffb547', Home: '#e8ecf4', Shortcuts: '#7cf29a' };
+const COLORS = { Notes: '#00f2fe', Actions: '#ffb547', Home: '#e8ecf4', Shortcuts: '#7cf29a', 'Project files': '#ff8ad8' };
+// Shortcuts and a project's files are many small dots: their names show only up close or when picked.
+const QUIET_LABELS = new Set(['Shortcuts', 'Project files']);
 const colorOf = (folder) => COLORS[folder] || '#b18cff';
 const NARROW = 600;
 
@@ -17,6 +19,7 @@ export default function MemoryGalaxy({ api, onClose }) {
   const box = useRef(null);
   const fg = useRef(null);
   const focus = useRef(null); // the clicked node and its neighbours
+  const hover = useRef(null); // the dot under the mouse (its name shows even when quiet)
 
   useEffect(() => {
     api('/api/wiki/graph').then((r) => r.json()).then(setGraph).catch(() => setError('Could not load your notes.'));
@@ -34,7 +37,7 @@ export default function MemoryGalaxy({ api, onClose }) {
   async function show(node) {
     if (!node) return;
     // Learned shortcuts aren't files: their dot already says what they do.
-    if (node.folder === 'Shortcuts') { setOpen({ id: node.id, title: node.title, text: node.excerpt || '' }); return; }
+    if (node.folder === 'Shortcuts' || node.folder === 'Project files') { setOpen({ id: node.id, title: node.title, text: node.excerpt || '' }); return; }
     try {
       const res = await api(`/api/wiki/note?id=${encodeURIComponent(node.id)}`);
       const body = await res.json();
@@ -86,7 +89,9 @@ export default function MemoryGalaxy({ api, onClose }) {
           ctx.arc(n.x, n.y, r, 0, 2 * Math.PI);
           ctx.fill();
           ctx.shadowBlur = 0;
-          if (scale > 1.2 || !dim) {
+          const quiet = QUIET_LABELS.has(n.folder) && n.title !== 'Shortcuts';
+          const picked = focus.current && focus.current.has(n.id);
+          if (quiet ? scale > 3 || picked || hover.current === n.id : scale > 1.2 || !dim) {
             ctx.font = `${11 / scale}px Inter, sans-serif`;
             ctx.fillStyle = '#c9d1e0';
             ctx.textAlign = 'center';
@@ -96,6 +101,7 @@ export default function MemoryGalaxy({ api, onClose }) {
         })
         .linkColor((l) => (focus.current && focus.current.has(l.source.id) && focus.current.has(l.target.id) ? 'rgba(0,242,254,.7)' : 'rgba(138,148,168,.25)'))
         .d3AlphaDecay(0.01)
+        .onNodeHover((n) => { hover.current = n?.id ?? null; })
         .onNodeClick((n) => { flyTo(n); show(n); })
         .onBackgroundClick(() => { focus.current = null; setOpen(null); });
       fg.current = g;

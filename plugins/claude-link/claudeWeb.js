@@ -28,9 +28,14 @@ export function createClaudeWeb({ request, site = CLAUDE, sleep = (ms) => new Pr
 
   async function list() {
     await open(site.list);
-    if (!(await waitFor(site.cards))) return (await loginNeeded()) ? notReady() : { names: [] };
-    const texts = (await request('query', { selector: site.cards, tabId }))?.texts || [];
-    return { names: [...new Set(texts.map((t) => String(t).split('\n')[0].trim()).filter(Boolean))] };
+    if (!(await waitFor(site.cards))) return (await loginNeeded()) ? notReady() : { names: [], projects: [] };
+    const { texts = [], values = [] } = (await request('query', { selector: site.cards, tabId, firstLine: true, attr: 'href' })) || {};
+    const projects = [];
+    texts.forEach((t, i) => {
+      const name = String(t).split('\n')[0].trim();
+      if (name && !projects.some((p) => p.name === name)) projects.push({ name, url: values[i] ? new URL(values[i], 'https://claude.ai').href : null });
+    });
+    return { names: projects.map((p) => p.name), projects };
   }
 
   async function make({ name, description = '', instructions = '' }) {

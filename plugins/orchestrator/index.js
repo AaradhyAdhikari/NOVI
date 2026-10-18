@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { definePluginEntry } from '#plugin-sdk';
 import { createSiteDriver } from './siteDriver.js';
 import { gatherFacts } from './context.js';
@@ -42,7 +43,8 @@ export function createOrchestratorPlugin({ driver = null, track = () => {}, now 
 
       async function job({ project, name, request, isNew }) {
         const known = !isNew && project ? rt.codingProject?.(project) : null;
-        const title = known?.name || name || project || 'New project';
+        // The folder's own capitals ("Portfolio brief"), so the brief sits next to "Portfolio project".
+        const title = (known?.path && path.basename(known.path)) || known?.name || name || project || 'New project';
         const facts = gatherFacts(known?.path, { note: rt.wikiRead?.(`${title} brief`) });
         const work = { project: known?.name || title, request, facts };
         const connected = Boolean(rt.browserStatus?.().connected);
