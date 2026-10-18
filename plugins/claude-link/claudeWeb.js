@@ -26,15 +26,27 @@ export function createClaudeWeb({ request, site = CLAUDE, sleep = (ms) => new Pr
     return false;
   }
 
+  // Every project card, scrolling until no new one shows up (claude.ai loads more as you scroll).
   async function list() {
     await open(site.list);
-    if (!(await waitFor(site.cards))) return (await loginNeeded()) ? notReady() : { names: [], projects: [] };
-    const { texts = [], values = [] } = (await request('query', { selector: site.cards, tabId, firstLine: true, attr: 'href' })) || {};
+    if (!(await waitFor(site.cards))) {
+      if (await loginNeeded()) return notReady();
+      return { error: "I couldn't read your projects on claude.ai (the page may have changed, or it didn't load). Open claude.ai/projects in Chrome and ask again." };
+    }
     const projects = [];
-    texts.forEach((t, i) => {
-      const name = String(t).split('\n')[0].trim();
-      if (name && !projects.some((p) => p.name === name)) projects.push({ name, url: values[i] ? new URL(values[i], 'https://claude.ai').href : null });
-    });
+    for (let round = 0, quiet = 0; round < 20 && quiet < 2; round++) {
+      const out = (await request('query', { selector: site.cards, tabId, firstLine: true, attr: 'href', scrollLast: true })) || {};
+      const { texts = [], values } = out;
+      if (texts.length && !values) return { error: 'Reload the Novi extension in chrome://extensions (Novi needs its new version to read claude.ai), then ask again.' };
+      let fresh = 0;
+      texts.forEach((t, i) => {
+        const name = String(t).split('\n')[0].trim();
+        if (name && !projects.some((p) => p.name === name)) { projects.push({ name, url: values[i] ? new URL(values[i], 'https://claude.ai').href : null }); fresh += 1; }
+      });
+      quiet = fresh ? 0 : quiet + 1;
+      if (quiet < 2) await sleep(pollMs);
+    }
+    if (!projects.length) return { error: "I couldn't read your projects on claude.ai (the page may have changed, or it didn't load). Open claude.ai/projects in Chrome and ask again." };
     return { names: projects.map((p) => p.name), projects };
   }
 

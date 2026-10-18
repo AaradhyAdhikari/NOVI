@@ -81,7 +81,7 @@ describe('page.js numbering (fake page)', () => {
     expect(fakePage([]).textOf({ selector: '.answer' })).toEqual({ count: 0, text: '' });
     expect(read('background.js')).toMatch(/'textOf'/);
     expect(read('background.js')).toMatch(/args\.tabId \? await chrome\.tabs\.update\(args\.tabId/);
-    expect(JSON.parse(read('manifest.json')).version).toBe('1.3.0');
+    expect(JSON.parse(read('manifest.json')).version).toBe('1.4.0');
   });
   // claude.ai's project list (2026-10-18): each card's name is its first line, its link the href.
   it('query: first line only and an attribute when asked; plain query as before', () => {
@@ -90,6 +90,11 @@ describe('page.js numbering (fake page)', () => {
     const novi = fakePage([a]);
     expect(novi.query({ selector: 'a', firstLine: true, attr: 'href' })).toEqual({ texts: ['FlexR'], values: ['/project/0193-a'] });
     expect(novi.query({ selector: 'a' })).toEqual({ texts: ['FlexR A fitness app Updated 2 days ago'] });
+    // scrollLast: the last match is scrolled into view, so a list that loads more as you scroll shows more.
+    let scrolled = 0;
+    a.scrollIntoView = () => { scrolled += 1; };
+    novi.query({ selector: 'a', firstLine: true, attr: 'href', scrollLast: true });
+    expect(scrolled).toBe(1);
   });
 });
 

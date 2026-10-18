@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { definePluginEntry } from '#plugin-sdk';
-import { listClaudeCodeProjects } from './codeProjects.js';
+import { listClaudeCodeProjects, CONTAINER } from './codeProjects.js';
 import { createClaudeWeb } from './claudeWeb.js';
 
 // Novi ⇄ Claude (user, 2026-10-18): every folder Claude Code has worked in becomes one of Novi's
@@ -16,7 +16,7 @@ const samePath = (a, b) => path.resolve(a).toLowerCase() === path.resolve(b).toL
 const count = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 const NO_CHROME = "Chrome isn't connected, so I can't reach claude.ai. Open Chrome with the Novi extension and ask again.";
 
-export function createClaudeLinkPlugin({ driver = null, listCode = () => listClaudeCodeProjects(), track = (p) => p.catch(() => {}), now = () => new Date(), syncEveryMs = 6 * 3600_000 } = {}) {
+export function createClaudeLinkPlugin({ driver = null, listCode = () => listClaudeCodeProjects(), track = (p) => p.catch(() => {}), now = () => new Date(), syncEveryMs = 30 * 60_000, webEveryMs = 3 * 3600_000 } = {}) {
   return definePluginEntry({
     id: 'claude-link',
     name: 'Claude link',
@@ -37,7 +37,14 @@ export function createClaudeLinkPlugin({ driver = null, listCode = () => listCla
 
       // Claude Code's folders → Novi's projects. Returns what changed.
       function syncCode() {
+        // A container folder Novi added before this rule existed (Documents, ドキュメント) is forgotten again.
+        state.added ||= {};
+        for (const [name, at] of Object.entries(state.added)) {
+          if (CONTAINER.test(path.basename(at)) || CONTAINER.test(name)) { rt.projects?.forget?.(name); delete state.added[name]; }
+        }
         const known = rt.projects?.list?.() || [];
+        // "portfolio brief" → "Portfolio brief", next to "Portfolio project".
+        for (const k of known) if (k.path) rt.wikiRecase?.(`${path.basename(k.path)} brief`);
         const found = listCode();
         const added = [];
         const taken = [];
@@ -46,6 +53,7 @@ export function createClaudeLinkPlugin({ driver = null, listCode = () => listCla
           if (known.some((k) => k.path && samePath(k.path, p.path))) continue;
           if (known.some((k) => key(k.name) === key(p.name))) { taken.push(p.name); continue; }
           try { known.push(rt.projects.remember(p.name, p.path)); } catch (err) { log(`[claude-link] ${p.path}: ${err.message}`); continue; }
+          state.added[key(p.name)] = p.path;
           added.push(p.name);
           (state.folderNoted ||= {})[key(p.name)] = true;
           rt.wikiWrite?.({ title: `${p.name} project`, text: `Folder: ${p.path}\nLast worked on in Claude Code: ${new Date(p.lastUsed).toLocaleDateString('en-CA')} (${count(p.sessions, 'conversation', 'conversations')})${p.about ? `\nAbout: ${p.about}` : ''}` });
@@ -93,8 +101,8 @@ export function createClaudeLinkPlugin({ driver = null, listCode = () => listCla
         async start() {
           const run = async () => {
             try { const { added } = syncCode(); if (added.length) log(`[claude-link] new projects from Claude Code: ${added.join(', ')}`); } catch (err) { log(`[claude-link] sync failed: ${err.message}`); }
-            // claude.ai once a day, in a background tab, while Chrome is connected.
-            if (connected() && (!state.webAt || now() - new Date(state.webAt) > 20 * 3600_000)) {
+            // claude.ai every 3 hours (and soon after Chrome connects), in a background tab.
+            if (connected() && (!state.webAt || now() - new Date(state.webAt) > webEveryMs)) {
               try { const list = await getWeb().list(); if (list.names) syncWeb(list); } catch (err) { log(`[claude-link] claude.ai sync failed: ${err.message}`); }
             }
           };

@@ -193,6 +193,7 @@ export function createNovi(config, overrides = {}) {
       projects: {
         list: () => memory.listProjects().map(({ name, path: at }) => ({ name, path: at })),
         remember: (name, at) => memory.rememberProject(name, at),
+        forget: (name) => memory.forgetProject(name),
       },
       // One answer from any free AI (not private data): `prefer` first, then the usual order.
       complete: async (text, { prefer } = {}) => {

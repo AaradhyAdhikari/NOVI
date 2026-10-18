@@ -39,6 +39,8 @@ function read(file) {
   return { cwd, about };
 }
 
+// Folders that hold projects (or a whole drive's documents) are never a project themselves.
+export const CONTAINER = /^(?:documents|my documents|desktop|downloads|onedrive(?: - .*)?|projects|repos|source|github|code|dev|users|ドキュメント|デスクトップ|ダウンロード)$/i;
 const isDir = (p) => { try { return fs.statSync(p).isDirectory(); } catch { return false; } };
 const inside = (child, parent) => { const rel = path.relative(parent, child); return Boolean(rel) && !rel.startsWith('..') && !path.isAbsolute(rel); };
 
@@ -54,7 +56,7 @@ export function listClaudeCodeProjects({ home = os.homedir(), dir = path.join(ho
     const { cwd, about } = read(files[0].p);
     if (!cwd) continue;
     const at = path.resolve(cwd);
-    if (at === path.resolve(home) || path.parse(at).root === at || !isDir(at)) continue;
+    if (at === path.resolve(home) || path.parse(at).root === at || CONTAINER.test(path.basename(at)) || !isDir(at)) continue;
     const prev = byPath.get(at);
     const lastUsed = files[0].mtime;
     if (prev) { prev.sessions += files.length; if (lastUsed > prev.ms) Object.assign(prev, { ms: lastUsed, about: about || prev.about }); continue; }

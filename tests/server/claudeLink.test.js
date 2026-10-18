@@ -38,6 +38,10 @@ describe('Claude Code projects on the laptop', () => {
     session(home, 'sub', path.join(portfolio, 'src'), { mtime: new Date(2026, 9, 18) }); // inside portfolio
     session(home, 'gone', path.join(home, 'Projects', 'deleted')); // folder no longer there
     session(home, 'home', home); // Claude opened in the home folder: not a project
+    for (const box of ['ドキュメント', 'Desktop', 'Downloads', 'OneDrive', 'Projects']) {
+      fs.mkdirSync(path.join(home, box), { recursive: true });
+      session(home, `box-${box}`, path.join(home, box)); // folders that hold projects aren't projects
+    }
     const out = listClaudeCodeProjects({ home });
     expect(out.map((p) => p.name)).toEqual(['Portfolio', 'calc']);
     expect(out[0]).toMatchObject({ path: portfolio, sessions: 2, about: 'Portfolio with a blog' });
@@ -51,7 +55,8 @@ describe('Claude Code projects on the laptop', () => {
 });
 
 // A fake Chrome: claude.ai pages as the extension would answer them.
-function fakeChrome({ cards = ['Novi\nVoice assistant', 'Old notes'], loggedIn = true, makeUrl = 'https://claude.ai/project/0193-abc' } = {}) {
+function fakeChrome({ cards = ['Novi\nVoice assistant', 'Old notes'], later = [], loggedIn = true, makeUrl = 'https://claude.ai/project/0193-abc', oldExtension = false } = {}) {
+  let shown = cards;
   const calls = [];
   let url = 'about:blank';
   const request = async (cmd, args = {}) => {
@@ -60,7 +65,12 @@ function fakeChrome({ cards = ['Novi\nVoice assistant', 'Old notes'], loggedIn =
     if (cmd === 'tabs') return { tabs: [{ id: 7, url }] };
     if (cmd === 'waitFor') return { found: loggedIn };
     if (cmd === 'has') return { found: !loggedIn && /login|Log in/.test(args.selector) };
-    if (cmd === 'query') return { texts: cards.map((c) => c.split('\n')[0]), values: cards.map((_c, i) => `/project/p${i + 1}`) };
+    if (cmd === 'query') {
+      if (oldExtension) return { texts: shown.map((c) => c.replace(/\n/g, ' ')) };
+      const out = { texts: shown.map((c) => c.split('\n')[0]), values: shown.map((_c, i) => `https://claude.ai/project/p${i + 1}`) };
+      if (args.scrollLast) shown = [...cards, ...later];
+      return out;
+    }
     if (cmd === 'clickSel') { if (/submit/.test(args.selector)) url = makeUrl; return {}; }
     return {};
   };
@@ -74,8 +84,25 @@ describe('claude.ai Projects through Chrome', () => {
     const c = fakeChrome();
     const web = createClaudeWeb({ request: c.request, ...quick });
     expect(await web.list()).toEqual({ names: ['Novi', 'Old notes'], projects: [{ name: 'Novi', url: 'https://claude.ai/project/p1' }, { name: 'Old notes', url: 'https://claude.ai/project/p2' }] });
-    expect(c.calls.find(([cmd]) => cmd === 'query')[1]).toMatchObject({ firstLine: true, attr: 'href' });
+    expect(c.calls.find(([cmd]) => cmd === 'query')[1]).toMatchObject({ firstLine: true, attr: 'href', scrollLast: true });
     expect(c.calls[0]).toEqual(['open', { url: 'https://claude.ai/projects', newTab: true, background: true }]);
+  });
+
+  it('reads the whole list: scrolls until no new projects show up', async () => {
+    const c = fakeChrome({ cards: ['Portfolio', 'AI'], later: ['NOVI', 'TraceBites'] });
+    const web = createClaudeWeb({ request: c.request, ...quick });
+    expect((await web.list()).names).toEqual(['Portfolio', 'AI', 'NOVI', 'TraceBites']);
+    expect(c.calls.find(([cmd]) => cmd === 'query')[1].selector).toBe('a[href*="/project/"]');
+  });
+
+  it('an extension that wasn\'t reloaded → says so, never "no projects"', async () => {
+    const web = createClaudeWeb({ request: fakeChrome({ oldExtension: true }).request, ...quick });
+    expect((await web.list()).error).toMatch(/Reload the Novi extension in chrome:\/\/extensions/);
+  });
+
+  it('no project cards on a loaded page → "couldn\'t read", never "no projects"', async () => {
+    const web = createClaudeWeb({ request: fakeChrome({ cards: [] }).request, ...quick });
+    expect((await web.list()).error).toMatch(/couldn't read your projects on claude\.ai/);
   });
 
   it('makes a project: name, description, then the instructions', async () => {
@@ -99,8 +126,8 @@ describe('claude.ai Projects through Chrome', () => {
   });
 });
 
-function setup({ known = [], web = {}, connected = true, codeProjects = [] } = {}) {
-  const dataDir = tmp();
+function setup({ known = [], web = {}, connected = true, codeProjects = [], dataDir = tmp() } = {}) {
+  const recased = [];
   const remembered = [...known];
   const notes = [];
   const made = [];
@@ -111,11 +138,13 @@ function setup({ known = [], web = {}, connected = true, codeProjects = [] } = {
     projects: {
       list: () => remembered.map((p) => ({ ...p })),
       remember: (name, p) => { remembered.push({ name: name.toLowerCase(), path: p }); return { name: name.toLowerCase(), path: p }; },
+      forget: (name) => { const i = remembered.findIndex((p) => p.name === name); if (i >= 0) remembered.splice(i, 1); return i >= 0; },
     },
     codingProject: (n) => remembered.find((p) => p.name === String(n).toLowerCase()) || null,
     browserStatus: () => ({ connected }),
     wikiWrite: (n) => { notes.push(n); return { title: n.title }; },
     wikiRead: () => null,
+    wikiRecase: (t) => { recased.push(t); return true; },
     callTool: async (name, args) => { opened.push([name, args]); return { opened: true }; },
   };
   const driver = {
@@ -125,7 +154,7 @@ function setup({ known = [], web = {}, connected = true, codeProjects = [] } = {
   const host = new PluginHost({ runtime, logger: { warn() {}, info() {} } });
   expect(host.register(createClaudeLinkPlugin({ driver, listCode: () => codeProjects, track: (p) => jobs.push(p), now: () => new Date(2026, 9, 18) }))).toBe(true);
   const run = (name, args = {}) => host.get(name).run(args);
-  return { host, run, remembered, notes, made, jobs, dataDir, opened, runtime };
+  return { host, run, remembered, notes, made, jobs, dataDir, opened, runtime, recased };
 }
 
 describe('claude-link plugin', () => {
@@ -168,6 +197,15 @@ describe('claude-link plugin', () => {
     await s.run('claude_projects_sync');
     expect(s.notes).toHaveLength(3);
     expect((await s.run('claude_project_make', { project: 'tracebite' })).note).toBe('TraceBite is already on claude.ai: https://claude.ai/project/t');
+  });
+
+  it('sync: a folder Novi added that is only a container (Documents) is forgotten again; brief names get capitals', async () => {
+    const s = setup({ known: [{ name: 'portfolio', path: '/p/Portfolio' }] });
+    fs.writeFileSync(path.join(s.dataDir, 'claude-link.json'), JSON.stringify({ added: { 'ドキュメント': '/home/u/ドキュメント' } }));
+    const s2 = setup({ known: [{ name: 'portfolio', path: '/p/Portfolio' }, { name: 'ドキュメント', path: '/home/u/ドキュメント' }], dataDir: s.dataDir });
+    await s2.run('claude_projects_sync');
+    expect(s2.remembered.map((p) => p.name)).toEqual(['portfolio']);
+    expect(s2.recased).toEqual(['Portfolio brief']);
   });
 
   it('open: a claude.ai project on the device that asked (a link on the phone), any spelling', async () => {

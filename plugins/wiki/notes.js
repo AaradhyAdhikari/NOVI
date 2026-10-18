@@ -26,21 +26,26 @@ export function createNotes({ vault, now = () => new Date() }) {
       const rel = path.join('Notes', `${t}.md`);
       const today = day(now());
       const linked = link(String(text).trim(), t);
-      let existing = vault.read(rel);
-      // "portfolio brief" → "Portfolio brief": an all-lowercase title takes the capitals it's given.
-      const wanted = safeTitle(title || '');
-      if (existing !== null && wanted !== t && wanted.toLowerCase() === t.toLowerCase() && t === t.toLowerCase()) {
-        const to = path.join('Notes', `${wanted}.md`);
-        vault.rename(rel, to);
-        vault.write(to, existing.replace(new RegExp(`^# ${escape(t)}$`, 'm'), `# ${wanted}`));
-        return this.write({ title: wanted, text });
-      }
+      const existing = vault.read(rel);
+      if (existing !== null && this.recase(title)) return this.write({ title, text });
       if (existing === null) {
         vault.write(rel, `---\ncreated: ${today}\nupdated: ${today}\nsource: novi\n---\n\n# ${t}\n\n${linked}\n`);
         return { title: t, created: true };
       }
       vault.write(rel, `${existing.replace(/^updated: .*$/m, `updated: ${today}`).trimEnd()}\n\n${linked}\n`);
       return { title: t, created: false };
+    },
+    // "portfolio brief" → "Portfolio brief": an all-lowercase title takes the capitals it's given.
+    recase(title) {
+      const wanted = safeTitle(title || '');
+      const t = find(wanted);
+      if (!t || t === wanted || t !== t.toLowerCase()) return false;
+      const rel = path.join('Notes', `${t}.md`);
+      const to = path.join('Notes', `${wanted}.md`);
+      const text = vault.read(rel);
+      vault.rename(rel, to);
+      vault.write(to, text.replace(new RegExp(`^# ${escape(t)}$`, 'm'), `# ${wanted}`));
+      return true;
     },
     search(question, k = 6) {
       const q = words(question);
