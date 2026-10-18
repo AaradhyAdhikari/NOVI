@@ -1,0 +1,9 @@
+{
+  "id": "brain",
+  "name": "Second brain",
+  "description": "Every file, folder, project and note on the laptop in one searchable SQLite brain (names of everything, the words inside every readable file, secrets never read); each AI turn about the user's own things gets only the few passages it needs.",
+  "categories": ["other"],
+  "contracts": { "tools": ["brain_search", "brain_status"] },
+  "activation": { "onStartup": true },
+  "configSchema": { "type": "object", "additionalProperties": false, "properties": {} }
+}

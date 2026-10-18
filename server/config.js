@@ -41,6 +41,9 @@ const DEFAULT_FAST = ['groq', 'gemini', 'cerebras', 'mistral', 'githubmodels', '
 // Groq first for both: measured ~0.5s vs Gemini 12-30s for tool-calling turns (2026-10-02).
 const DEFAULT_LONG = ['groq', 'gemini', 'cerebras', 'mistral', 'githubmodels', 'sambanova', 'openrouter'];
 
+// Every AI provider Novi can use (Settings → System shows which have keys).
+export const PROVIDER_NAMES = Object.keys(PROVIDERS);
+
 export function splitList(value) {
   return (value || '').split(',').map((s) => s.trim()).filter(Boolean);
 }

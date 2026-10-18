@@ -1,0 +1,9 @@
+{
+  "id": "ai-keys",
+  "name": "AI keys check",
+  "description": "Says which free AI providers have keys in .env and which are missing, never the keys themselves.",
+  "categories": ["other"],
+  "contracts": { "tools": ["ai_keys_status"] },
+  "activation": { "onStartup": true },
+  "configSchema": { "type": "object", "additionalProperties": false, "properties": {} }
+}

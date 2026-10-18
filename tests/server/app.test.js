@@ -207,6 +207,10 @@ describe('Novi server', () => {
     expect(h.errors).toEqual([{ at: '2026-10-07T03:00:00.000Z', level: 'warn', text: 'Groq slow' }]);
     expect(h.lastBackup).toMatchObject({ file: 'novi-data-2026-10-07-0300.zip' });
     expect(h.providers).toEqual([{ name: 'groq', healthy: true }]);
+    // Every AI provider Novi knows, with how many keys it has (never the keys).
+    expect(h.aiKeys).toContainEqual({ name: 'cerebras', keys: 0 });
+    expect(h.aiKeys.map((k) => k.name)).toEqual(expect.arrayContaining(['groq', 'gemini', 'cerebras', 'mistral', 'githubmodels', 'sambanova', 'openrouter']));
+    expect(JSON.stringify(h.aiKeys)).not.toMatch(/key-|gsk_/);
   });
 
   it('restarts only when running under the supervisor', async () => {

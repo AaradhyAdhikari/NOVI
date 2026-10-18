@@ -38,6 +38,8 @@ export function createWikiPlugin({ now = () => new Date(), env = process.env, ho
         // "portfolio brief" → "Portfolio brief" (only an all-lowercase title takes new capitals).
         api.runtime.wikiRecase = (title) => notes.recase(title);
         api.runtime.wikiRead = (title) => { const t = notes.find(title); return t ? notes.body(t).trim() : null; };
+        // Every note's title and text (the second brain searches them).
+        api.runtime.wikiNotes = () => notes.titles().map((t) => ({ title: t, text: notes.body(t) }));
       }
 
       api.on('after_tool_call', (event) => { actions.record(event); });
