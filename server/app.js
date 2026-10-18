@@ -172,11 +172,12 @@ export function createNovi(config, overrides = {}) {
       // The orchestrator (plugins/orchestrator): its brief card is a normal approval card (spoken, answered
       // by voice; never granted), and once the user said yes there, Claude starts without a second card.
       ask: (card) => approvals.decide({ tier: 'medium', grantable: false, timeoutMs: 30 * 60_000, source: 'novi', ...card }),
-      startCoding: ({ project, instruction }) => plugins.get('code_start_task').run({ project, instruction, agent: 'claude' }),
+      // The brief was the yes, so Claude doesn't show a second plan ($planFirst: false).
+      startCoding: ({ project, instruction }) => plugins.get('code_start_task').run({ project, instruction, agent: 'claude', $planFirst: false }),
       newProject: ({ name, description, instruction }) => {
         const tool = plugins.get('code_new_project');
         if (!tool) throw new Error("I don't know where to make new projects (set NOVI_PROJECTS_DIR).");
-        return tool.run({ name, description, instruction, agent: 'claude' });
+        return tool.run({ name, description, instruction, agent: 'claude', $planFirst: false });
       },
       // One answer from any free AI (not private data): `prefer` first, then the usual order.
       complete: async (text, { prefer } = {}) => {

@@ -156,8 +156,8 @@ describe('coding agent and plugins pass categories', () => {
     await tm._onPermission(task, { toolName: 'Edit', input: { file_path: 'C:\proj\a.js' } });
     await tm._onPermission(task, { toolName: 'Bash', input: { command: 'npm test' } });
     await tm._onPermission(task, { toolName: 'Bash', input: { command: 'git push' } });
-    // Ordinary commands no longer ask at all (user's decision 2026-10-17); risky ones still do.
-    expect(seen.map((o) => [o.category, o.grantable])).toEqual([['files', true], ['commands', false]]);
+    // Ordinary commands and edits inside the project no longer ask (2026-10-17 / 2026-10-18); risky ones still do.
+    expect(seen.map((o) => [o.category, o.grantable])).toEqual([['commands', false]]);
   });
 
   it('a plugin can name its own category or mark an approval as never grantable', async () => {

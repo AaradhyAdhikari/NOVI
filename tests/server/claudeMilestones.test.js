@@ -27,38 +27,23 @@ function setup(opts) {
   return { tm, spoken };
 }
 
+// User, 2026-10-18: reading out every step was irritating. The plan comes first as a card (plan
+// first), steps stay on screen ("what's the progress" still answers), only the end is spoken.
 describe('spoken updates while Claude works', () => {
-  it('says the plan, then each finished step, then the end', async () => {
-    const { tm, spoken } = setup({ milestoneGapMs: 0 });
-    tm.start('portfolio', 'PLAN a portfolio site');
-    await until(() => tm.status().status === 'done');
-    expect(spoken.filter((s) => !s.startsWith('Claude finished.'))).toEqual([
-      "Claude made a plan of 3 steps. I'll tell you as each one is done.",
-      'Claude finished step 1 of 3: Write the homepage.',
-      'Claude finished step 2 of 3: Add the contact form.',
-    ]);
-    expect(spoken.at(-1)).toBe('Claude finished. Built the site.');
-    await tm.shutdown();
-  });
-
-  it('never talks more often than the gap allows (the end still comes)', async () => {
-    const { tm, spoken } = setup({ milestoneGapMs: 60_000 });
-    tm.start('portfolio', 'PLAN');
-    await until(() => tm.status().status === 'done');
-    expect(spoken.filter((s) => s.startsWith('Claude finished step'))).toEqual([]);
-    expect(spoken.at(-1)).toBe('Claude finished. Built the site.');
-    await tm.shutdown();
-  });
-
-  it('a quiet stretch gets a "still working" line (at most 3 in a row)', async () => {
+  it('only the end is spoken; the plan and steps stay on the screen', async () => {
     const { tm, spoken } = setup({ milestoneGapMs: 0, stillWorkingMs: 40 });
-    tm.start('portfolio', 'PLANWAIT');
-    await new Promise((r) => setTimeout(r, 400));
-    expect(spoken.filter((s) => s === 'Claude is still on step 1 of 3: Writing the homepage.')).toHaveLength(3);
-    await tm.stop();
-    const after = spoken.length;
-    await new Promise((r) => setTimeout(r, 150));
-    expect(spoken.length).toBe(after);
+    tm.start('portfolio', 'PLAN a portfolio site', { planFirst: false });
+    await until(() => tm.status().status === 'done');
+    expect(spoken).toEqual(['Claude finished. Built the site.']);
+    expect(tm.status().plan).toHaveLength(3);
+    await tm.shutdown();
+  });
+
+  it('no "still working" lines in a quiet stretch', async () => {
+    const { tm, spoken } = setup({ milestoneGapMs: 0, stillWorkingMs: 40 });
+    tm.start('portfolio', 'PLANWAIT', { planFirst: false });
+    await new Promise((r) => setTimeout(r, 300));
+    expect(spoken).toEqual([]);
     await tm.shutdown();
   });
 });

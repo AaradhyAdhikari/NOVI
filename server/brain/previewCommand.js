@@ -3,7 +3,7 @@
 import { clean } from './phrases.js';
 
 const HOME = /^(?:home ?page|home|site|website|preview|main page|landing page)$/i;
-const page = (word) => (HOME.test(word) ? 'home' : word.toLowerCase().replace(/\s*page$/, '').trim());
+const page = (word) => (HOME.test(word) ? 'home' : word.toLowerCase().replace(/\s*(?:page|section|part|tab)$/, '').trim());
 const show = (word, project) => ({ tool: 'preview_show', args: { page: page(word), ...(project ? { project: project.trim() } : {}) } });
 
 export function previewCommand(text) {
@@ -11,9 +11,9 @@ export function previewCommand(text) {
   // A named website (LeetCode login, YouTube…) is the browser's job, not the project's preview.
   if (/\b(?:leet ?code|github|youtube|whats ?app|google|gmail|instagram|login|log in|sign ?in|sign ?up)\b/i.test(t)) return null;
   if (/^(?:stop|close|end) (?:the )?preview$|^preview (?:band|bandh) (?:karo|kar do)$/i.test(t)) return { tool: 'preview_stop', args: {} };
-  let m = /^show(?: me)? (?:the |my )?(home ?page|site|website|preview|(?:[a-z]+ )?[a-z]+ page)(?: of (?:my |the )?(.+))?$/i.exec(t);
+  let m = /^show(?: me)? (?:the |my )?(home ?page|site|website|preview|(?:[a-z]+ )?[a-z]+ (?:page|section|part|tab))(?: of (?:my |the )?(.+))?$/i.exec(t);
   if (m) return show(m[1], m[2]);
-  m = /^(?:(.+?) ka )?(home ?page|site|website|preview|[a-z]+ page) (?:dikhao|dikha do|dikhaao)$/i.exec(t);
+  m = /^(?:(.+?) ka )?(home ?page|site|website|preview|[a-z]+ (?:page|section|part)) (?:dikhao|dikha do|dikhaao)$/i.exec(t);
   if (m) return show(m[2], m[1]);
   // "A screenshot of the work you're doing" / "show me what you're building": the coding project's
   // site, not the laptop screen (live 2026-10-17 it sent the laptop).
@@ -23,8 +23,8 @@ export function previewCommand(text) {
   if (!onLaptop && ((pic && (work || /\bprogress\b/i.test(t))) || (/^(?:show|send)\b/i.test(t) && work))) return show('home');
   // "A screenshot / picture / ss of the homepage (of the portfolio)": the project's page, not the laptop.
   if (/\b(?:screen ?shot|ss|picture|pic|photo|image)\b/i.test(t) && !/\b(?:laptop|screen|desktop|computer|pc|window)\b/i.test(t.replace(/screen ?shot/gi, ''))) {
-    const named = /\b(?!home\b)([a-z]+) page\b/i.exec(t);
-    if (named) return show(`${named[1]} page`);
+    const named = /\b(?!home\b)([a-z]+) (page|section|part|tab)\b/i.exec(t);
+    if (named) return show(`${named[1]} ${named[2]}`);
     if (/\b(?:home ?page|website|site|portfolio)\b/i.test(t)) return show('home');
   }
   return null;

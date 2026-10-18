@@ -54,3 +54,12 @@ describe('preview by voice (no AI)', () => {
     for (const t of ['show me the HTML', 'show me valorant', 'open the login page', 'show me my GitHub graph', 'show me the code', 'show me the leetcode login page', 'show me the youtube home page']) expect(previewCommand(t), t).toBe(null);
   });
 });
+
+// Live 2026-10-18: "screenshot of the blog section" — a section counts like a page.
+describe('sections', () => {
+  it('"blog section" / "the blog part" / "show me the blog section" → that page or section', () => {
+    expect(previewCommand('send me a screenshot of the blog section')).toEqual({ tool: 'preview_show', args: { page: 'blog' } });
+    expect(previewCommand('show me the blog section of portfolio')).toEqual({ tool: 'preview_show', args: { page: 'blog', project: 'portfolio' } });
+    expect(previewCommand('ss of the projects part')).toEqual({ tool: 'preview_show', args: { page: 'projects' } });
+  });
+});

@@ -94,14 +94,13 @@ export class Narrator {
     const d = describeEvent(event, this.agentName);
     if (!d) return;
     this.onFeed(d.text);
+    // Only the end and real problems are spoken (user, 2026-10-18: reading out every step was
+    // irritating); routine steps stay on the screen.
     if (d.urgent) {
       this.pending = [];
       this._clearTimer();
       this.onSpeak(d.text);
-      return;
     }
-    this.pending.push(d);
-    if (!this.timer) this.timer = setTimeout(() => this.flush(), this.intervalMs);
   }
 
   flush() {

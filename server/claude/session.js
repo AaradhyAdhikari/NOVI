@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events';
 import crypto from 'node:crypto';
 import { normalizeEvent } from './stream.js';
 
-export function claudeArgs({ resumeSessionId } = {}) {
+export function claudeArgs({ resumeSessionId, permissionMode } = {}) {
   const args = [
     '-p',
     '--input-format', 'stream-json',
@@ -12,9 +12,11 @@ export function claudeArgs({ resumeSessionId } = {}) {
     '--permission-prompts', 'host',
     '--permission-prompt-tool', 'stdio',
     // Novi answers "what's the progress" / "what's next" by voice from this plan.
-    '--append-system-prompt', 'The user follows this task by voice from their phone. For any task with more than one step, keep a short step-by-step plan with the TodoWrite tool (one short line per step) and update it as you work. If the project has a website, write .novi/run.json with {"command", "port", "pages": {"home": "/", ...}} so Novi can preview it.',
+    '--append-system-prompt', 'The user follows this task by voice from their phone. For any task with more than one step, keep a short step-by-step plan with the TodoWrite tool (one short line per step) and update it as you work. Ask the user a question only when you truly cannot continue; otherwise make a sensible choice and say so in your plan. If the project has a website, write .novi/run.json with {"command", "port", "pages": {"home": "/", ...}} so Novi can preview it.',
   ];
   if (resumeSessionId) args.push('--resume', resumeSessionId);
+  // Plan first (2026-10-18): Claude shows its plan (ExitPlanMode → Novi's card) before building.
+  if (permissionMode) args.push('--permission-mode', permissionMode);
   return args;
 }
 
@@ -30,12 +32,12 @@ export function killTree(pid) {
 // One live Claude Code process. Follow-up messages go to the same stdin, so
 // the conversation keeps its context; permission asks arrive as control requests.
 export class ClaudeSession extends EventEmitter {
-  constructor({ command, argsPrefix = [], cwd, resumeSessionId, onPermission, spawnImpl = spawn }) {
+  constructor({ command, argsPrefix = [], cwd, resumeSessionId, permissionMode, onPermission, spawnImpl = spawn }) {
     super();
     this.onPermission = onPermission;
     this.sessionId = resumeSessionId || null;
     this.exited = false;
-    this.proc = spawnImpl(command, [...argsPrefix, ...claudeArgs({ resumeSessionId })], {
+    this.proc = spawnImpl(command, [...argsPrefix, ...claudeArgs({ resumeSessionId, permissionMode })], {
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,

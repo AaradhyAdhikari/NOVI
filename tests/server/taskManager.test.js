@@ -60,8 +60,7 @@ describe('TaskManager', () => {
     tm.start('portfolio', 'add login');
     expect(tm.status()).toMatchObject({ active: true, project: 'portfolio', status: 'running' });
     await until(() => tm.status().status === 'done');
-    expect(asked).toHaveLength(1);
-    expect(asked[0]).toMatchObject({ tier: 'medium', source: 'claude', title: 'Claude wants to write login.js' });
+    expect(asked).toHaveLength(0); // edits inside the project no longer ask (2026-10-18)
     expect(fed).toContain('Reading app.js');
     expect(spoken.at(-1)).toBe('Claude finished. Finished: add login.');
     expect(memory.lastTask()).toMatchObject({ project: 'portfolio', status: 'done', sessionId: 'fake-session-1' });
@@ -239,9 +238,67 @@ describe('coder commands without asking', () => {
     expect(asked.map((a) => a.tier)).toEqual(['high', 'high', 'high', 'high', 'high']);
   });
 
-  it('file edits are unchanged: they still ask unless the task allows edits', async () => {
+  // User, 2026-10-18: "it's asking too many questions" — one yes for the plan, then edits inside the
+  // project run at once too; outside the project still asks.
+  it('file edits inside the project run at once; outside it they still ask', async () => {
     const { tm } = makeManager();
-    await tm._onPermission(task, { toolName: 'Write', input: { file_path: '/tmp/portfolio/index.html' } });
+    const auto = [];
+    approvals.on('auto_allowed', (a) => auto.push(a.title));
+    expect(await tm._onPermission(task, { toolName: 'Write', input: { file_path: '/tmp/portfolio/index.html' } })).toEqual({ allow: true });
+    expect(asked).toHaveLength(0);
+    expect(auto).toEqual(['Claude wants to write index.html']);
+    await tm._onPermission(task, { toolName: 'Write', input: { file_path: '/etc/hosts' } });
     expect(asked).toHaveLength(1);
+  });
+});
+
+// User, 2026-10-18: "the process in short should come first to me to verify … then Novi should work on it."
+// Claude starts in plan mode; its plan comes as a card + a short spoken version; yes = it builds.
+describe('plan first', async () => {
+  const { EventEmitter } = await import('node:events');
+  const PLAN = '# Blog for portfolio\n\n1. Add a blog page\n2. Add two sample posts\n3. Link it from the menu\n4. Check it on a phone';
+  function planSetup(answer) {
+    const q = new ApprovalQueue();
+    const cards = [];
+    const opened = [];
+    q.on('added', (a) => { cards.push(a); answer(q, a); });
+    const sent = [];
+    const tm = new TaskManager({
+      memory, approvals: q,
+      createSession: (o) => { opened.push(o); return Object.assign(new EventEmitter(), { exited: false, send: (t) => sent.push(t), stop: async () => {}, close: () => {} }); },
+    });
+    return { tm, cards, opened, sent };
+  }
+
+  it('Claude plans first; the plan is a card with a short spoken line; yes lets it build without more questions', async () => {
+    const { tm, cards, opened } = planSetup((q, a) => q.resolve(a.id, true));
+    tm.start('portfolio', 'add a blog', { agent: 'claude' });
+    expect(opened[0].permissionMode).toBe('plan');
+    expect(await tm._onPermission(tm.task, { toolName: 'ExitPlanMode', input: { plan: PLAN } })).toEqual({ allow: true });
+    expect(cards[0]).toMatchObject({ title: "Claude's plan for portfolio", source: 'claude', changeable: true, addable: true, tier: 'medium' });
+    expect(cards[0].prompt).toBe("Claude's plan for portfolio: add a blog page, then add two sample posts, and 2 more steps. Go ahead?");
+    expect(cards[0].detail).toBe(PLAN);
+    expect(tm.task.allowEdits).toBe(true);
+  });
+
+  it('"change X" sends X back so Claude plans again; no stops it; "yes, also X" adds X', async () => {
+    const changed = planSetup((q, a) => q.resolve(a.id, false, 'voice', null, { change: 'use a dark theme' }));
+    changed.tm.start('portfolio', 'add a blog');
+    expect(await changed.tm._onPermission(changed.tm.task, { toolName: 'ExitPlanMode', input: { plan: PLAN } })).toEqual({ allow: false, message: 'The user wants changes to the plan: use a dark theme. Make a new plan with that and show it again with ExitPlanMode.' });
+    const no = planSetup((q, a) => q.resolve(a.id, false));
+    no.tm.start('portfolio', 'add a blog');
+    expect((await no.tm._onPermission(no.tm.task, { toolName: 'ExitPlanMode', input: { plan: PLAN } })).allow).toBe(false);
+    const also = planSetup((q, a) => q.resolve(a.id, true, 'voice', null, { addition: 'add an RSS feed' }));
+    also.tm.start('portfolio', 'add a blog');
+    expect(await also.tm._onPermission(also.tm.task, { toolName: 'ExitPlanMode', input: { plan: PLAN } })).toEqual({ allow: true });
+    expect(also.sent.at(-1)).toBe('Also: add an RSS feed');
+  });
+
+  it('a brief that was already approved, or Novi Coder, starts straight away', async () => {
+    const { tm, opened } = planSetup(() => {});
+    tm.start('portfolio', 'add a blog', { planFirst: false });
+    tm.task.status = 'done';
+    tm.start('portfolio', 'fix a typo', { agent: 'novi-coder' });
+    expect(opened.map((o) => o.permissionMode)).toEqual([undefined, undefined]);
   });
 });

@@ -58,21 +58,20 @@ describe('firstSentence', () => {
 describe('Narrator', () => {
   afterEach(() => vi.useRealTimers());
 
-  it('feeds every update, batches routine speech, speaks urgent updates immediately', () => {
+  // User, 2026-10-18: "she reads all her actions, that's just irritating" — routine steps go on the
+  // screen only; only the end and real problems are spoken.
+  it('feeds every update; speaks only the end and failures, never routine steps', () => {
     vi.useFakeTimers();
     const fed = [];
     const spoken = [];
     const n = new Narrator({ onFeed: (t) => fed.push(t), onSpeak: (t) => spoken.push(t), intervalMs: 8000 });
     n.push(use('Read', { file_path: 'a.js' }));
     n.push(use('Read', { file_path: 'b.js' }));
+    vi.advanceTimersByTime(60_000);
     expect(spoken).toEqual([]);
-    vi.advanceTimersByTime(8000);
-    expect(spoken).toEqual(['Reading 2 files']);
     n.push(use('Edit', { file_path: 'a.js' }));
     n.push({ kind: 'result', isError: false, text: 'Done.' });
-    expect(spoken).toEqual(['Reading 2 files', 'Claude finished. Done.']);
-    vi.advanceTimersByTime(8000);
-    expect(spoken).toHaveLength(2);
+    expect(spoken).toEqual(['Claude finished. Done.']);
     expect(fed).toEqual(['Reading a.js', 'Reading b.js', 'Editing a.js', 'Claude finished. Done.']);
   });
 });
