@@ -29,3 +29,31 @@ export function claudeLinkCommand(text) {
   if (!project || /^(?:a|an|new|this|that|it)$/i.test(project)) return null;
   return { tool: 'claude_project_make', args: { project } };
 }
+
+// "Link the FLEXR context file to my FlexR project", "the folder for FlexR is C:\…", or a pasted path on
+// its own (live 2026-10-18: the AI kept asking for the path, even after it was pasted). No AI.
+// → { project?, path? | name? }: path = an absolute path as written, name = what the folder is called.
+const ABS = /^(?:[A-Za-z]:[\\/]|\\\\|\/)\S/;
+const unquote = (s) => String(s || '').trim().replace(/^["'“”‘’]+|["'“”‘’]+$/g, '').trim();
+const LINK_TAIL = /[\s,]*(?:according to (?:you|u)|please|for me|right now|now)?[.!?]*$/i;
+const targetOf = (s) => {
+  const t = unquote(s);
+  if (ABS.test(t)) return { path: t };
+  const n = t.replace(/^(?:the|my)\s+/i, '').replace(/\s+(?:file|folder|files|folders)$/i, '').trim();
+  return n ? { name: n } : null;
+};
+
+export function linkFolderCommand(text) {
+  const raw = unquote(String(text || '').replace(/[.!?]+$/, ''));
+  if (ABS.test(raw) && !/\s(?:to|with|into)\s/i.test(raw)) return { path: raw };
+  const t = String(text || '').trim().replace(LEAD, '').replace(LINK_TAIL, '');
+  let project = null;
+  let target = null;
+  const m = /^(?:link|attach|connect|sync|add|put|save)\s+(.+?)\s+(?:to|with|into|in)\s+(?:my\s+|the\s+)?(.+?)\s+project$/i.exec(t);
+  const f = /^(?:the\s+)?(?:folder|path)\s+(?:for|of)\s+(?:my\s+|the\s+)?(.+?)(?:\s+project)?\s+is\s+(.+)$/i.exec(t)
+    || /^(?:my\s+|the\s+)?(.+?)\s+project\s+is\s+(?:in|at)\s+(.+)$/i.exec(t);
+  if (m) { project = m[2]; target = targetOf(m[1]); } else if (f) { project = f[1]; target = targetOf(f[2]); }
+  project = project?.trim();
+  if (!project || !target || /^claude/i.test(project)) return null;
+  return { project, ...target };
+}

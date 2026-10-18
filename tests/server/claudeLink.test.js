@@ -291,3 +291,24 @@ describe('claude-link by voice', () => {
     expect(claudeLinkCommand(text)).toBeNull();
   });
 });
+
+// "Link the FLEXR context file to my FlexR project" (live, 2026-10-18: the AI kept asking for the path,
+// even after it was pasted) — understood without the AI.
+describe('linking a folder to a project by voice', () => {
+  it.each([
+    ['link the FLEXR context file to my FLEXR project according to u', { project: 'FLEXR', name: 'FLEXR context' }],
+    ['sync the flexr context folder to my flexr project', { project: 'flexr', name: 'flexr context' }],
+    ['connect my robotics folder with the SIH project', { project: 'SIH', name: 'robotics' }],
+    ['the folder for FlexR is "C:\\Users\\A\\OneDrive\\ドキュメント\\FLEXR context"', { project: 'FlexR', path: 'C:\\Users\\A\\OneDrive\\ドキュメント\\FLEXR context' }],
+    ['link C:\\Users\\A\\Projects\\shop to my shop project', { project: 'shop', path: 'C:\\Users\\A\\Projects\\shop' }],
+    ['"C:\\Users\\A\\OneDrive\\ドキュメント\\FLEXR context"', { path: 'C:\\Users\\A\\OneDrive\\ドキュメント\\FLEXR context' }],
+    ['/home/a/projects/flexr', { path: '/home/a/projects/flexr' }],
+  ])('%s', async (text, want) => {
+    const { linkFolderCommand } = await import('../../server/brain/claudeLinkCommand.js');
+    expect(linkFolderCommand(text)).toEqual(want);
+  });
+  it.each(['add portfolio to my Claude projects', 'add milk to my shopping note', 'link me the youtube video', 'connect to wifi', 'open in my folder on laptop'])('not this: %s', async (text) => {
+    const { linkFolderCommand } = await import('../../server/brain/claudeLinkCommand.js');
+    expect(linkFolderCommand(text)).toBeNull();
+  });
+});
