@@ -1376,3 +1376,19 @@ describe('dictation route', () => {
     expect(typed).toEqual([{ text: 'see you at 5.' }]);
   });
 });
+
+// Novi ⇄ Claude (2026-10-18): "put portfolio on Claude" runs at once (the user's own words are the
+// yes), "sync my Claude projects" too; neither goes to the AI.
+describe('claude-link route', () => {
+  it('makes the claude.ai project without asking, and syncs', async () => {
+    const ran = [];
+    const tool = (name, note) => ({ name, description: name, parameters: { type: 'object', properties: {} }, tier: 'medium', describe: () => name, run: async (a) => { ran.push([name, a]); return { note }; } });
+    const tools = new ToolRegistry().add(tool('claude_project_make', 'Making the Portfolio project on claude.ai in Chrome…')).add(tool('claude_projects_sync', 'I know 3 Claude Code projects now: none new.'));
+    const approvals = new ApprovalQueue();
+    const agent = new Agent({ router: scriptedRouter([reply('ok')]), tools, approvals, memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }), stop: async () => true } });
+    expect(await agent.handle('Put the portfolio project on Claude.')).toBe('Making the Portfolio project on claude.ai in Chrome…');
+    expect(await agent.handle('sync my Claude projects')).toBe('I know 3 Claude Code projects now: none new.');
+    expect(ran).toEqual([['claude_project_make', { project: 'portfolio' }], ['claude_projects_sync', {}]]);
+    expect(approvals.list?.() || []).toEqual([]);
+  });
+});
