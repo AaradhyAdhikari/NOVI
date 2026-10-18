@@ -44,6 +44,7 @@ export function createWakeListener({
   let noise = 0; // background loudness, learned while waiting for the wake word
   let command = null; // { frames, heard, quietMs, elapsedMs } while recording a command
   let capturing = null; // { left, frames, best, resolve } while recording a practice clip
+  let holding = null; // { frames, maxMs } while the dictation keys are held
   let deafUntil = 0; // conversation mode: ignore the mic while Novi itself is speaking
   let speaking = false; // Novi is talking on the laptop right now
   const recent = []; // the last 1.5 s of mic audio, for the voice check on "Hey Novi"
@@ -89,6 +90,11 @@ export function createWakeListener({
         cooldownUntil = clock + cooldownMs;
         resolve({ audio: join(frames), best });
       }
+      return;
+    }
+    // Dictation keys held: everything the mic hears, no wake word, until release().
+    if (holding) {
+      if (holding.frames.length * FRAME_MS < holding.maxMs) holding.frames.push(frame);
       return;
     }
     recent.push(frame);
@@ -139,6 +145,17 @@ export function createWakeListener({
       return new Promise((resolve) => {
         capturing = { left: Math.ceil(ms / FRAME_MS), frames: [], best: 0, resolve };
       });
+    },
+    // Dictation hotkey: record from hold() until release() (at most maxMs), then the audio.
+    hold({ maxMs = 60_000 } = {}) {
+      command = null;
+      holding = { frames: [], maxMs };
+    },
+    release() {
+      const held = holding;
+      holding = null;
+      cooldownUntil = clock + cooldownMs;
+      return held ? join(held.frames) : new Int16Array(0);
     },
     // Conversation mode: after Novi answers, listen for the next sentence without the wake word.
     // deafMs: how long Novi will be speaking (so it doesn't answer itself); waitMs: how long to wait.

@@ -964,3 +964,22 @@ describe('runtime for the orchestrator', () => {
     expect(chats[1].messages).toEqual([{ role: 'user', content: 'Plan it' }]);
   });
 });
+
+// The orb and dictation (2026-10-18): Novi's laptop state, the mic held for dictation, speech → words.
+describe('runtime for the orb and dictation', () => {
+  it('laptopState follows what Novi does on the laptop; wake.hold/release reach the mic; hear turns audio into fixed words', async () => {
+    const { novi } = await start({ transcribe: async () => 'okay see language notes' });
+    const rt = novi.plugins.runtime;
+    const seen = [];
+    rt.laptopState.on((s) => seen.push(s));
+    novi.broadcast({ type: 'wake' });
+    expect(seen).toEqual(['idle', 'listening']);
+    const held = [];
+    novi.setWakeTools({ hold: (o) => held.push(['hold', o]), release: () => { held.push(['release']); return Buffer.from('wav'); }, listen: (o) => held.push(['listen', o]) });
+    rt.wake.hold({ maxMs: 1000 });
+    expect(rt.wake.release()).toEqual(Buffer.from('wav'));
+    rt.wake.listen();
+    expect(held.map(([w]) => w)).toEqual(['hold', 'release', 'listen']);
+    expect(await rt.hear(Buffer.from('wav'))).toBe('okay C language notes');
+  });
+});

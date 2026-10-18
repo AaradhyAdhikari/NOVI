@@ -1365,3 +1365,14 @@ describe('brief route', () => {
     expect(await card).toEqual({ allow: false, choice: null, change: 'a blue theme' });
   });
 });
+
+// Dictation (2026-10-18): "type …" goes straight to dictate_type, no AI.
+describe('dictation route', () => {
+  it('"type: see you at 5" types those words; a WhatsApp message is not dictation', async () => {
+    const typed = [];
+    const tools = new ToolRegistry().add({ name: 'dictate_type', description: 'type', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'type', run: async (a) => { typed.push(a); return { note: 'Typed into Notepad.' }; } });
+    const agent = new Agent({ router: scriptedRouter([reply('ok')]), tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }), stop: async () => true } });
+    expect(await agent.handle('Type: see you at 5.')).toBe('Typed into Notepad.');
+    expect(typed).toEqual([{ text: 'see you at 5.' }]);
+  });
+});

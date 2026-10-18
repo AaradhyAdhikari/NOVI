@@ -1,0 +1,9 @@
+{
+  "id": "orb",
+  "name": "Desktop orb",
+  "description": "A small always-on-top Novi orb on the laptop screen (tap to talk, Ctrl+Shift+Space held for dictation). Windows only; NOVI_ORB=off turns it off.",
+  "categories": ["other"],
+  "contracts": { "tools": [] },
+  "activation": { "onStartup": true },
+  "configSchema": { "type": "object", "additionalProperties": false }
+}

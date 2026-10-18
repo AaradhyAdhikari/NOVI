@@ -325,3 +325,46 @@ describe('after an interrupt', () => {
     expect(events[1].command).toBe((10 + 13) * FRAME); // all 10 frames of speech + 1 s of trailing quiet
   });
 });
+
+// Dictation hotkey (2026-10-18): hold the keys → everything the mic hears until release, no wake word.
+describe('hold to record', () => {
+  it('records from hold() to release(); a "Hey Novi" in the middle does not wake; capped at maxMs', async () => {
+    const ref = {};
+    const events = [];
+    let got = null;
+    const frames = [f(quiet()), f(loud()), f(loud(), 0.9), f(quiet()), f(loud()), f(quiet())];
+    let i = 0;
+    const recorder = {
+      start() {}, stop() {},
+      async read() {
+        if (i === 1) ref.current.hold();
+        if (i === 5) got = ref.current.release();
+        if (i >= frames.length) { ref.current.stop(); return quiet(); }
+        return frames[i++].audio;
+      },
+    };
+    ref.current = createWakeListener({ recorder, detector: fakeDetector(frames), onWake: (s) => events.push({ wake: s }), onCommand: () => events.push({ command: true }) });
+    await ref.current.start();
+    expect(got.length).toBe(4 * FRAME);
+    expect(events).toEqual([]);
+    expect(ref.current.release().length).toBe(0); // nothing held any more
+  });
+
+  it('a hold longer than maxMs keeps only the first maxMs', async () => {
+    const ref = {};
+    let got = null;
+    let i = 0;
+    const recorder = {
+      start() {}, stop() {},
+      async read() {
+        if (i === 0) ref.current.hold({ maxMs: 160 });
+        if (i === 6) { got = ref.current.release(); ref.current.stop(); }
+        i += 1;
+        return loud();
+      },
+    };
+    ref.current = createWakeListener({ recorder, detector: { process: async () => [0] }, onWake() {}, onCommand() {} });
+    await ref.current.start();
+    expect(got.length).toBe(2 * FRAME);
+  });
+});

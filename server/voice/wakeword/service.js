@@ -133,6 +133,14 @@ export async function startWakeWordService({ novi, env = process.env, logger = c
       setSpeaking: (on) => current?.listener.setSpeaking(on),
       // Novi just asked for a yes / no: hear the answer without "Hey Novi".
       listen: (opts) => { current?.listener.followUp(opts); novi.broadcast({ type: 'wake' }); },
+      // Dictation keys held / let go: everything in between as 16 kHz WAV (null if under 0.3 s).
+      hold: (opts) => { current?.listener.hold(opts); novi.broadcast({ type: 'wake' }); },
+      release: () => {
+        const audio = current?.listener.release();
+        novi.broadcast({ type: 'wake_timeout' });
+        if (!audio || audio.length < 16000 * 0.3) return null;
+        return Buffer.from(encodeWav(Float32Array.from(normalizeVolume(audio), (s) => s / 32768), 16000));
+      },
     });
     logger.log(`  Wake word: always on (${kws ? 'keyword spotting, no training' : path.basename(modelPath)}, level ${level}, mic: ${recorder.getSelectedDevice()}, voice check model: ${voiceCheck})`);
   }
