@@ -284,6 +284,8 @@ describe('Novi server', () => {
     novi.activity.end(rec, 'Volume 30.');
     const body = await (await fetch(`${base}/api/activity`)).json();
     expect(body.entries[0]).toMatchObject({ heard: 'volume 30', route: 'direct', tools: [{ name: 'laptop_volume', ok: true }], reply: 'Volume 30.' });
+    // The learning loop's misses come along (none yet).
+    expect(body).toMatchObject({ mistakes: [], summary: "I haven't noticed any mistakes this week." });
   });
 
   it("a question card answered on screen sends the answer to Claude", async () => {

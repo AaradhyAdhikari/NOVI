@@ -1,6 +1,8 @@
 import { createQuiet } from './quiet.js';
 import { createCodeEdits } from './codeEdits.js';
 import { createActivity } from './activity.js';
+import { createLearning } from './brain/learning.js';
+import { everyDayAt } from './daily.js';
 import { createShortcuts } from './brain/shortcuts.js';
 import { SEEDS } from './brain/shortcutSeeds.js';
 import { createLaptopState } from './laptopState.js';
@@ -257,7 +259,16 @@ export function createNovi(config, overrides = {}) {
   const activity = overrides.activity || createActivity({ file: path.join(config.dataDir, 'activity', 'recent.json') });
   // Learned shortcuts (server/brain/shortcuts.js): words the AI solved once with one quiet tool.
   const shortcuts = overrides.shortcuts || createShortcuts({ file: path.join(config.dataDir, 'shortcuts.json'), seeds: SEEDS });
-  const agent = overrides.agent || new Agent({ router, tools, approvals, memory, tasks, accounts, privateProviders: config.privateProviders || ['groq'], summarize: (text) => plugins.runtime.privateComplete(text), activity, quiet, shortcuts });
+  // The learning loop (server/brain/learning.js): misses noticed, the words that failed learned from the fix.
+  const learning = overrides.learning || createLearning({ file: path.join(config.dataDir, 'learning', 'learning.json'), shortcuts });
+  const agent = overrides.agent || new Agent({ router, tools, approvals, memory, tasks, accounts, privateProviders: config.privateProviders || ['groq'], summarize: (text) => plugins.runtime.privateComplete(text), activity, quiet, shortcuts, learning });
+  // Every Monday morning: last week's misses as a note in Novi Memory ("Novi's mistakes").
+  const weeklyMistakes = everyDayAt({
+    time: '09:10',
+    stateFile: path.join(config.dataDir, 'learning', 'weekly-note.json'),
+    run: async () => { if (new Date().getDay() === 1 && learning.misses(7 * 24 * 3600_000).length) plugins.runtime.wikiWrite?.({ title: "Novi's mistakes", text: learning.weekNote() }); },
+  });
+  if (!overrides.agent) weeklyMistakes.start?.();
   const pairing = overrides.pairing || new Pairing({ file: path.join(config.dataDir, 'devices.json') });
   const tailscaleIdentity = overrides.tailscaleIdentity || createTailscaleIdentity();
   const pairRequests = new PairRequests({ issue: (name) => pairing.issue(name, 'laptop') });
@@ -561,7 +572,7 @@ export function createNovi(config, overrides = {}) {
   // runtime.browserStatus / browserNewCode). Laptop only — the code lets a browser drive Novi's link.
   const browserInfo = () => plugins.runtime.browserStatus?.() || { connected: false, code: null };
   app.get('/api/browser', (req, res) => localOnly(req, res) && res.json(browserInfo()));
-  app.get('/api/activity', (req, res) => localOnly(req, res) && res.json({ entries: activity.list(100) }));
+  app.get('/api/activity', (req, res) => localOnly(req, res) && res.json({ entries: activity.list(100), mistakes: learning.misses().slice(0, 30), summary: learning.summary() }));
   app.post('/api/browser/code', (req, res) => { if (!localOnly(req, res)) return; plugins.runtime.browserNewCode?.(); res.json(browserInfo()); });
   // Settings → History: commands Novi ran (plugins/commands). Laptop only — output can be private.
   app.get('/api/commands/history', async (req, res) => {

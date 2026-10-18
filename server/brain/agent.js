@@ -14,6 +14,7 @@ import { briefCommand, changeCommand } from './briefCommand.js';
 import { dictationCommand } from './dictationCommand.js';
 import { claudeLinkCommand, linkFolderCommand } from './claudeLinkCommand.js';
 import { describeTurn } from '../activity.js';
+import { learningCommand } from './learning.js';
 import { quietCommand } from '../quiet.js';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -284,10 +285,11 @@ export function describeStatus(s) {
 }
 
 export class Agent {
-  constructor({ router, tools, approvals, memory, tasks, accounts = null, privateProviders = ['groq'], summarize = null, activity = null, quiet = null, shortcuts = null, logger = console, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
+  constructor({ router, tools, approvals, memory, tasks, accounts = null, privateProviders = ['groq'], summarize = null, activity = null, quiet = null, shortcuts = null, learning = null, logger = console, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
     this.activity = activity; // "what happened" log (server/activity.js)
     this.quiet = quiet; // quiet mode (server/quiet.js): no speech, everything on screen
     this.shortcuts = shortcuts; // learned shortcuts (server/brain/shortcuts.js): words → one quiet tool
+    this.learning = learning; // the learning loop (server/brain/learning.js): misses noticed, corrections learned
     this.sleep = sleep;
     this.logger = logger;
     this.accounts = accounts;
@@ -307,9 +309,12 @@ export class Agent {
   async handle(text, opts = {}) {
     const rec = this.activity?.begin(text, opts.from || 'local') || null;
     this._rec = rec;
+    const runs = [];
+    this._turnRuns = runs;
     try {
       const out = await this._handle(text, opts);
       this.activity?.end(rec, out);
+      try { this.learning?.observe({ heard: text, reply: out, tools: rec?.tools || runs.map((r) => ({ name: r.tool, ok: !r.output?.error, error: r.output?.error })), runs }); } catch { /* never break a request */ }
       return out;
     } catch (err) {
       this.activity?.fail(rec, err);
@@ -331,6 +336,8 @@ export class Agent {
         ? `Okay, quiet for ${hush.minutes} minutes. Everything will still show on screen.`
         : 'Okay, I\'ll stay quiet. Everything will still show on screen. Say "talk again" when you want my voice back.');
     }
+    // "What did you get wrong this week?" — the learning loop's summary.
+    if (this.learning && learningCommand(text)) return this._remember(text, this.learning.summary());
     // "What went wrong?" — the last request from the activity log, in words.
     if (this.activity && WRONG_RE.test(String(text).trim().replace(/[.!?]+$/, ''))) {
       return this._remember(text, describeTurn(this.activity.list(1)[0]));
@@ -734,6 +741,9 @@ export class Agent {
     const t0 = Date.now();
     const result = await this._runToolInner(call, { direct });
     if (result.output?.countdownUntil) this._countdown = { until: result.output.countdownUntil };
+    let runArgs = {};
+    try { runArgs = JSON.parse(call.function?.arguments || '{}'); } catch { /* reported below */ }
+    this._turnRuns?.push({ tool: call.function?.name, args: runArgs, output: result.output, asked: result.asked });
     // "her" / "him" in the next WhatsApp request = the chat Novi just checked.
     if (call.function?.name === 'whatsapp_prepare' && result.output?.ready?.name) this._waLastTo = result.output.ready.name;
     const err = result.output?.error;
