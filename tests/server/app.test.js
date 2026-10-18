@@ -932,3 +932,35 @@ describe('Settings → Shortcuts API + galaxy dots', () => {
     expect((await (await fetch(`${base}/api/shortcuts`)).json()).shortcuts.map((x) => x.key)).not.toContain('put on spotify');
   });
 });
+
+// The orchestrator's way into Novi (2026-10-18): a card through the normal approvals, Claude
+// started on the brief once the card said yes, and a non-private backup AI.
+describe('runtime for the orchestrator', () => {
+  it('ask = a normal approval card; startCoding runs the coding tool without a second card; complete prefers a provider', async () => {
+    const chats = [];
+    const router = {
+      status: () => [],
+      chat: async (req) => { chats.push(req); if (req.only === 'gemini') throw new Error('no gemini key'); return { message: { content: ' plan ' } }; },
+    };
+    const started = [];
+    const tasks = Object.assign(new (await import('node:events')).EventEmitter(), {
+      status: () => ({ active: false }), stop: async () => false, setAllowEdits: () => {}, shutdown: async () => {},
+      start: (project, instruction) => { started.push([project, instruction]); return { id: 't1' }; },
+    });
+    const { novi } = await start({ router, tasks });
+    const rt = novi.plugins.runtime;
+    const answer = rt.ask({ title: 'Send this brief to Claude?', detail: '# Brief', prompt: 'Send it?', changeable: true, source: 'orchestrator' });
+    const [card] = novi.approvals.pending();
+    expect(card).toMatchObject({ title: 'Send this brief to Claude?', source: 'orchestrator', changeable: true, tier: 'medium' });
+    expect(card.grant).toBeUndefined();
+    novi.approvals.resolve(card.id, true);
+    expect(await answer).toMatchObject({ allow: true });
+    const out = await rt.startCoding({ project: 'portfolio', instruction: 'Build the blog' });
+    expect(out.started).toBe(true);
+    expect(started).toEqual([['portfolio', 'Build the blog']]);
+    expect(novi.approvals.pending()).toEqual([]);
+    expect(await rt.complete('Plan it', { prefer: 'gemini' })).toBe('plan');
+    expect(chats.map((c) => c.only)).toEqual(['gemini', undefined]);
+    expect(chats[1].messages).toEqual([{ role: 'user', content: 'Plan it' }]);
+  });
+});

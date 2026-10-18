@@ -166,6 +166,23 @@ export function createNovi(config, overrides = {}) {
         const last = memory.lastTask?.();
         return pick(status.project) || pick(last?.project) || (last?.path ? { name: last.project, path: last.path, working: busy(last.project) } : null);
       },
+      // The orchestrator (plugins/orchestrator): its brief card is a normal approval card (spoken, answered
+      // by voice; never granted), and once the user said yes there, Claude starts without a second card.
+      ask: (card) => approvals.decide({ tier: 'medium', grantable: false, timeoutMs: 30 * 60_000, source: 'novi', ...card }),
+      startCoding: ({ project, instruction }) => plugins.get('code_start_task').run({ project, instruction, agent: 'claude' }),
+      newProject: ({ name, description, instruction }) => {
+        const tool = plugins.get('code_new_project');
+        if (!tool) throw new Error("I don't know where to make new projects (set NOVI_PROJECTS_DIR).");
+        return tool.run({ name, description, instruction, agent: 'claude' });
+      },
+      // One answer from any free AI (not private data): `prefer` first, then the usual order.
+      complete: async (text, { prefer } = {}) => {
+        const messages = [{ role: 'user', content: String(text) }];
+        const ask = (only) => router.chat({ messages, purpose: 'long', ...(only ? { only } : {}) });
+        let res;
+        try { res = await ask(prefer); } catch (err) { if (!prefer) throw err; res = await ask(); }
+        return String(res.message?.content || '').trim();
+      },
       tls: overrides.tls || null,
       dataDir: config.dataDir, logger: console },
   });

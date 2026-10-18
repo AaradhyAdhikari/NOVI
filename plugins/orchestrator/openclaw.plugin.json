@@ -1,0 +1,9 @@
+{
+  "id": "orchestrator",
+  "name": "Orchestrator",
+  "description": "Before a big coding job, asks the ChatGPT and Gemini websites (in background Chrome tabs) for a plan, examples and security rules, shows the brief, and on yes hands it to Claude Code.",
+  "categories": ["other"],
+  "contracts": { "tools": ["project_brief"] },
+  "activation": { "onStartup": true },
+  "configSchema": { "type": "object", "additionalProperties": false, "properties": {} }
+}

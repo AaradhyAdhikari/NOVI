@@ -45,6 +45,8 @@ export function createBrowserPlugin({ bridge = null, showImage = null, webDriver
         }
         api.registerService({ id: 'browser-bridge', start: () => link.start().catch((err) => api.logger?.warn?.(`[browser] link not started: ${err.message}`)), stop: () => link.stop() });
       }
+      // Other plugins (the orchestrator driving ChatGPT / Gemini) use the same Chrome link.
+      if (api.runtime) api.runtime.browserRequest = (cmd, args = {}, opts) => link.request(cmd, args, opts);
       const show = (img) => (showImage || api.runtime?.showImage)?.(img);
       let page = null;
       let lastFrom = 'local';

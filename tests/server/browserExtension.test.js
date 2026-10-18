@@ -71,6 +71,18 @@ describe('page.js numbering (fake page)', () => {
     expect(help.clicked).toBe(1);
     expect(submit.clicked).toBe(0);
   });
+  // The orchestrator reads a whole ChatGPT / Gemini answer (2026-10-18): query() cuts text to 80 characters.
+  it('textOf: the last visible match, whole, with its line breaks', () => {
+    const a = el('first answer');
+    const b = el('Step 1\n  code line\nStep 2');
+    const hidden = el('old', false);
+    const novi = fakePage([a, b, hidden]);
+    expect(novi.textOf({ selector: '.answer' })).toEqual({ count: 2, text: 'Step 1\n  code line\nStep 2' });
+    expect(fakePage([]).textOf({ selector: '.answer' })).toEqual({ count: 0, text: '' });
+    expect(read('background.js')).toMatch(/'textOf'/);
+    expect(read('background.js')).toMatch(/args\.tabId \? await chrome\.tabs\.update\(args\.tabId/);
+    expect(JSON.parse(read('manifest.json')).version).toBe('1.2.0');
+  });
 });
 
 // The popup said "saved, connecting…" forever, and a socket closed late could wipe out the new
