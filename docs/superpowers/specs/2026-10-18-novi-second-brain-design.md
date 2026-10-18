@@ -72,3 +72,20 @@ tasks from the long-term memory plugin (Part 2/3).
 ## Testing
 Store, ingest (skips, chunks, mtime re-read, project links), search (boosts, project filter, escaping),
 context builder (cap, sources, sensitive, empty), project dots (icon sizes → one), keys check.
+
+## Part 2 (built 2026-10-18, after the learning loop — user's order)
+- **Meaning search** (`plugins/brain/embed.js`): multilingual-e5-small int8 ONNX (≈118 MB, downloaded once from
+  huggingface.co into `data/brain/models/`), run with the `onnxruntime-node` Novi already has; tokenizer =
+  `@huggingface/tokenizers` 0.2.0 (0.6 MB; transformers.js was skipped — it adds ~660 MB). "passage:"/"query:"
+  prefixes, ≤ 256 tokens, mean pooling, unit vectors, stored int8 (384 bytes + a scale) in `vectors`; notes and
+  projects first, then the newest files, 16 passages per step after reading is done. `NOVI_PLUGIN_BRAIN_MEANING=off`
+  turns it off. No model / offline / an error → keyword search only, never an error.
+- **Hybrid search** (`hybridSearch`): keyword + meaning ranks fused (RRF, k = 60); a passage found only by meaning
+  must reach the model's `minSim` (0.83 for e5). The AI context takes such close matches too; a project filter
+  holds for both.
+- **Retrieval test suite**: `tools/brain-benchmark.mjs` + `tools/brain-questions.json` (the user's questions:
+  right source at #1 / in the top 6, ms, stale results above the right one, project leaks) on the laptop's real
+  brain; a fixed little laptop in the unit tests must stay at 100 % #1 with no leaks.
+- **Files to the phone**: `file_send_phone` ("send me my resume", "send X to my phone", "X phone pe bhejo") →
+  `runtime.fileLink` = `/api/download/<random>` (10 min, 5 downloads, before the pairing check — the link is the
+  key) shown as "Download X" on the asking device; folders, files over 200 MB and password/key-looking files refused.

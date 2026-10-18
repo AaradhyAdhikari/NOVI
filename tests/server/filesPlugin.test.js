@@ -15,6 +15,10 @@ async function setup({ google } = {}) {
   const opened = [];
   const said = [];
   const jobs = [];
+  const links = [];
+  const shown = [];
+  put('Documents/Aaradhy Resume 2026.pdf', '%PDF resume');
+  put('Documents/passwords.txt', 'secret');
   const host = new PluginHost({
     logger: { warn() {} },
     env: {},
@@ -23,13 +27,15 @@ async function setup({ google } = {}) {
       privateComplete: async (prompt) => `Summary of: ${prompt.match(/File: (.*)/)[1]}. It covers normalization.`,
       say: (text, opts) => said.push([text, opts]),
       google,
+      fileLink: (p) => { links.push(p); return '/api/download/t0k3n'; },
+      showLink: (l) => shown.push(l),
     },
   });
   const plugin = createFilesPlugin({ roots: [root], home: root, docsDir: path.join(root, 'Documents'), openPath: async (p) => opened.push(p), onJob: (p) => jobs.push(p), refreshMs: 0 });
   expect(host.register(plugin)).toBe(true);
   await host.startServices?.();
   await plugin.ready;
-  return { host, root, opened, said, jobs };
+  return { host, root, opened, said, jobs, links, shown };
 }
 
 describe('files plugin', () => {
@@ -208,5 +214,32 @@ describe('file_delete', () => {
       expect(await del.gate({ path: p })).toMatchObject({ block: true });
     }
     expect(trashed).toEqual([]);
+  });
+});
+
+// "Send me my resume" (second brain part 2, 2026-10-18): a tap-to-download link on the device that asked.
+describe('files to the phone', () => {
+  it('finds the file and shows a download link; folders and secret files are refused', async () => {
+    const s = await setup();
+    const out = await s.host.get('file_send_phone').run({ query: 'my resume' });
+    expect(out.note).toBe('Here is Aaradhy Resume 2026.pdf. Tap the link to download it.');
+    expect(s.links[0]).toMatch(/Aaradhy Resume 2026\.pdf$/);
+    expect(s.shown).toEqual([{ url: '/api/download/t0k3n', label: 'Download Aaradhy Resume 2026.pdf' }]);
+    expect((await s.host.get('file_send_phone').run({ query: 'passwords' })).error).toMatch(/won't send/);
+    expect((await s.host.get('file_send_phone').run({ query: 'College folder' })).error).toMatch(/folder/);
+  });
+
+  it.each([
+    ['send me my resume', 'my resume'],
+    ['send my resume to my phone', 'my resume'],
+    ['give me the DBMS notes on my phone', 'the DBMS notes'],
+    ['resume phone pe bhejo', 'resume'],
+  ])('"%s" → file_send_phone', async (text, query) => {
+    const { fileCommand } = await import('../../server/brain/agent.js');
+    expect(fileCommand(text)).toEqual({ tool: 'file_send_phone', args: { query } });
+  });
+  it.each(['send me a joke', 'send a message to isha saying hi', 'send my resume to Rahul on WhatsApp'])('not this: "%s"', async (text) => {
+    const { fileCommand } = await import('../../server/brain/agent.js');
+    expect(fileCommand(text)?.tool).not.toBe('file_send_phone');
   });
 });

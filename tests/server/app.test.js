@@ -277,6 +277,21 @@ describe('Novi server', () => {
     ws.close();
   });
 
+  it('a file sent to the phone is a 10-minute link that works without the pairing token, 5 times at most', async () => {
+    const { base, novi } = await start();
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'novi-dl-')), 'Resume.pdf');
+    fs.writeFileSync(file, '%PDF resume');
+    const url = novi.plugins.runtime.fileLink(file);
+    expect(url).toMatch(/^\/api\/download\/[\w-]{20,}$/);
+    const res = await fetch(`${base}${url}`);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('%PDF resume');
+    expect(res.headers.get('content-disposition')).toMatch(/Resume\.pdf/);
+    for (let i = 0; i < 4; i++) await fetch(`${base}${url}`);
+    expect((await fetch(`${base}${url}`)).status).toBe(404);
+    expect((await fetch(`${base}/api/download/nope`)).status).toBe(404);
+  });
+
   it('Settings → Activity lists what happened in each request (laptop only)', async () => {
     const { base, novi } = await start();
     const rec = novi.activity.begin('volume 30', 'local');

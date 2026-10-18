@@ -52,19 +52,45 @@ export function searchBrain(store, query, { project = null, limit = 6 } = {}) {
   return [...best.values()].sort((a, b) => b.score - a.score).slice(0, limit);
 }
 
+// Keyword hits + meaning hits (the local model), fused by rank. A passage found only by meaning must be
+// close enough (the model's own minSim). No model yet, or it fails → keyword hits only.
+export async function hybridSearch(store, query, { embedder = null, project = null, limit = 6 } = {}) {
+  const kw = searchBrain(store, query, { project, limit: 20 });
+  let qv = null;
+  try { if (embedder?.ready?.()) [qv] = (await embedder.embed([query], 'query')) || []; } catch { qv = null; }
+  if (!qv) return kw.slice(0, limit);
+  const minSim = embedder.minSim ?? 0.83;
+  const words = queryWords(query);
+  const fused = new Map(kw.map((h, r) => [h.id, { ...h, rrf: 1 / (60 + r) }]));
+  store.nearest(qv, 20, project).forEach((n, r) => {
+    const cur = fused.get(n.item_id);
+    if (cur) { cur.rrf += 1 / (60 + r); cur.sim = Math.max(cur.sim || 0, n.sim); return; }
+    if (n.sim < minSim) return;
+    const item = store.get(n.item_id);
+    if (item) fused.set(n.item_id, { id: item.id, kind: item.kind, title: item.title, path: item.path, project: item.project, matched: 0, score: 0, sim: n.sim, snippet: snippetOf(store.chunkText(n.chunk), words), rrf: 1 / (60 + r) });
+  });
+  return [...fused.values()].sort((a, b) => b.rrf - a.rrf).slice(0, limit).map(({ rrf, ...h }) => ({ ...h, close: (h.sim || 0) >= minSim }));
+}
+
 // Words that point at the user's own things ("my", "notes", "where is", "meri file"…).
 const OWN = /\b(?:my|mine|i|me|i'?m|i'?ve|our|meri|mera|mere|maza|majha|maazi|notes?|files?|folders?|projects?|documents?|docs?|readme|brief|where|find|wrote|written|saved|submission|assignment|exam|resume|cv)\b/i;
 
 // The evidence for one AI turn, or '' when the words aren't about the user's own things or nothing
 // matches well enough (at least 2 of the query's words, or its only word).
-export function contextFor(store, prompt, { projects = [] } = {}) {
+export function namedProject(prompt, projects = []) {
+  const lower = String(prompt || '').toLowerCase();
+  return projects.find((p) => p && new RegExp(`(?<![\\p{L}\\p{N}])${p.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}])`, 'u').test(lower)) || null;
+}
+export const aboutOwnThings = (prompt, projects = []) => OWN.test(String(prompt || '')) || Boolean(namedProject(prompt, projects));
+
+// hits: already searched (hybridSearch, with meaning); else a keyword search here.
+export function contextFor(store, prompt, { projects = [], hits: given = null } = {}) {
   const text = String(prompt || '');
-  const lower = text.toLowerCase();
-  const named = projects.find((p) => p && new RegExp(`(?<![\\p{L}\\p{N}])${p.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}])`, 'u').test(lower));
+  const named = namedProject(text, projects);
   if (!OWN.test(text) && !named) return { text: '', count: 0 };
   const words = queryWords(text);
   const need = Math.min(2, words.length);
-  const hits = searchBrain(store, text, { project: named || null, limit: 12 }).filter((h) => h.matched >= need);
+  const hits = (given || searchBrain(store, text, { project: named || null, limit: 12 })).filter((h) => h.matched >= need || h.close);
   const lines = [];
   let used = 0;
   for (const h of hits) {
