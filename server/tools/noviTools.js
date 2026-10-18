@@ -120,7 +120,7 @@ export function createNoviTools({ memory, tasks, coder = 'novi-coder', alternati
       describe: (a) => `Start ${coderFor(a).title} on ${a.project}: "${a.instruction}"`,
       prompt: (a) => `${coderFor(a).name} will ${brief(a.instruction)} in ${a.project}. OK?`,
       choices: (a = {}) => (alternativeAvailable ? [{ id: coderFor(a).other, label: coderFor(a).otherLabel, params: { $agent: coderFor(a).other } }] : undefined),
-      run: async ({ project, instruction, agent, $agent }) => ({ started: true, task: tasks.start(project, instruction, { agent: $agent || named({ agent }) || undefined }), note: 'The coder is working on it; I will narrate the progress.' }),
+      run: async ({ project, instruction, agent, $agent, $planFirst }) => ({ started: true, task: tasks.start(project, instruction, { agent: $agent || named({ agent }) || undefined, ...($planFirst === false ? { planFirst: false } : {}) }), note: $planFirst === false ? 'Claude is on it.' : "Claude is making a plan first; I'll show it to you before it builds anything." }),
     })
     .add({
       name: 'code_send_message',
@@ -202,7 +202,7 @@ export function createNoviTools({ memory, tasks, coder = 'novi-coder', alternati
       detail: (a) => `Folder: ${path.join(projectsDir, folderName(a.name))}${a.description ? `\nDescription: ${a.description}` : ''}`,
       prompt: (a) => `I'll make ${folderName(a.name)}${a.instruction ? `, and ${coderFor(a).name} will ${brief(a.instruction)}` : ''}. OK?`,
       choices: (a = {}) => (alternativeAvailable && a.instruction ? [{ id: coderFor(a).other, label: coderFor(a).otherLabel, params: { $agent: coderFor(a).other } }] : undefined),
-      run: async ({ name, description, instruction, agent, $agent }) => {
+      run: async ({ name, description, instruction, agent, $agent, $planFirst }) => {
         const clean = folderName(name);
         if (!clean || /^\.+$/.test(clean)) throw new Error('Tell me a name for the project.');
         const folder = path.join(projectsDir, clean);
@@ -213,7 +213,7 @@ export function createNoviTools({ memory, tasks, coder = 'novi-coder', alternati
         const project = memory.rememberProject(clean, folder).name;
         if (!String(instruction || '').trim()) return { created: folder, project, note: `Made the project ${clean}. Tell me what to build in it.` };
         const brief = `${String(instruction).trim()}\n\nThis is a new, empty project called "${clean}"${about ? `: ${about}` : ''}. Start from scratch in this folder.`;
-        const task = tasks.start(project, brief, { agent: $agent || named({ agent }) || undefined });
+        const task = tasks.start(project, brief, { agent: $agent || named({ agent }) || undefined, ...($planFirst === false ? { planFirst: false } : {}) });
         tasks.setAllowEdits(true); // a brand-new folder: nothing to lose; commands still ask
         return { created: folder, project, started: true, task, note: `Made ${clean}; the coder is building it now.` };
       },

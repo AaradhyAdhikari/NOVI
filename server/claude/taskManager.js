@@ -39,10 +39,8 @@ export function permissionTitle(toolName, input = {}, agentName = 'Claude') {
 }
 
 export class TaskManager extends EventEmitter {
-  constructor({ memory, approvals, createSession, agentName = 'Claude', agentLabels = {}, narratorIntervalMs = 8000, questionReminderMs = 5 * 60_000, milestoneGapMs = 45_000, stillWorkingMs = 3 * 60_000 }) {
+  constructor({ memory, approvals, createSession, agentName = 'Claude', agentLabels = {}, narratorIntervalMs = 8000, questionReminderMs = 5 * 60_000 }) {
     super();
-    this.milestoneGapMs = milestoneGapMs; // spoken step updates: at most one per gap
-    this.stillWorkingMs = stillWorkingMs; // a quiet stretch gets "still on step N" (max 3 in a row)
     this.questionReminderMs = questionReminderMs;
     this.agentName = agentName; // label of the default coder
     this.agentLabels = agentLabels; // e.g. { 'novi-coder': 'Novi Coder', claude: 'Claude' }
@@ -60,7 +58,9 @@ export class TaskManager extends EventEmitter {
     return Boolean(this.task?.status === 'running' && this.session && !this.session.exited);
   }
 
-  start(projectName, instruction, { agent } = {}) {
+  // planFirst (2026-10-18): Claude Code starts in plan mode, so its plan comes to the user as a card
+  // first (_planCard); false when the user already approved a brief.
+  start(projectName, instruction, { agent, planFirst = true } = {}) {
     if (this.isRunning()) throw new UserFacingError(`${this.task.agentName || this.agentName} is already working on ${this.task.project}. Say "stop" first, or give it a follow-up.`);
     const project = this.memory.findProject(projectName);
     if (!project) throw new UserFacingError(`I don't know a project called "${projectName}". Tell me its folder and I'll remember it.`);
@@ -78,11 +78,12 @@ export class TaskManager extends EventEmitter {
       allowEdits: false,
       agent: agent || null,
       agentName: this.agentLabels[agent] || this.agentName,
+      planFirst: Boolean(planFirst) && agent !== 'novi-coder' && (this.agentLabels[agent] || this.agentName) !== 'Novi Coder',
     };
     this.task = task;
     this.memory.touchProject(project.name);
     this.memory.addTask(this._persistable(task));
-    this._openSession(task, null);
+    this._openSession(task, null, { permissionMode: task.planFirst ? 'plan' : undefined });
     this.session.send(instruction);
     this._emitTask();
     return this.status();
@@ -107,7 +108,6 @@ export class TaskManager extends EventEmitter {
 
   async stop() {
     if (!this.session || this.session.exited) return false;
-    this._quiet();
     this.stopping = true;
     this.narrator?.dispose();
     this.approvals.denyWhere((a) => a.source === 'claude', 'task stopped');
@@ -147,7 +147,7 @@ export class TaskManager extends EventEmitter {
     return this.task;
   }
 
-  _openSession(task, resumeSessionId) {
+  _openSession(task, resumeSessionId, { permissionMode } = {}) {
     this.narrator?.dispose();
     this.stopping = false;
     this.narrator = new Narrator({
@@ -159,7 +159,7 @@ export class TaskManager extends EventEmitter {
       },
       onSpeak: (text) => this.emit('speak', text),
     });
-    const session = this.createSession({ cwd: task.path, resumeSessionId, agent: task.agent || null, onPermission: (req) => this._onPermission(task, req) });
+    const session = this.createSession({ cwd: task.path, resumeSessionId, agent: task.agent || null, ...(permissionMode ? { permissionMode } : {}), onPermission: (req) => this._onPermission(task, req) });
     this.session = session;
     session.on('event', (event) => this._onEvent(task, session, event));
   }
@@ -172,15 +172,13 @@ export class TaskManager extends EventEmitter {
       this._save(task);
     }
     // The coder's plan (Claude's TodoWrite) and the files it wrote: "what's next", "show me the code".
+    // Kept for the screen and for "what's the progress"; steps are no longer read out (2026-10-18).
     if (event.kind === 'tool_use' && event.name === 'TodoWrite' && Array.isArray(event.input?.todos)) {
-      const before = task.plan || [];
       task.plan = event.input.todos.map((t) => ({ step: String(t.content || ''), doing: String(t.activeForm || t.content || ''), status: t.status || 'pending' }));
-      this._milestone(task, before);
     }
     if (event.kind === 'tool_use' && EDIT_TOOLS.has(event.name) && event.input?.file_path) {
       task.files = [...(task.files || []).filter((f) => f !== event.input.file_path), event.input.file_path].slice(-20);
     }
-    if (event.kind === 'result' || event.kind === 'exit') this._quiet();
     if (event.kind === 'result') {
       if (this.stopping) return;
       task.status = event.isError ? 'failed' : 'done';
@@ -200,9 +198,16 @@ export class TaskManager extends EventEmitter {
 
   async _onPermission(task, { toolName, input, description }) {
     if (toolName === 'AskUserQuestion') return this._askQuestions(input);
+    if (toolName === 'ExitPlanMode') return this._planCard(task, input);
     const tier = classifyClaudeTool(toolName, input, task.path);
     if (tier === 'low') return { allow: true };
     if (tier === 'medium' && task.allowEdits && EDIT_TOOLS.has(toolName)) return { allow: true };
+    // The user's decision (2026-10-18, "it's asking too many questions"): one yes for the plan, then
+    // edits inside the project run at once too (a feed line shows each); outside the project asks.
+    if (tier === 'medium' && EDIT_TOOLS.has(toolName)) {
+      this.approvals.emit?.('auto_allowed', { category: 'files', title: claudeAsk(toolName, input, description, task.agentName || this.agentName).title });
+      return { allow: true };
+    }
     // The user's decision (2026-10-17): the coder's ordinary terminal commands run without asking,
     // in every project (a feed line still shows each one). Risky ones (HIGH_RISK_COMMANDS) ask.
     if (tier === 'medium' && /^(Bash|PowerShell)$/.test(toolName)) {
@@ -216,44 +221,29 @@ export class TaskManager extends EventEmitter {
     return allow ? { allow: true } : { allow: false, message: 'The user denied this action. Do not retry it; continue without it or explain what you need.' };
   }
 
-  // Spoken updates while the coder works: the plan once ("a plan of 5 steps"), then each finished
-  // step (not the last one — "Claude finished." says that), at most one line per milestoneGapMs, and
-  // "still on step N" after a quiet stretch (at most 3 in a row).
-  _milestone(task, before) {
-    const plan = task.plan;
-    const say = (text) => { this._lastSaid = Date.now(); this.emit('speak', text); };
-    const done = plan.filter((p) => p.status === 'completed').length;
-    if (!before.length && plan.length >= 3) say(`${task.agentName || this.agentName} made a plan of ${plan.length} steps. I'll tell you as each one is done.`);
-    const newly = plan.map((p, i) => ({ ...p, i })).filter((p) => p.status === 'completed' && before[p.i]?.status !== 'completed');
-    if (newly.length && done < plan.length && Date.now() - (this._lastSaid || 0) >= this.milestoneGapMs) {
-      const last = newly.at(-1);
-      say(newly.length === 1
-        ? `${task.agentName || this.agentName} finished step ${last.i + 1} of ${plan.length}: ${last.step.replace(/[.!]+$/, '')}.`
-        : `${task.agentName || this.agentName} finished ${newly.length} steps; ${done} of ${plan.length} done.`);
+  // Claude's plan (plan mode's ExitPlanMode) as a card + a short spoken line. Yes → it builds
+  // (edits allowed; "yes, also X" adds X); "change X" → it plans again; no → it stops.
+  async _planCard(task, input = {}) {
+    const plan = String(input.plan || '').trim();
+    const steps = plan.split('\n').map((l) => /^\s*(?:\d+[.)]|[-*•])\s+(.+)$/.exec(l)?.[1]?.trim()).filter(Boolean);
+    const low = (s) => s.replace(/[.!]+$/, '').replace(/^./, (c) => c.toLowerCase());
+    const said = steps.length > 2 ? `${low(steps[0])}, then ${low(steps[1])}, and ${steps.length - 2} more step${steps.length - 2 === 1 ? '' : 's'}`
+      : steps.length ? steps.map(low).join(', then ') : 'the plan is on the card';
+    const name = task.agentName || this.agentName;
+    const d = await this.approvals.decide({
+      title: `${name}'s plan for ${task.project}`, detail: plan, prompt: `${name}'s plan for ${task.project}: ${said}. Go ahead?`,
+      tier: 'medium', source: 'claude', changeable: true, addable: true, grantable: false, timeoutMs: 30 * 60_000,
+    });
+    if (d.allow) {
+      task.allowEdits = true;
+      if (d.addition) this.session?.send(`Also: ${d.addition}`);
+      this._emitTask();
+      return { allow: true };
     }
-    if (newly.length || !before.length) this._stillTimer(task, 0);
+    if (d.change) return { allow: false, message: `The user wants changes to the plan: ${d.change}. Make a new plan with that and show it again with ExitPlanMode.` };
+    return { allow: false, message: 'The user said no to this plan. Stop here and do not make changes.' };
   }
 
-  _stillTimer(task, count) {
-    clearTimeout(this._still);
-    if (count >= 3 || !this.stillWorkingMs) return;
-    this._still = setTimeout(() => {
-      if (this.task !== task || task.status !== 'running') return;
-      const plan = task.plan || [];
-      const at = plan.findIndex((p) => p.status !== 'completed');
-      if (at >= 0) {
-        this._lastSaid = Date.now();
-        this.emit('speak', `${task.agentName || this.agentName} is still on step ${at + 1} of ${plan.length}: ${plan[at].doing.replace(/[.!]+$/, '')}.`);
-      }
-      this._stillTimer(task, count + 1);
-    }, this.stillWorkingMs);
-    this._still.unref?.();
-  }
-
-  _quiet() {
-    clearTimeout(this._still);
-    this._still = null;
-  }
 
   // Claude's own questions: asked one by one as question cards (spoken with numbered options), no
   // timeout — Claude waits; one spoken reminder. A skipped question lets Claude choose.

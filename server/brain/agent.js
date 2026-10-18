@@ -12,6 +12,7 @@ import { previewCommand, openCommand } from './previewCommand.js';
 import { replyFrom } from './shortcuts.js';
 import { briefCommand, changeCommand } from './briefCommand.js';
 import { dictationCommand } from './dictationCommand.js';
+import { claudeLinkCommand } from './claudeLinkCommand.js';
 import { describeTurn } from '../activity.js';
 import { quietCommand } from '../quiet.js';
 import path from 'node:path';
@@ -21,7 +22,7 @@ import path from 'node:path';
 // "What went wrong?" (the activity log) and "what's running?" — answered without the AI.
 const WRONG_RE = /^(?:what went wrong|what happened(?: last time| just now| there)?|why didn'?t (?:that|it|this) work|why did (?:that|it) fail|kya (?:galat )?hua(?: tha)?|kya gadbad hui)$/i;
 const RUNNING_RE = /^(?:what(?:'s| is) (?:running|going on|happening)(?: right now)?|what are you (?:doing|working on)(?: right now)?|(?:sab )?kya (?:kya )?chal raha hai|anything running)$/i;
-const DIRECT_OK = new Set(['code_start_task', 'code_send_message', 'rename_project', 'file_new_folder', 'open_project', 'file_open', 'file_rename', 'note_write', 'notes_ask', 'note_open', 'whatsapp_send']); // whatsapp_send: the user's decision 2026-10-17 — their command is the yes
+const DIRECT_OK = new Set(['code_start_task', 'code_send_message', 'rename_project', 'file_new_folder', 'open_project', 'file_open', 'file_rename', 'note_write', 'notes_ask', 'note_open', 'whatsapp_send', 'claude_project_make']); // whatsapp_send: the user's decision 2026-10-17 — their command is the yes
 const ASK_ANYWAY = new Set(['file_gather', 'file_undo_move', 'laptop_run', 'preview_show', 'preview_open']); // preview_show/open: only its first start of a project's own command asks
 const MAX_ROUNDS = 10; // screen tasks: open the app, look, click, type, …
 const MAX_HISTORY = 40;
@@ -371,6 +372,12 @@ export class Agent {
       const { output } = await this._runTool({ id: `type-${Date.now()}`, function: { name: 'dictate_type', arguments: JSON.stringify(dictate) } }, { direct: true });
       return this._remember(text, output?.error || output?.note || 'Typed.');
     }
+    // "Put portfolio on Claude" / "sync my Claude projects" (plugins/claude-link), no AI.
+    const link = claudeLinkCommand(text);
+    if (link && this.tools.get(link.tool)) {
+      const { output } = await this._runTool({ id: `claude-${Date.now()}`, function: { name: link.tool, arguments: JSON.stringify(link.args) } }, { direct: true });
+      return this._remember(text, output?.error || output?.note || 'Done.');
+    }
     const preview = await this._previewCommand(text);
     if (preview) return this._remember(text, preview);
     const opened = this._openKnown(text);
@@ -544,6 +551,8 @@ export class Agent {
     if (mem && this.tools.get(mem.tool)) return { quick: null, calls: [{ name: mem.tool, args: mem.args }], reply: null, provider: 'direct' };
     const ctl = controlCommand(text);
     if (ctl && this.tools.get(ctl.tool)) return { quick: null, calls: [{ name: ctl.tool, args: ctl.args }], reply: null, provider: 'direct' };
+    const link = claudeLinkCommand(text);
+    if (link && this.tools.get(link.tool)) return { quick: null, calls: [{ name: link.tool, args: link.args }], reply: null, provider: 'direct' };
     const pv = this._previewKnown(previewCommand(text));
     if (pv) return { quick: null, calls: [{ name: pv.tool, args: pv.args }], reply: null, provider: 'direct' };
     const op = this._openKnown(text);

@@ -67,13 +67,31 @@ describe('preview plugin', () => {
     expect(out.note).toBe("Here's the contact page. Tap the link to open it live.");
   });
 
-  it('a page found from a link on the homepage; an unknown one falls back to the homepage', async () => {
+  it('a page found from a link on the homepage; an unknown one is said plainly — never the homepage instead', async () => {
     const s = setup();
     await s.show.run({ page: 'about' });
     expect(s.shots[0][0]).toBe('http://localhost:4321/about-me');
     const out = await s.show.run({ page: 'blog' });
-    expect(s.shots[1][0]).toBe('http://localhost:4321/');
-    expect(out.note).toBe("I couldn't find a blog page, so here's the homepage.");
+    expect(s.shots).toHaveLength(1);
+    expect(s.shown).toHaveLength(1);
+    expect(out.note).toBe("I couldn't find a blog page or section on the portfolio site, so I didn't send a picture. If Claude is still adding it, ask again when it's done.");
+  });
+
+  // Live 2026-10-18: "screenshot of the blog section" sent the homepage design.
+  it('a section on the homepage (#blog / id="blog"), a relative link (blog.html) or a blog.html file', async () => {
+    const section = setup({ homeHtml: '<nav><a href="#work">Work</a></nav><section id="blog-posts"><h2>Blog</h2></section>' });
+    expect((await section.show.run({ page: 'blog section' })).note).toBe("Here's the blog section. Tap the link to open it live.");
+    expect(section.shots[0][0]).toBe('http://localhost:4321/#blog-posts');
+    expect(section.shown[0].caption).toBe('portfolio — blog section');
+    const relative = setup({ homeHtml: '<a href="blog.html">Read my blog</a>' });
+    await relative.show.run({ page: 'blog' });
+    expect(relative.shots[0][0]).toBe('http://localhost:4321/blog.html');
+    const anchor = setup({ homeHtml: '<a href="#blog">Blog</a>' });
+    await anchor.show.run({ page: 'blog' });
+    expect(anchor.shots[0][0]).toBe('http://localhost:4321/#blog');
+    const file = setup({ project: { name: 'portfolio', path: folder({ '.novi/run.json': { command: 'npm run dev' }, 'blog.html': '<h1>Blog</h1>' }) }, homeHtml: '' });
+    await file.show.run({ page: 'blog' });
+    expect(file.shots[0][0]).toBe('http://localhost:4321/blog.html');
   });
 
   it('no picture → the link only, said so', async () => {

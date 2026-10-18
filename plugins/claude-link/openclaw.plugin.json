@@ -1,0 +1,9 @@
+{
+  "id": "claude-link",
+  "name": "Claude link",
+  "description": "Remembers every project Claude Code has worked on as one of Novi's projects (with a note in Novi Memory), and makes a claude.ai Project for each project through the Novi Chrome extension.",
+  "categories": ["other"],
+  "contracts": { "tools": ["claude_projects_sync", "claude_project_make"] },
+  "activation": { "onStartup": true },
+  "configSchema": { "type": "object", "additionalProperties": false, "properties": {} }
+}

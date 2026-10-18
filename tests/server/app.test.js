@@ -945,7 +945,7 @@ describe('runtime for the orchestrator', () => {
     const started = [];
     const tasks = Object.assign(new (await import('node:events')).EventEmitter(), {
       status: () => ({ active: false }), stop: async () => false, setAllowEdits: () => {}, shutdown: async () => {},
-      start: (project, instruction) => { started.push([project, instruction]); return { id: 't1' }; },
+      start: (project, instruction, opts) => { started.push([project, instruction, opts]); return { id: 't1' }; },
     });
     const { novi } = await start({ router, tasks });
     const rt = novi.plugins.runtime;
@@ -957,7 +957,7 @@ describe('runtime for the orchestrator', () => {
     expect(await answer).toMatchObject({ allow: true });
     const out = await rt.startCoding({ project: 'portfolio', instruction: 'Build the blog' });
     expect(out.started).toBe(true);
-    expect(started).toEqual([['portfolio', 'Build the blog']]);
+    expect(started).toEqual([['portfolio', 'Build the blog', expect.objectContaining({ planFirst: false })]]); // the brief was the yes
     expect(novi.approvals.pending()).toEqual([]);
     expect(await rt.complete('Plan it', { prefer: 'gemini' })).toBe('plan');
     expect(chats.map((c) => c.only)).toEqual(['gemini', undefined]);

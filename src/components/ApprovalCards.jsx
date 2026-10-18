@@ -61,7 +61,7 @@ function ApprovalCard({ a, onAnswer, api }) {
             <span>{a.title}</span>
           </div>
           {a.detail && (foldDetail(a.detail)
-            ? <details className="detail"><summary>{a.source === 'claude' ? 'Show the command' : a.source === 'orchestrator' ? 'Show the full brief' : 'Show details'}</summary><pre>{a.detail}</pre></details>
+            ? <details className="detail"><summary>{/'s plan for /.test(a.title || '') ? 'Show the full plan' : a.source === 'claude' ? 'Show the command' : a.source === 'orchestrator' ? 'Show the full brief' : 'Show details'}</summary><pre>{a.detail}</pre></details>
             : <p className="detail">{a.detail}</p>)}
           {a.tier === 'high' && <p className="warn">High risk — this needs your explicit confirmation.</p>}
           {need && <p className="warn">{NEED_TEXT[need]}</p>}

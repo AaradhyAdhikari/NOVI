@@ -101,3 +101,12 @@ describe('ClaudeSession (against fake CLI)', () => {
     expect(events.find((e) => e.kind === 'exit')?.error).toBeTruthy();
   });
 });
+
+// Plan first (2026-10-18): Claude starts in plan mode and asks as few questions as it can.
+describe('claudeArgs plan mode', () => {
+  it('adds --permission-mode plan only when asked; always says to ask few questions', () => {
+    expect(claudeArgs({ permissionMode: 'plan' }).join(' ')).toContain('--permission-mode plan');
+    expect(claudeArgs().join(' ')).not.toContain('--permission-mode');
+    expect(claudeArgs().join(' ')).toMatch(/Ask the user a question only/);
+  });
+});

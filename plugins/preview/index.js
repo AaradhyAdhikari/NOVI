@@ -1,6 +1,8 @@
 // "Show me the homepage": runs the coding project's website (no AI to find how), sends a
 // phone-sized picture of the page and a protected live link (preview port, one-time link) to the
 // device that asked. Starting a project's own command asks once per project per Novi run.
+import fs from 'node:fs';
+import path from 'node:path';
 import { definePluginEntry } from '#plugin-sdk';
 import { pageShot } from '../screen/pageShot.js';
 import { howToRun } from './run.js';
@@ -13,15 +15,31 @@ const obj = (properties, required = []) => ({ type: 'object', properties, requir
 const NO_PROJECT = 'Which project? Say "show me the homepage of portfolio".';
 const isHome = (page) => !page || /^(home|homepage|home page|main|index|site|website|landing)$/i.test(String(page).trim());
 
-// The page's path: Claude's run.json pages, else a link on the homepage whose text names it.
-function pagePath(page, pages, homeHtml) {
-  if (isHome(page)) return { path: '/', found: true };
-  const word = String(page).trim().toLowerCase().replace(/\s*page$/, '');
+// What the user asked to see ("blog", "blog section", "contact page") → the word.
+const pageWord = (page) => String(page || '').trim().toLowerCase().replace(/\s*(?:page|section|part|tab)$/, '');
+const escapeRe = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// Where it is: Claude's run.json pages; a link on the homepage whose text or address names it
+// (/blog, blog.html, #blog); a section of the homepage with that id; a blog.html in the project.
+// kind: 'page' or 'section' (a part of the homepage). Not found → found: false (live 2026-10-18:
+// "the blog section" must never come back as the homepage).
+function pagePath(page, pages, homeHtml, root) {
+  if (isHome(page)) return { path: '/', found: true, kind: 'page' };
+  const word = pageWord(page);
   const key = Object.keys(pages || {}).find((k) => k.toLowerCase() === word);
-  if (key) return { path: pages[key], found: true };
-  for (const m of String(homeHtml || '').matchAll(/<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+  if (key) return { path: pages[key], found: true, kind: 'page' };
+  const html = String(homeHtml || '');
+  for (const m of html.matchAll(/<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+    const href = m[1].trim();
     const text = m[2].replace(/<[^>]+>/g, ' ').toLowerCase();
-    if (text.includes(word) && /^\/(?!\/)/.test(m[1])) return { path: m[1], found: true };
+    if ((!text.includes(word) && !href.toLowerCase().includes(word)) || /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(href)) continue;
+    if (href.startsWith('#')) return { path: `/${href}`, found: true, kind: 'section' };
+    return { path: href.startsWith('/') ? href : `/${href.replace(/^\.\//, '')}`, found: true, kind: 'page' };
+  }
+  const id = new RegExp(`\\bid\\s*=\\s*["']([^"']*${escapeRe(word)}[^"']*)["']`, 'i').exec(html);
+  if (id) return { path: `/#${id[1]}`, found: true, kind: 'section' };
+  for (const f of [`${word}.html`, `${word}/index.html`, `pages/${word}.html`, `public/${word}.html`]) {
+    if (root && fs.existsSync(path.join(root, f))) return { path: `/${f.replace(/^public\//, '').replace(/index\.html$/, '')}`, found: true, kind: 'page' };
   }
   return { path: '/', found: false };
 }
@@ -91,8 +109,9 @@ export function createPreviewPlugin({ sites = createSites(), proxy = null, shot 
           const started = await start(name);
           if (started.error) return reply(started);
           const { p, site } = started;
-          const where = pagePath(page, site.pages, isHome(page) ? '' : await readHome(site.port));
-          const label = where.found && !isHome(page) ? `${String(page).trim().toLowerCase().replace(/\s*page$/, '')} page` : 'homepage';
+          const where = pagePath(page, site.pages, isHome(page) ? '' : await readHome(site.port), p.path);
+          if (!where.found) return reply({ note: `I couldn't find a ${pageWord(page)} page or section on the ${p.name} site, so I didn't send a picture. If Claude is still adding it, ask again when it's done.`, port: site.port });
+          const label = isHome(page) ? 'homepage' : `${pageWord(page)} ${where.kind}`;
           let pictured = true;
           let blank = false;
           const url = `http://localhost:${site.port}${where.path}`;
@@ -105,8 +124,7 @@ export function createPreviewPlugin({ sites = createSites(), proxy = null, shot 
           const note = p.working ? `Claude is still working on ${p.name}, so this is how it looks right now. I'll send a fresh picture when Claude finishes.`
             : blank ? 'The picture came out blank (the page may still be loading). Tap the live link to see it.'
             : !pictured ? "I couldn't take a picture, but here's the live link."
-            : !where.found ? `I couldn't find a ${String(page).trim().toLowerCase().replace(/\s*page$/, '')} page, so here's the homepage.`
-              : `Here's the ${label}. Tap the link to open it live.`;
+            : `Here's the ${label}. Tap the link to open it live.`;
           return reply({ note, port: site.port });
         },
       });
