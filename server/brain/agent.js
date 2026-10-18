@@ -142,6 +142,13 @@ export function fileCommand(text) {
     || /^(.+?)\s+naam\s+ka\s+(?:naya\s+)?folder\s+(?:banao|bana do|banado|bana de)$/i.exec(t);
   if (nf) return { tool: 'file_new_folder', args: { name: nf[1].trim(), ...(nf[2] ? { where: nf[2].trim() } : {}) } };
   if (/^open (?:up )?(?:my |the )?claude(?: code)?(?: app)?$/i.test(t)) return { tool: 'open_project', args: { editor: 'claude-code' } };
+  // "Send me my resume" / "send X to my phone" / "X phone pe bhejo" → a download link (never WhatsApp words).
+  if (!/\bwhats ?app\b/i.test(t)) {
+    const toPhone = /^(?:send|give|get)\s+(?:me\s+)?(.+?)\s+(?:to|on)\s+(?:my\s+)?(?:phone|mobile)$/i.exec(t)
+      || /^send\s+me\s+((?:my|the)\s+.+)$/i.exec(t)
+      || /^(.+?)\s+(?:phone|mobile)\s+(?:pe|par)\s+(?:bhejo|bhej do|bhejdo)$/i.exec(t);
+    if (toPhone) return { tool: 'file_send_phone', args: { query: toPhone[1].trim() } };
+  }
   // "Delete the test2 folder (on my desktop)" → file_delete (always asks for the PIN). "this/it" is memoryCommand's.
   const del = /^(?:(?:i meant|no|i said|now)[, ]+)?(?:please\s+)?(?:delete|remove|trash)\s+(?:the\s+|my\s+)?(?:(?:folder|file)\s+(?:called\s+|named\s+)?)?(.+?)(?:\s+(?:folder|file))?(?:\s+(?:on|in|from)\s+(?:my\s+|the\s+)?(desktop|downloads|documents))?$/i.exec(t);
   if (del && !/^(?:it|this|that|them|these|those)$/i.test(del[1]) && /\b(?:folder|file)\b|\.\w{2,4}$/i.test(t)) return { tool: 'file_delete', args: { name: del[1].trim(), ...(del[2] ? { where: del[2].toLowerCase() } : {}) } };

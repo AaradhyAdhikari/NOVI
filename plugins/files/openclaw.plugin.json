@@ -8,7 +8,7 @@
   "contracts": {
     "tools": [
       "file_find",
-      "file_open",
+      "file_open", "file_send_phone",
       "file_summary",
       "file_gather",
       "file_undo_move",

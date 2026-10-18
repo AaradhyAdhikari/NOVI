@@ -115,6 +115,23 @@ export function createFilesPlugin({ roots, home = os.homedir(), docsDir, openPat
         },
       });
 
+      // "Send me my resume": a tap-to-download link on the device that asked (a phone, from anywhere).
+      api.registerTool({
+        name: 'file_send_phone',
+        description: 'Send one of the user\'s files to the device they asked from as a download link ("send me my resume", "send the DBMS notes to my phone"). One file, not folders; never files holding passwords or keys.',
+        parameters: obj({ query: str('What the user called the file') }, ['query']),
+        async execute(_id, { query }) {
+          const hit = await best(query || '');
+          const name = path.basename(hit.path);
+          if (hit.dir) return reply({ error: `${name} is a folder. I send one file at a time: say which file in ${name}.` });
+          if (/(?:^\.env|password|passwd|secret|credential|token|id_rsa|private[ _-]?key)|\.(?:pem|key|pfx|p12|kdbx|ppk)$/i.test(name)) return reply({ error: `I won't send ${name}: it looks like it holds passwords or keys.` });
+          if (fs.statSync(hit.path).size > 200 * 1024 * 1024) return reply({ error: `${name} is over 200 MB, too big to send this way.` });
+          const url = api.runtime.fileLink(hit.path);
+          api.runtime.showLink({ url, label: `Download ${name}` });
+          return reply({ sent: name, note: `Here is ${name}. Tap the link to download it.` });
+        },
+      });
+
       api.registerTool({
         name: 'file_open',
         description: 'Open a file or folder on the laptop by what the user calls it ("open my DBMS notes"). Opens it in its normal app. Only when the user says file, folder or a document type ("open portfolio" is the project, not a file). Read-only.',

@@ -33,6 +33,8 @@ export function chunkText(text) {
   return out;
 }
 
+const textHash = (t) => { let h = 5381; for (const c of String(t || '')) h = ((h * 33) ^ c.codePointAt(0)) >>> 0; return h; };
+
 // Lines that look like passwords, codes, card numbers or API keys never enter the brain.
 const withoutSecrets = (text) => String(text).split('\n').filter((l) => !looksSecret(l)).join('\n');
 
@@ -98,7 +100,9 @@ export function createIngest({ store, entries = () => [], readText, projects = (
         keep.add(id);
         const project = owner(n.title);
         store.upsert({ id, kind: 'note', title: n.title, project });
-        store.setText(id, chunkText(withoutSecrets(n.text)), 0);
+        // Only a note whose text changed is cut up again (and loses its meaning vectors).
+        const hash = textHash(n.text);
+        if (store.get(id)?.read_mtime !== hash) store.setText(id, chunkText(withoutSecrets(n.text)), hash);
         if (project) store.link(`project:${project}`, id, 'note');
       }
       for (const id of store.ids('note')) if (!keep.has(id)) store.remove(id);

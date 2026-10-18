@@ -11,6 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@huggingface/tokenizers": "0.2.0",
     "@picovoice/pvrecorder-node": "^1.2.9",
     "@ricky0123/vad-web": "^0.0.31",
     "@simplewebauthn/browser": "^14.0.0",

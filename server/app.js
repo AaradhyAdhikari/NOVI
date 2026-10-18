@@ -12,6 +12,7 @@ import { buildGraph, readNote } from '../plugins/wiki/graph.js';
 import express from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { PROVIDER_NAMES } from './config.js';
 import { WebSocketServer } from 'ws';
 import { Memory } from './memory.js';
@@ -194,6 +195,12 @@ export function createNovi(config, overrides = {}) {
       },
       // Novi's remembered projects (plugins/claude-link adds the folders Claude Code worked in).
       aiKeys: () => aiKeys(),
+      // A one-time download link for a file (plugins/files file_send_phone).
+      fileLink: (file) => {
+        const token = crypto.randomBytes(24).toString('base64url');
+        downloads.set(token, { file, until: Date.now() + 10 * 60_000, uses: 0 });
+        return `/api/download/${token}`;
+      },
       projects: {
         list: () => memory.listProjects().map(({ name, path: at }) => ({ name, path: at })),
         remember: (name, at) => memory.rememberProject(name, at),
@@ -277,6 +284,7 @@ export function createNovi(config, overrides = {}) {
   // also the backup when Groq is down; Gemini last (it timed out often in the 2026-10-07 benchmark).
   const sarvam = createSarvamStt({ keys: config.speechKeys?.sarvam || [] });
   // Settings → Words: your word list (hint + fixes) and the log of what was heard.
+  const downloads = new Map(); // token → { file, until, uses } (runtime.fileLink)
   // How many keys each AI provider has (never the keys): Settings → System and "which AI keys are missing".
   const aiKeys = () => PROVIDER_NAMES.map((name) => ({ name, keys: (config.providers || []).find((p) => p.name === name)?.keys?.length || 0 }));
   const vocabulary = createVocabulary({ file: path.join(config.dataDir, 'vocabulary.json') });
@@ -495,6 +503,14 @@ export function createNovi(config, overrides = {}) {
     }
   });
   app.get('/api/pair/request/:id', (req, res) => res.json(pairRequests.check(req.params.id, String(req.query.secret || ''))));
+  // A file Novi was asked to send ("send me my resume"): the link itself is the key (random, 10 minutes,
+  // 5 downloads), so a phone's browser can fetch it without the pairing token.
+  app.get('/api/download/:token', (req, res) => {
+    const d = downloads.get(String(req.params.token));
+    if (!d || d.until < Date.now() || d.uses >= 5) { downloads.delete(String(req.params.token)); return res.status(404).send('This link has expired. Ask Novi to send the file again.'); }
+    d.uses += 1;
+    res.download(d.file, path.basename(d.file));
+  });
   // req.from: who is asking — 'local' (the laptop) or { deviceId } (a paired phone).
   app.use('/api', (req, res, next) => {
     if (isLocal(req)) { req.from = 'local'; return next(); }

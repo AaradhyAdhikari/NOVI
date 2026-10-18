@@ -1,0 +1,12 @@
+{
+  "_how": "Your real questions for the second brain. expect = words the right file/note's title or path contains; project = only that project's things may come back (leak check); notExpect = an old version that must not rank above the right one (stale check). Add your own; run: node tools/brain-benchmark.mjs",
+  "questions": [
+    { "q": "when is my robotics submission due", "expect": "robotics" },
+    { "q": "what is in the FLEXR context", "expect": "flexr" },
+    { "q": "what does my TraceBite app do", "expect": "tracebite" },
+    { "q": "portfolio brief", "expect": "portfolio brief" },
+    { "q": "what is the portfolio blog plan", "expect": "portfolio", "project": "portfolio" },
+    { "q": "SIH prototype readme", "expect": "sih" },
+    { "q": "my DBMS notes", "expect": "dbms" }
+  ]
+}

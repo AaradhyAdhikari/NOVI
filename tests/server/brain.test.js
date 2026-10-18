@@ -189,3 +189,120 @@ describe('AI keys check', () => {
     expect(keysCommand(text)).toBeNull();
   });
 });
+
+// Part 2: meaning search. A stand-in model here (the real one is downloaded on the laptop): words in the
+// same group land in the same place, so "car insurance" is near "automobile policy".
+function fakeEmbedder() {
+  const groups = [['car', 'vehicle', 'automobile'], ['insurance', 'policy'], ['exam', 'test', 'paper'], ['robot', 'robotics']];
+  const dimOf = (w) => { const g = groups.findIndex((x) => x.includes(w)); return g >= 0 ? g : 4 + ([...w].reduce((a, c) => a + c.charCodeAt(0), 0) % 4); };
+  const calls = [];
+  return {
+    calls,
+    minSim: 0.5, // the real model's level is higher (embed.js)
+    ready: () => true,
+    start: async () => true,
+    async embed(texts, kind) {
+      calls.push([kind, texts.length]);
+      return texts.map((t) => {
+        const v = new Float32Array(8);
+        for (const w of String(t).toLowerCase().match(/[a-z]+/g) || []) if (w.length > 2) v[dimOf(w)] += 1;
+        const n = Math.hypot(...v) || 1;
+        return v.map((x) => x / n);
+      });
+    },
+  };
+}
+
+describe('second brain part 2: meaning search', () => {
+  async function withMeaning() {
+    const b = await filled({ notes: () => [{ title: 'Bills', text: 'Automobile policy renewal is in March.' }, { title: 'DBMS exam', text: 'Exam on 5 Nov, normal forms first.' }] });
+    const embedder = fakeEmbedder();
+    const { embedSome } = await import('../../plugins/brain/index.js');
+    while (await embedSome(b.store, embedder, 8)) { /* every passage */ }
+    return { ...b, embedder };
+  }
+
+  it('every read passage gets a meaning vector, notes first, a few at a time', async () => {
+    const b = await withMeaning();
+    const st = b.store.stats();
+    expect(st.vectors).toBeGreaterThan(0);
+    expect(st.unvectored).toBe(0);
+    expect(b.embedder.calls.every(([kind, n]) => kind === 'passage' && n <= 8)).toBe(true);
+  });
+
+  it('finds the passage with other words; keyword search alone does not', async () => {
+    const b = await withMeaning();
+    const { hybridSearch } = await import('../../plugins/brain/search.js');
+    expect(searchBrain(b.store, 'car insurance')).toEqual([]);
+    const hits = await hybridSearch(b.store, 'car insurance', { embedder: b.embedder });
+    expect(hits[0]).toMatchObject({ kind: 'note', title: 'Bills' });
+    expect(hits[0].snippet).toMatch(/Automobile policy renewal/);
+  });
+
+  it('the AI context takes a close meaning match too, and a project filter still holds', async () => {
+    const b = await withMeaning();
+    const { hybridSearch } = await import('../../plugins/brain/search.js');
+    const hits = await hybridSearch(b.store, 'when is my car insurance renewal', { embedder: b.embedder });
+    expect(contextFor(b.store, 'when is my car insurance renewal', { hits }).text).toMatch(/Bills \(note\): Automobile policy renewal is in March\./);
+    const scoped = await hybridSearch(b.store, 'car insurance', { embedder: b.embedder, project: 'tracebite' });
+    expect(scoped.every((h) => h.project === 'tracebite')).toBe(true);
+  });
+
+  it('no model (still downloading, offline, broken) → keyword search as before, never an error', async () => {
+    const b = await filled();
+    const { hybridSearch } = await import('../../plugins/brain/search.js');
+    const off = { ready: () => false, embed: async () => null };
+    expect((await hybridSearch(b.store, 'robotics submission', { embedder: off }))[0].title).toBe('robotics submission.txt');
+    const broken = { ready: () => true, embed: async () => { throw new Error('model gone'); } };
+    expect((await hybridSearch(b.store, 'robotics submission', { embedder: broken }))[0].title).toBe('robotics submission.txt');
+  });
+
+  it('a changed file loses its old vectors and gets new ones', async () => {
+    const b = await withMeaning();
+    const before = b.store.stats().vectors;
+    const f = b.files[3];
+    fs.writeFileSync(f, 'Robotics submission moved to 7 Nov.');
+    fs.utimesSync(f, new Date(2026, 9, 17), new Date(2026, 9, 17));
+    await b.ingest.syncAll();
+    await b.ingest.readSome(10);
+    expect(b.store.stats().unvectored).toBe(1);
+    expect(b.store.stats().vectors).toBe(before - 1);
+  });
+});
+
+describe('quantize', () => {
+  it('keeps the direction of a vector in one byte per number', async () => {
+    const { quantize } = await import('../../plugins/brain/embed.js');
+    const v = Float32Array.from([0.6, -0.8, 0, 0]);
+    const { q, scale } = quantize(v);
+    expect([...q]).toEqual([95, -127, 0, 0]);
+    expect(q[0] * scale).toBeCloseTo(0.6, 2);
+  });
+});
+
+describe('retrieval test suite (tools/brain-benchmark.mjs)', () => {
+  it('scores rank, stale and leaks; the real question list parses', async () => {
+    const { scoreQuestion, summarize } = await import('../../tools/brain-benchmark.mjs');
+    const hits = [{ title: 'old plan.md', project: 'portfolio' }, { title: 'portfolio brief', project: 'portfolio' }, { title: 'x', project: 'tracebite' }];
+    const r = scoreQuestion(hits, { expect: 'portfolio brief', notExpect: 'old plan', project: 'portfolio' });
+    expect(r).toEqual({ top1: false, top6: true, rank: 2, stale: true, leaks: 1 });
+    expect(summarize([{ ...r, ms: 10 }, { top1: true, top6: true, stale: false, leaks: 0, ms: 30 }])).toEqual({ questions: 2, top1: 50, top6: 100, stale: 1, leaks: 1, avgMs: 20 });
+    const qs = JSON.parse(fs.readFileSync(path.resolve('tools/brain-questions.json'), 'utf8')).questions;
+    expect(qs.every((q) => q.q && q.expect)).toBe(true);
+  });
+
+  it('on a fixed little laptop the brain finds every question at #1 (keyword) with no leaks', async () => {
+    const { scoreQuestion, summarize } = await import('../../tools/brain-benchmark.mjs');
+    const { hybridSearch } = await import('../../plugins/brain/search.js');
+    const b = await filled();
+    const suite = [
+      { q: 'robotics submission due', expect: 'robotics submission' },
+      { q: 'tracebite readme calories', expect: 'tracebite' },
+      { q: 'normal forms exam', expect: 'dbms exam' },
+      { q: 'blog contact form', expect: 'portfolio', project: 'portfolio' },
+    ];
+    const rows = [];
+    for (const s of suite) rows.push({ ...scoreQuestion(await hybridSearch(b.store, s.q, { project: s.project || null }), s), ms: 0 });
+    expect(summarize(rows)).toMatchObject({ top1: 100, leaks: 0, stale: 0 });
+  });
+});
