@@ -60,7 +60,7 @@ function fakeChrome({ cards = ['Novi\nVoice assistant', 'Old notes'], loggedIn =
     if (cmd === 'tabs') return { tabs: [{ id: 7, url }] };
     if (cmd === 'waitFor') return { found: loggedIn };
     if (cmd === 'has') return { found: !loggedIn && /login|Log in/.test(args.selector) };
-    if (cmd === 'query') return { texts: cards };
+    if (cmd === 'query') return { texts: cards.map((c) => c.split('\n')[0]), values: cards.map((_c, i) => `/project/p${i + 1}`) };
     if (cmd === 'clickSel') { if (/submit/.test(args.selector)) url = makeUrl; return {}; }
     return {};
   };
@@ -73,7 +73,8 @@ describe('claude.ai Projects through Chrome', () => {
   it('reads the names of your claude.ai projects', async () => {
     const c = fakeChrome();
     const web = createClaudeWeb({ request: c.request, ...quick });
-    expect(await web.list()).toEqual({ names: ['Novi', 'Old notes'] });
+    expect(await web.list()).toEqual({ names: ['Novi', 'Old notes'], projects: [{ name: 'Novi', url: 'https://claude.ai/project/p1' }, { name: 'Old notes', url: 'https://claude.ai/project/p2' }] });
+    expect(c.calls.find(([cmd]) => cmd === 'query')[1]).toMatchObject({ firstLine: true, attr: 'href' });
     expect(c.calls[0]).toEqual(['open', { url: 'https://claude.ai/projects', newTab: true, background: true }]);
   });
 
@@ -104,6 +105,7 @@ function setup({ known = [], web = {}, connected = true, codeProjects = [] } = {
   const notes = [];
   const made = [];
   const jobs = [];
+  const opened = [];
   const runtime = {
     dataDir,
     projects: {
@@ -114,6 +116,7 @@ function setup({ known = [], web = {}, connected = true, codeProjects = [] } = {
     browserStatus: () => ({ connected }),
     wikiWrite: (n) => { notes.push(n); return { title: n.title }; },
     wikiRead: () => null,
+    callTool: async (name, args) => { opened.push([name, args]); return { opened: true }; },
   };
   const driver = {
     list: async () => web.list || { names: [] },
@@ -122,7 +125,7 @@ function setup({ known = [], web = {}, connected = true, codeProjects = [] } = {
   const host = new PluginHost({ runtime, logger: { warn() {}, info() {} } });
   expect(host.register(createClaudeLinkPlugin({ driver, listCode: () => codeProjects, track: (p) => jobs.push(p), now: () => new Date(2026, 9, 18) }))).toBe(true);
   const run = (name, args = {}) => host.get(name).run(args);
-  return { host, run, remembered, notes, made, jobs, dataDir };
+  return { host, run, remembered, notes, made, jobs, dataDir, opened, runtime };
 }
 
 describe('claude-link plugin', () => {
@@ -134,14 +137,45 @@ describe('claude-link plugin', () => {
         { name: 'NOVI', path: '/p/NOVI', lastUsed: '2026-10-18T10:00:00Z', sessions: 40, about: 'x' },
         { name: 'calc', path: '/p/calc', lastUsed: '2026-10-01T10:00:00Z', sessions: 1, about: 'y' },
       ],
-      web: { list: { names: ['Portfolio', 'Old notes'] } },
+      web: { list: { names: ['Portfolio', 'Old notes'], projects: [{ name: 'Portfolio', url: 'https://claude.ai/project/p1' }, { name: 'Old notes', url: 'https://claude.ai/project/p2' }] } },
     });
     const out = await s.run('claude_projects_sync');
     expect(s.remembered.map((p) => p.name)).toEqual(['novi', 'calc', 'portfolio']);
     expect(s.notes[0].title).toBe('Portfolio project');
     expect(s.notes[0].text).toMatch(/Folder: \/p\/Portfolio\nLast worked on in Claude Code: 2026-10-17 \(3 conversations\)\nAbout: Portfolio with a blog/);
-    expect(out.note).toBe('I know 3 Claude Code projects now: 1 new (Portfolio). 1 has a name I already use (calc). On claude.ai you have 2 projects: Portfolio, Old notes.');
+    expect(out.note).toBe('I know 3 Claude Code projects now: 1 new (Portfolio). 1 has a name I already use (calc). On claude.ai you have 2 projects: Portfolio, Old notes. 1 is a folder on the laptop too (Portfolio); 1 is only on claude.ai (Old notes).');
     expect(out.added).toEqual(['Portfolio']);
+  });
+
+  // Every claude.ai project comes into Novi (user, 2026-10-18: "FlexR, MediKiosk AI, TraceBite… so I can
+  // handle them with Novi from anywhere"): matched to a folder when one exists, else kept as claude.ai only.
+  it('sync: every claude.ai project is remembered with its link, folder or not, each with a note', async () => {
+    const s = setup({
+      known: [{ name: 'tracebite', path: '/p/TraceBite' }],
+      web: { list: { names: ['TraceBite', 'FlexR', 'MediKiosk AI'], projects: [
+        { name: 'TraceBite', url: 'https://claude.ai/project/t' },
+        { name: 'FlexR', url: 'https://claude.ai/project/f' },
+        { name: 'MediKiosk AI', url: 'https://claude.ai/project/m' },
+      ] } },
+    });
+    const out = await s.run('claude_projects_sync');
+    expect(out.note).toMatch(/On claude\.ai you have 3 projects: TraceBite, FlexR, MediKiosk AI\. 1 is a folder on the laptop too \(TraceBite\); 2 are only on claude\.ai \(FlexR, MediKiosk AI\)\.$/);
+    expect(s.notes.map((n) => n.title)).toEqual(['TraceBite project', 'FlexR project', 'MediKiosk AI project']);
+    expect(s.notes[0].text).toBe('On claude.ai: https://claude.ai/project/t\nFolder: /p/TraceBite');
+    expect(s.notes[1].text).toBe('On claude.ai: https://claude.ai/project/f\nNo folder on the laptop yet.');
+    expect(s.runtime.claudeProjectNames()).toEqual(['TraceBite', 'FlexR', 'MediKiosk AI']);
+    // A second sync doesn't write the same notes again, and making TraceBite again is refused.
+    await s.run('claude_projects_sync');
+    expect(s.notes).toHaveLength(3);
+    expect((await s.run('claude_project_make', { project: 'tracebite' })).note).toBe('TraceBite is already on claude.ai: https://claude.ai/project/t');
+  });
+
+  it('open: a claude.ai project on the device that asked (a link on the phone), any spelling', async () => {
+    const s = setup({ web: { list: { names: ['MediKiosk AI'], projects: [{ name: 'MediKiosk AI', url: 'https://claude.ai/project/m' }] } } });
+    await s.run('claude_projects_sync');
+    expect((await s.run('claude_project_open', { project: 'medikiosk' })).note).toBe('Opened MediKiosk AI on claude.ai.');
+    expect(s.opened).toEqual([['open_website', { url: 'https://claude.ai/project/m' }]]);
+    expect((await s.run('claude_project_open', { project: 'nothing here' })).error).toMatch(/don't know a claude\.ai project called nothing here/);
   });
 
   it('make: a claude.ai project with the folder in its instructions, remembered and noted', async () => {
@@ -177,6 +211,8 @@ describe('claude-link plugin', () => {
     await s.host.afterToolCall({ toolName: 'code_start_task', params: { project: 'portfolio' }, result: { started: true, project: 'portfolio' } });
     await s.jobs.at(-1);
     expect(s.made.map((m) => m.name)).toEqual(['shop', 'Portfolio']);
+    // Each project's own dot in Novi Memory, even when Chrome isn't there.
+    expect(s.notes.filter((n) => /^Folder:/.test(n.text)).map((n) => [n.title, n.text])).toEqual([['shop project', 'Folder: /p/shop\nAbout: A shoe shop'], ['Portfolio project', 'Folder: /p/Portfolio']]);
     // Already linked, failed runs and other tools: nothing.
     await s.host.afterToolCall({ toolName: 'code_start_task', params: { project: 'portfolio' }, result: { started: true, project: 'portfolio' } });
     await s.host.afterToolCall({ toolName: 'code_start_task', params: { project: 'shop' }, error: 'x', result: { error: 'x' } });
@@ -202,11 +238,18 @@ describe('claude-link by voice', () => {
     ['connect Novi to Claude', { tool: 'claude_projects_sync', args: {} }],
     ['bring in all my old projects from Claude', { tool: 'claude_projects_sync', args: {} }],
     ['remember all my Claude Code projects', { tool: 'claude_projects_sync', args: {} }],
+    ['sync every project I have on Claude', { tool: 'claude_projects_sync', args: {} }],
+    ['sync all my projects from Claude to Novi', { tool: 'claude_projects_sync', args: {} }],
+    ['open TraceBite on claude.ai', { tool: 'claude_project_open', args: { project: 'TraceBite' } }],
+    ['open my FlexR Claude project', { tool: 'claude_project_open', args: { project: 'FlexR' } }],
+    ['open the MediKiosk AI project on Claude', { tool: 'claude_project_open', args: { project: 'MediKiosk AI' }, soft: true }],
+    // soft: the agent sends a folder project to Claude Code instead.
+    ['open portfolio in Claude', { tool: 'claude_project_open', args: { project: 'portfolio' }, soft: true }],
   ])('%s', (text, want) => {
     expect(claudeLinkCommand(text)).toEqual(want);
   });
 
-  it.each(['tell Claude to add a blog to portfolio', 'open portfolio in Claude', 'make a new project called shop', 'put the song on'])('not this: %s', (text) => {
+  it.each(['tell Claude to add a blog to portfolio', 'open Claude', 'make a new project called shop', 'put the song on'])('not this: %s', (text) => {
     expect(claudeLinkCommand(text)).toBeNull();
   });
 });

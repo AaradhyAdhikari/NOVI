@@ -19,6 +19,14 @@ function setup({ obsidian = false, answer = 'The DBMS exam is on 3 Nov.' } = {})
 }
 
 describe('Novi Memory: notes', () => {
+  it('an all-lowercase title takes the capitals the next write gives it ("portfolio brief" → "Portfolio brief")', async () => {
+    const { host, note, vaultDir } = setup();
+    await host.get('note_write').run({ title: 'portfolio brief', text: 'Round 1.' });
+    const out = await host.get('note_write').run({ title: 'Portfolio brief', text: 'Round 2.' });
+    expect(out).toMatchObject({ title: 'Portfolio brief', created: false });
+    expect(fs.readdirSync(path.join(vaultDir, 'Notes'))).toEqual(['Portfolio brief.md']);
+    expect(note('Portfolio brief')).toMatch(/# Portfolio brief\n\nRound 1\.\n\nRound 2\.\n$/);
+  });
   it('note_write makes a note with front matter; the same title appends', async () => {
     const { host, note } = setup();
     const out = await host.get('note_write').run({ title: 'DBMS plan', text: 'Exam on 3 Nov.' });

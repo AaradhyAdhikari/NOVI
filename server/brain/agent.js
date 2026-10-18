@@ -373,7 +373,9 @@ export class Agent {
       return this._remember(text, output?.error || output?.note || 'Typed.');
     }
     // "Put portfolio on Claude" / "sync my Claude projects" (plugins/claude-link), no AI.
-    const link = claudeLinkCommand(text);
+    const linkSaid = claudeLinkCommand(text);
+    // "Open X in Claude": a folder project opens in Claude Code (below), only a claude.ai-only one here.
+    const link = linkSaid?.soft && this.memory?.findProject?.(linkSaid.args.project) ? null : linkSaid;
     if (link && this.tools.get(link.tool)) {
       const { output } = await this._runTool({ id: `claude-${Date.now()}`, function: { name: link.tool, arguments: JSON.stringify(link.args) } }, { direct: true });
       return this._remember(text, output?.error || output?.note || 'Done.');

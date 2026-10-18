@@ -264,8 +264,12 @@ export function createNovi(config, overrides = {}) {
   const sarvam = createSarvamStt({ keys: config.speechKeys?.sarvam || [] });
   // Settings → Words: your word list (hint + fixes) and the log of what was heard.
   const vocabulary = createVocabulary({ file: path.join(config.dataDir, 'vocabulary.json') });
+  // Project names ("TraceBite", "MediKiosk AI") heard right: the folders' own spelling + claude.ai's.
+  const projectWords = () => {
+    try { return [...memory.listProjects().map((p) => (p.path ? path.basename(p.path) : p.name)), ...(plugins.runtime.claudeProjectNames?.() || [])]; } catch { return []; }
+  };
   const voiceLog = createVoiceLog({ dir: path.join(config.dataDir, 'voice-log'), realDir: path.join(config.dataDir, 'voice-samples', 'real') });
-  const speech = createSpeechEngine({ stt: [createGroqWhisperStt({ keys: providerKeys('groq'), prompt: (base) => vocabulary.prompt(answerHint(base, approvals.pending().some((a) => a.tier !== 'high'))) }), sarvam, createGeminiStt({ keys: providerKeys('gemini') })], indic: sarvam });
+  const speech = createSpeechEngine({ stt: [createGroqWhisperStt({ keys: providerKeys('groq'), prompt: (base) => vocabulary.prompt(answerHint(base, approvals.pending().some((a) => a.tier !== 'high')), projectWords()) }), sarvam, createGeminiStt({ keys: providerKeys('gemini') })], indic: sarvam });
   const stt = overrides.transcribe || (async (audio, mimeType) => {
     const result = await speech.transcribe({ audio, mimeType });
     if (result.fallbackFrom.length) console.warn(`[voice] ${result.fallbackFrom.join(', ')} failed; used ${result.provider}`);

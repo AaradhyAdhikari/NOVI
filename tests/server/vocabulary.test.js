@@ -27,6 +27,8 @@ describe('word list (vocabulary)', () => {
     expect(v.prompt('Hey Novi.')).toBe('Hey Novi.');
     v.set({ words: ['OpenClaw', 'Aaradhy'], fixes: {} });
     expect(v.prompt('Hey Novi.')).toBe('Hey Novi. OpenClaw, Aaradhy.');
+    // Project names Novi knows by herself join them, once each.
+    expect(v.prompt('Hey Novi.', ['TraceBite', 'OpenClaw', 'MediKiosk AI'])).toBe('Hey Novi. OpenClaw, Aaradhy, TraceBite, MediKiosk AI.');
   });
 
   it('fixes misheard words: whole words only, any case, longest first', () => {

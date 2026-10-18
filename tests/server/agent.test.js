@@ -1391,4 +1391,14 @@ describe('claude-link route', () => {
     expect(ran).toEqual([['claude_project_make', { project: 'portfolio' }], ['claude_projects_sync', {}]]);
     expect(approvals.list?.() || []).toEqual([]);
   });
+
+  it('"open X in Claude": claude.ai only when X has no folder; a folder project is left to Claude Code', async () => {
+    const ran = [];
+    const tools = new ToolRegistry().add({ name: 'claude_project_open', description: 'o', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'o', run: async (a) => { ran.push(a); return { note: 'Opened FlexR on claude.ai.' }; } });
+    const memory = { listProjects: () => [], findProject: (n) => (n === 'portfolio' ? { name: 'portfolio', path: '/p/Portfolio' } : null) };
+    const agent = new Agent({ router: scriptedRouter([reply('ok'), reply('ok')]), tools, approvals: new ApprovalQueue(), memory, tasks: { status: () => ({ active: false }), stop: async () => true } });
+    expect(await agent.handle('open FlexR in Claude')).toBe('Opened FlexR on claude.ai.');
+    await agent.handle('open portfolio in Claude');
+    expect(ran).toEqual([{ project: 'FlexR' }]);
+  });
 });

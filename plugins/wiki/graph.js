@@ -54,8 +54,55 @@ export function buildGraph(vault) {
       if (new RegExp(`(?<![\\p{L}\\p{N}])${escape(other.title)}(?![\\p{L}\\p{N}])`, 'iu').test(body)) add(n.id, other.id);
     }
   }
+  // One group per project (user, 2026-10-18): "X project" hangs off Novi Memory; "X brief" and every
+  // other note named "X …", plus the project's README, logo and pictures, hang off "X project".
+  const hub = nodes.find((n) => n.id === 'Novi Memory.md')?.id;
+  const projects = notes.filter((n) => / project$/i.test(n.title));
+  for (const p of projects) {
+    add(p.id, hub);
+    const name = p.title.replace(/ project$/i, '');
+    for (const n of notes) if (n.id !== p.id && n.title.toLowerCase().startsWith(`${name.toLowerCase()} `)) add(n.id, p.id);
+    const folder = /^Folder: (.+)$/m.exec(stripFront(p.text))?.[1]?.trim();
+    for (const f of projectFiles(folder)) {
+      const id = `file:${f.path}`;
+      if (nodes.some((x) => x.id === id)) continue;
+      nodes.push({ id, title: path.basename(f.path), folder: 'Project files', updated: day(f.mtime), excerpt: (f.readme ? plain(f.readme) : `Picture in ${name}: ${f.path}`).slice(0, EXCERPT) });
+      add(id, p.id);
+    }
+  }
+  // A note linked to nothing still belongs to Novi Memory instead of floating alone.
+  const linked = new Set(links.flatMap((l) => [l.source, l.target]));
+  for (const n of nodes) if (!linked.has(n.id)) add(n.id, hub);
   return { nodes, links };
 }
+
+const IMAGE = /\.(png|jpe?g|svg|webp|gif|ico)$/i;
+const SKIP = new Set(['node_modules', '.git', 'dist', 'build', 'data', '.next', 'coverage', 'vendor', '.venv', 'venv']);
+const MAX_PICTURES = 6;
+
+// The README and up to 6 pictures (logo / icon / favicon first) of a project folder, 3 levels deep.
+export function projectFiles(folder) {
+  if (!folder) return [];
+  const out = [];
+  const readme = ['README.md', 'readme.md', 'Readme.md'].map((n) => path.join(folder, n)).find((f) => fs.existsSync(f));
+  if (readme) out.push({ path: readme, mtime: safeStat(readme), readme: fs.readFileSync(readme, 'utf8').slice(0, 2000) });
+  const pictures = [];
+  const walk = (dir, depth) => {
+    let entries = [];
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      if (e.name.startsWith('.') || SKIP.has(e.name)) continue;
+      const full = path.join(dir, e.name);
+      if (e.isDirectory() && depth < 3) walk(full, depth + 1);
+      else if (e.isFile() && IMAGE.test(e.name)) pictures.push(full);
+    }
+  };
+  walk(folder, 1);
+  const rank = (f) => (/logo|icon|favicon/i.test(path.basename(f)) ? 0 : 1);
+  pictures.sort((a, b) => rank(a) - rank(b) || a.length - b.length).slice(0, MAX_PICTURES).forEach((f) => out.push({ path: f, mtime: safeStat(f) }));
+  return out;
+}
+const safeStat = (f) => { try { return fs.statSync(f).mtimeMs; } catch { return null; } };
 
 function safeMtime(vault, id) {
   try { return fs.statSync(path.join(vault.dir, id)).mtimeMs; } catch { return null; }

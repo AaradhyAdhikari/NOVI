@@ -65,7 +65,11 @@ export function createVocabulary({ file }) {
       if (!String(from ?? '').trim() || !String(to ?? '').trim()) throw new Error('Give both the misheard words and the right ones.');
       return this.set({ words: saved.words, fixes: { ...saved.fixes, [from]: to } });
     },
-    prompt: (base) => (saved.words.length ? `${base} ${saved.words.join(', ')}.` : base),
+    // extra: names Novi knows by herself (her projects), after the user's own words; ≤ 40 names in all.
+    prompt: (base, extra = []) => {
+      const all = [...new Set([...saved.words, ...extra.filter(Boolean)])].slice(0, 40);
+      return all.length ? `${base} ${all.join(', ')}.` : base;
+    },
     apply: (text) => fixGitHub(fixLeetCode(fixLanguages(fixClaude(pattern ? String(text).replace(pattern, (m) => saved.fixes[m.toLowerCase()] ?? m) : String(text))))),
   };
 }

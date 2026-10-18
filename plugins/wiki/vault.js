@@ -39,6 +39,8 @@ export function createVault(dir) {
     append(rel, text) { this.ensure(); fs.appendFileSync(abs(rel), text); },
     read(rel) { try { return fs.readFileSync(abs(rel), 'utf8'); } catch { return null; } },
     exists(rel) { return fs.existsSync(abs(rel)); },
+    // Also a change of capitals only (Windows keeps the old ones if you write the new name instead).
+    rename(from, to) { fs.renameSync(abs(from), abs(to)); },
     list(sub) {
       try {
         return fs.readdirSync(abs(sub)).filter((f) => f.endsWith('.md')).map((f) => ({ rel: path.join(sub, f), title: f.slice(0, -3), mtime: fs.statSync(abs(path.join(sub, f))).mtimeMs }));
