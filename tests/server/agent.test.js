@@ -1457,3 +1457,16 @@ describe('link a folder to a project, no AI', () => {
     expect(fileCommand('open my DBMS notes folder')).toEqual({ tool: 'file_open', args: { query: 'open my DBMS notes folder' } });
   });
 });
+
+// The learning loop (2026-10-18): every request is shown to it, and "what did you get wrong this week" answers.
+describe('learning loop in the agent', () => {
+  it('sees each request with its tool runs, and answers the weekly question without the AI', async () => {
+    const seen = [];
+    const learning = { observe: (t) => seen.push(t), summary: () => 'This week I got 1 thing wrong and learned from 1 of them.' };
+    const tools = new ToolRegistry().add({ name: 'dictate_type', description: 'type', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'type', run: async () => ({ note: 'Typed.' }) });
+    const agent = new Agent({ router: scriptedRouter([reply('should not run')]), tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }), stop: async () => true }, learning });
+    await agent.handle('type: hello');
+    expect(seen[0]).toMatchObject({ heard: 'type: hello', reply: 'Typed.', runs: [{ tool: 'dictate_type', args: { text: 'hello' } }] });
+    expect(await agent.handle('what did you get wrong this week')).toBe('This week I got 1 thing wrong and learned from 1 of them.');
+  });
+});
