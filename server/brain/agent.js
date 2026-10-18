@@ -12,17 +12,18 @@ import { previewCommand, openCommand } from './previewCommand.js';
 import { replyFrom } from './shortcuts.js';
 import { briefCommand, changeCommand } from './briefCommand.js';
 import { dictationCommand } from './dictationCommand.js';
-import { claudeLinkCommand } from './claudeLinkCommand.js';
+import { claudeLinkCommand, linkFolderCommand } from './claudeLinkCommand.js';
 import { describeTurn } from '../activity.js';
 import { quietCommand } from '../quiet.js';
 import path from 'node:path';
+import fs from 'node:fs';
 
 // Asked for directly, these just run even though they can't be "always allowed" in Settings
 // (code_start_task: the user already named Claude). Moving files Novi picked always asks.
 // "What went wrong?" (the activity log) and "what's running?" — answered without the AI.
 const WRONG_RE = /^(?:what went wrong|what happened(?: last time| just now| there)?|why didn'?t (?:that|it|this) work|why did (?:that|it) fail|kya (?:galat )?hua(?: tha)?|kya gadbad hui)$/i;
 const RUNNING_RE = /^(?:what(?:'s| is) (?:running|going on|happening)(?: right now)?|what are you (?:doing|working on)(?: right now)?|(?:sab )?kya (?:kya )?chal raha hai|anything running)$/i;
-const DIRECT_OK = new Set(['code_start_task', 'code_send_message', 'rename_project', 'file_new_folder', 'open_project', 'file_open', 'file_rename', 'note_write', 'notes_ask', 'note_open', 'whatsapp_send', 'claude_project_make']); // whatsapp_send: the user's decision 2026-10-17 — their command is the yes
+const DIRECT_OK = new Set(['code_start_task', 'code_send_message', 'rename_project', 'file_new_folder', 'open_project', 'file_open', 'file_rename', 'note_write', 'notes_ask', 'note_open', 'whatsapp_send', 'claude_project_make', 'remember_project']); // whatsapp_send: the user's decision 2026-10-17 — their command is the yes
 const ASK_ANYWAY = new Set(['file_gather', 'file_undo_move', 'laptop_run', 'preview_show', 'preview_open']); // preview_show/open: only its first start of a project's own command asks
 const MAX_ROUNDS = 10; // screen tasks: open the app, look, click, type, …
 const MAX_HISTORY = 40;
@@ -151,7 +152,9 @@ export function fileCommand(text) {
   const sum = /^(?:please\s+)?(?:summari[sz]e|give me (?:a\s+)?summary of|read and summari[sz]e)\s+(.+)$/i.exec(t);
   if (sum && (FILE_WORD.test(sum[1]) || /\bgoogle\b/i.test(sum[1]))) return { tool: 'file_summary', args: { query: sum[1], ...(/\bgoogle\b/i.test(sum[1]) ? { where: 'google' } : {}) } };
   const opening = /^(?:please\s+)?open\b/i.test(t) || /\b(?:kholo|khol do|open karo)$/i.test(t);
-  if (opening && FILE_WORD.test(t) && !/\b(?:project|youtube|in (?:cursor|vs ?code|vscode|antigravity|kiro|claude))\b/i.test(t)) return { tool: 'file_open', args: { query: t } };
+  // Something left to look for besides the command words ("open in my folder" names nothing: not a search).
+  const named = t.replace(/\b(?:please|open|up|in|on|inside|my|the|a|an|folders?|files?|laptop|computer|pc|kholo|khol do|open karo|it|that|this)\b/gi, '').trim();
+  if (opening && named && FILE_WORD.test(t) && !/\b(?:project|youtube|in (?:cursor|vs ?code|vscode|antigravity|kiro|claude))\b/i.test(t)) return { tool: 'file_open', args: { query: t } };
   return null;
 }
 
@@ -373,6 +376,8 @@ export class Agent {
       return this._remember(text, output?.error || output?.note || 'Typed.');
     }
     // "Put portfolio on Claude" / "sync my Claude projects" (plugins/claude-link), no AI.
+    const linked = await this._linkFolder(text);
+    if (linked) return this._remember(text, linked);
     const linkSaid = claudeLinkCommand(text);
     // "Open X in Claude": a folder project opens in Claude Code (below), only a claude.ai-only one here.
     const link = linkSaid?.soft && this.memory?.findProject?.(linkSaid.args.project) ? null : linkSaid;
@@ -912,6 +917,46 @@ export class Agent {
       if (!sent.error) return 'I asked Claude to start the site. Say "show me the homepage" again in a minute.';
     }
     return out.error || out.note || 'Done.';
+  }
+
+  // "Link the FLEXR context folder to my FlexR project" / a pasted path (linkFolderCommand). A project with
+  // no folder yet (claude.ai-only) gets this one; one that has its folder gets it as context in its note.
+  // Not found → ask for the path once; the pasted path (within 5 min) finishes it. A path on its own with
+  // nothing pending opens it.
+  async _linkFolder(text) {
+    const said = linkFolderCommand(text);
+    if (!said) return null;
+    const run = async (name, args) => (await this._runTool({ id: `link-${Date.now()}`, function: { name, arguments: JSON.stringify(args) } }, { direct: true })).output || {};
+    const pending = this._pendingLink && Date.now() - this._pendingLink.at < 5 * 60_000 ? this._pendingLink : null;
+    if (said.path && !said.project && !pending) {
+      if (!this.tools.get('file_open')) return null;
+      if (!fs.existsSync(said.path)) return `I can't find ${said.path} on the laptop.`;
+      const out = await run('file_open', { path: said.path });
+      return out.error || `Opened ${path.basename(said.path)}.`;
+    }
+    const project = said.project || pending?.project;
+    let target = said.path || null;
+    if (said.path && !fs.existsSync(said.path)) return `I can't find ${said.path} on the laptop.`;
+    if (!target && said.name && this.tools.get('file_find')) {
+      const found = (await run('file_find', { query: said.name })).files || [];
+      const pick = found.find((f) => f.folderItself && f.path) || found.find((f) => f.path);
+      target = pick?.path && fs.existsSync(pick.path) ? pick.path : null;
+    }
+    if (!target) {
+      this._pendingLink = { project, at: Date.now() };
+      return `I couldn't find "${said.name || said.path}" on the laptop. Paste or say its folder path and I'll link it to ${project}.`;
+    }
+    this._pendingLink = null;
+    const isDir = fs.statSync(target).isDirectory();
+    const label = `${path.basename(target)} ${isDir ? 'folder' : 'file'}`;
+    const known = this.memory?.findProject?.(project);
+    if (known?.path || !isDir) {
+      const owner = known?.path ? path.basename(known.path) : project;
+      const out = await run('note_write', { title: `${owner} project`, text: `Context: ${target}` });
+      return out.error || `Added the ${label} to ${owner} as its context.`;
+    }
+    const out = await run('remember_project', { name: project, path: target });
+    return out.error || `Linked the ${label} to ${project}. Ask me about ${project}, open it, or tell Claude to work on it anytime.`;
   }
 
   async _memoryCommand(text) {

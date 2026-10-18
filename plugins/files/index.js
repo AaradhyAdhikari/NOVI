@@ -110,7 +110,7 @@ export function createFilesPlugin({ roots, home = os.homedir(), docsDir, openPat
         parameters: obj({ query: str('What the user said, e.g. "DBMS notes pdf"') }, ['query']),
         async execute(_id, { query }) {
           await waitReady();
-          const files = index.search(query, { limit: 5 }).map((f) => ({ name: f.name, folder: path.dirname(f.path), modified: f.modified, folderItself: f.dir || undefined }));
+          const files = index.search(query, { limit: 5 }).map((f) => ({ name: f.name, folder: path.dirname(f.path), path: f.path, modified: f.modified, folderItself: f.dir || undefined }));
           return reply({ files, note: files.length ? undefined : isReady ? `Nothing like "${query}" on the laptop.` : STILL });
         },
       });

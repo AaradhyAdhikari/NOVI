@@ -1,4 +1,7 @@
 import { describe, it, expect } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { Agent, quickCommand, describeStatus } from '../../server/brain/agent.js';
 import { AllProvidersUnavailableError } from '../../server/brain/router.js';
 import { ApprovalQueue } from '../../server/permissions.js';
@@ -1400,5 +1403,57 @@ describe('claude-link route', () => {
     expect(await agent.handle('open FlexR in Claude')).toBe('Opened FlexR on claude.ai.');
     await agent.handle('open portfolio in Claude');
     expect(ran).toEqual([{ project: 'FlexR' }]);
+  });
+});
+
+// Live 2026-10-18: "link the FLEXR context file to my FlexR project" → the AI asked for a path, then
+// asked again after it was pasted; "open in my folder on laptop" opened MyASUS in WinRE.
+describe('link a folder to a project, no AI', () => {
+  function setup({ found = [], projects = {} } = {}) {
+    const ran = [];
+    const tool = (name, run) => ({ name, description: name, parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => name, run: async (a) => { ran.push([name, a]); return run(a); } });
+    const tools = new ToolRegistry()
+      .add(tool('file_find', () => ({ files: found })))
+      .add({ ...tool('remember_project', (a) => ({ remembered: { name: a.name.toLowerCase(), path: a.path } })), tier: 'medium' })
+      .add(tool('note_write', (a) => ({ title: a.title, created: false })))
+      .add(tool('file_open', (a) => ({ opened: a.path || a.query })));
+    const memory = { listProjects: () => [], findProject: (n) => projects[n] || null };
+    const agent = new Agent({ router: scriptedRouter([reply('AI should not answer'), reply('AI should not answer')]), tools, approvals: new ApprovalQueue(), memory, tasks: { status: () => ({ active: false }), stop: async () => true } });
+    return { agent, ran };
+  }
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'novi-flexr-'));
+  const ctx = path.join(dir, 'FLEXR context');
+  fs.mkdirSync(ctx);
+
+  it('a folder found by name becomes the project\'s folder (a claude.ai-only project has none yet)', async () => {
+    const s = setup({ found: [{ name: 'flexr context', folder: dir, folderItself: true, path: ctx }] });
+    expect(await s.agent.handle('link the FLEXR context file to my FLEXR project according to u')).toBe('Linked the FLEXR context folder to FLEXR. Ask me about FLEXR, open it, or tell Claude to work on it anytime.');
+    expect(s.ran.find(([n]) => n === 'remember_project')[1]).toEqual({ name: 'FLEXR', path: ctx });
+  });
+
+  it('a project that already has its folder gets the new one as context in its note', async () => {
+    const s = setup({ found: [{ name: 'flexr context', folder: dir, folderItself: true, path: ctx }], projects: { flexr: { name: 'flexr', path: '/p/FlexR' } } });
+    expect(await s.agent.handle('link the flexr context folder to my flexr project')).toBe('Added the FLEXR context folder to FlexR as its context.');
+    expect(s.ran.find(([n]) => n === 'note_write')[1]).toEqual({ title: 'FlexR project', text: `Context: ${ctx}` });
+    expect(s.ran.some(([n]) => n === 'remember_project')).toBe(false);
+  });
+
+  it('not found → asks for the path once; the pasted path then finishes it', async () => {
+    const s = setup({ found: [] });
+    expect(await s.agent.handle('link the flexr context file to my flexr project')).toBe(`I couldn't find "flexr context" on the laptop. Paste or say its folder path and I'll link it to flexr.`);
+    expect(await s.agent.handle(`"${ctx}"`)).toBe('Linked the FLEXR context folder to flexr. Ask me about flexr, open it, or tell Claude to work on it anytime.');
+  });
+
+  it('a pasted path with nothing pending opens it; a path that isn\'t there says so', async () => {
+    const s = setup();
+    expect(await s.agent.handle(ctx)).toBe('Opened FLEXR context.');
+    expect(await s.agent.handle('C:\\nope\\gone')).toBe("I can't find C:\\nope\\gone on the laptop.");
+  });
+
+  it('"open in my folder on laptop" never opens a random folder', async () => {
+    const { fileCommand } = await import('../../server/brain/agent.js');
+    expect(fileCommand('open in my folder on laptop')).toBeNull();
+    expect(fileCommand('open my folder')).toBeNull();
+    expect(fileCommand('open my DBMS notes folder')).toEqual({ tool: 'file_open', args: { query: 'open my DBMS notes folder' } });
   });
 });
