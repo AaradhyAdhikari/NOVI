@@ -10,6 +10,7 @@ import { controlCommand, isCancelWord, historyCommand, diskCommand } from './con
 import { browserCommand, isDoneWord } from './browserCommand.js';
 import { previewCommand, openCommand } from './previewCommand.js';
 import { replyFrom } from './shortcuts.js';
+import { briefCommand, changeCommand } from './briefCommand.js';
 import { describeTurn } from '../activity.js';
 import { quietCommand } from '../quiet.js';
 import path from 'node:path';
@@ -333,6 +334,13 @@ export class Agent {
     if (running) return this._remember(text, running);
     const answered = this._answerQuestion(text, from);
     if (answered) return this._remember(text, answered);
+    // The brief card waits: "change it to X" sends X back to ChatGPT (plugins/orchestrator).
+    const changeCard = this.approvals.pending?.().filter((a) => a.changeable).at(-1);
+    const change = changeCard ? changeCommand(text) : null;
+    if (change) {
+      this.approvals.resolve(changeCard.id, false, 'voice', null, { from, change });
+      return this._remember(text, "Okay, I'm asking for that change.");
+    }
     const also = alsoCommand(text);
     if (also) {
       const reply = await this._also(also, from);
@@ -401,6 +409,13 @@ export class Agent {
     }
     const direct = await this._projectCommand(text);
     if (direct) return this._remember(text, direct);
+    // A big job without Claude named: a brief from ChatGPT + Gemini first (an unknown name = a new project).
+    const brief = this.tools.get('project_brief') ? briefCommand(text) : null;
+    if (brief) {
+      const args = brief.project && !this.memory?.findProject?.(brief.project) ? { isNew: true, name: brief.project, request: brief.request } : brief;
+      const { output } = await this._runTool({ id: `brief-${Date.now()}`, function: { name: 'project_brief', arguments: JSON.stringify(args) } }, { direct: true });
+      return this._remember(text, output?.error || output?.note || "I'm working on the brief.");
+    }
     const gh = this.tools.get('github_graph') ? githubGraphCommand(text) : null;
     if (gh) {
       const { output } = await this._runTool({ id: `gh-${Date.now()}`, function: { name: 'github_graph', arguments: JSON.stringify({ date: gh.date }) } });

@@ -72,6 +72,11 @@
       return {};
     },
     // Generic helpers by CSS selector (WhatsApp Web's spots come from Novi, so a page change is fixed in Novi).
+    // The whole text of the last visible match, line breaks kept (an AI site's newest answer).
+    textOf({ selector }) {
+      const all = [...document.querySelectorAll(selector)].filter(visible);
+      return { count: all.length, text: all.length ? String(all.at(-1).innerText || '').trim().slice(0, 20000) : '' };
+    },
     query({ selector }) { return { texts: [...document.querySelectorAll(selector)].filter(visible).map((el) => clean(el.getAttribute('title') || el.innerText)) }; },
     clickSel({ selector, text }) {
       const el = [...document.querySelectorAll(selector)].filter(visible).find((x) => !text || clean(x.getAttribute('title') || x.innerText).toLowerCase() === String(text).toLowerCase());

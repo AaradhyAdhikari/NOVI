@@ -114,3 +114,12 @@ describe('browser tools: no page read yet', () => {
     expect(gate.approval?.title).toBe('Submit the form on example.com: Name Aaradhy?');
   });
 });
+
+// The orchestrator drives ChatGPT / Gemini through the same Chrome link (2026-10-18).
+describe('the Chrome link for other plugins', () => {
+  it('runtime.browserRequest sends a command through the extension', async () => {
+    const { host, calls } = setup();
+    await host.runtime.browserRequest('textOf', { selector: '.a' }, { timeoutMs: 5000 });
+    expect(calls.at(-1)).toEqual(['textOf', { selector: '.a' }]);
+  });
+});

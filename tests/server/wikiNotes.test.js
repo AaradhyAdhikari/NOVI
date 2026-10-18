@@ -87,3 +87,16 @@ describe('Novi Memory: notes', () => {
     expect((await b.host.get('note_open').run({ title: 'nothing' })).note).toBe("I don't have a note called nothing.");
   });
 });
+
+// The orchestrator saves each brief as a note (2026-10-18), without the note_write approval card.
+describe('Novi Memory for other plugins', () => {
+  it('runtime.wikiWrite saves (and appends); wikiRead gives the text back; secrets are refused', async () => {
+    const { host, note } = setup();
+    expect(host.runtime.wikiWrite({ title: 'Portfolio brief', text: '## 2026-10-15\nGoal: a blog.' })).toMatchObject({ title: 'Portfolio brief', created: true });
+    host.runtime.wikiWrite({ title: 'portfolio brief', text: '## 2026-10-16\nGoal: dark mode.' });
+    expect(note('Portfolio brief')).toMatch(/Goal: a blog\.\n\n## 2026-10-16\nGoal: dark mode\.\n$/);
+    expect(host.runtime.wikiRead('Portfolio Brief')).toMatch(/^# Portfolio brief\n\n## 2026-10-15/);
+    expect(host.runtime.wikiRead('Nothing here')).toBe(null);
+    expect(host.runtime.wikiWrite({ title: 'x', text: 'my password is hunter2' })).toEqual({ refused: true });
+  });
+});

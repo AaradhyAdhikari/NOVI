@@ -1328,3 +1328,40 @@ describe('quiet mode in the understanding test dry run', () => {
     expect(calls).toEqual([]);
   });
 });
+
+// Orchestrator (2026-10-18): big jobs without Claude named → a brief first; "change X" on its card.
+describe('brief route', () => {
+  function briefSetup({ known = ['portfolio'] } = {}) {
+    const approvals = new ApprovalQueue();
+    const briefs = [];
+    const ran = [];
+    const tools = new ToolRegistry()
+      .add({ name: 'project_brief', description: 'brief', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'brief', run: async (a) => { briefs.push(a); return { note: 'Thinking it through with ChatGPT and Gemini…' }; } })
+      .add({ name: 'code_start_task', description: 'start', parameters: { type: 'object', properties: {} }, tier: 'medium', describe: (a) => `Start on ${a.project}`, run: async (a) => { ran.push(a); return { started: true, note: 'Claude is working on it.' }; } });
+    const memory = { listProjects: () => known.map((name) => ({ name, path: `C:\\${name}` })), findProject: (n) => (known.includes(String(n).toLowerCase()) ? { name: n, path: `C:\\${n}` } : null) };
+    const agent = new Agent({ router: scriptedRouter([]), tools, approvals, memory, tasks: { status: () => ({ active: false }), stop: async () => true } });
+    return { agent, approvals, briefs, ran };
+  }
+
+  it('"let\'s work on portfolio" → project_brief with the known project, no AI', async () => {
+    const { agent, briefs } = briefSetup();
+    expect(await agent.handle("Let's work on portfolio and add a blog")).toBe('Thinking it through with ChatGPT and Gemini…');
+    expect(briefs).toEqual([{ project: 'portfolio', request: "Let's work on portfolio and add a blog" }]);
+  });
+
+  it('an unknown name is a new project; Claude named still goes straight to Claude', async () => {
+    const { agent, briefs, ran } = briefSetup();
+    await agent.handle("let's work on recipe box");
+    expect(briefs).toEqual([{ isNew: true, name: 'recipe box', request: "let's work on recipe box" }]);
+    await agent.handle('tell Claude to add a blog to portfolio');
+    expect(briefs).toHaveLength(1);
+    expect(ran).toHaveLength(1);
+  });
+
+  it('"change X" while the brief card waits answers it with the change', async () => {
+    const { agent, approvals } = briefSetup();
+    const card = approvals.decide({ title: 'Send this brief to Claude?', tier: 'medium', changeable: true });
+    expect(await agent.handle('change it to a blue theme')).toBe("Okay, I'm asking for that change.");
+    expect(await card).toEqual({ allow: false, choice: null, change: 'a blue theme' });
+  });
+});

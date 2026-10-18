@@ -154,3 +154,18 @@ describe('ApprovalQueue: Claude question approvals', () => {
     vi.useRealTimers();
   });
 });
+
+// The orchestrator's brief card (2026-10-18): "change X" sends X back instead of yes / no.
+describe('changeable approvals', () => {
+  it('a "change" answer resolves as not allowed, carrying the change; other cards ignore it', async () => {
+    const q = new ApprovalQueue();
+    const brief = q.decide({ title: 'Send this brief to Claude?', tier: 'medium', changeable: true });
+    const [card] = q.pending();
+    expect(card.changeable).toBe(true);
+    q.resolve(card.id, false, 'voice', null, { change: 'use a blue theme' });
+    expect(await brief).toEqual({ allow: false, choice: null, change: 'use a blue theme' });
+    const plain = q.decide({ title: 'Open X', tier: 'medium' });
+    q.resolve(q.pending()[0].id, false, 'voice', null, { change: 'nope' });
+    expect(await plain).toEqual({ allow: false, choice: null });
+  });
+});

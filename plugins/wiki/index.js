@@ -32,6 +32,11 @@ export function createWikiPlugin({ now = () => new Date(), env = process.env, ho
       const vault = createVault(memoryDir({ env, home }));
       const actions = createActionLog({ vault, now, logger: api.logger });
       const notes = createNotes({ vault, now });
+      // Other plugins save into Novi Memory without the note_write card (the orchestrator's briefs).
+      if (api.runtime) {
+        api.runtime.wikiWrite = ({ title, text }) => ((looksSecret(text) || looksSecret(title)) ? { refused: true } : notes.write({ title, text }));
+        api.runtime.wikiRead = (title) => { const t = notes.find(title); return t ? notes.body(t).trim() : null; };
+      }
 
       api.on('after_tool_call', (event) => { actions.record(event); });
       // Only for words that point back ("it", "that", "the folder you just made", "usko"); the

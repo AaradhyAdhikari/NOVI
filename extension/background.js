@@ -73,7 +73,9 @@ async function inPage(tabId, name, args) {
 async function handle(cmd, args) {
   if (cmd === 'open') {
     // background: a new tab that stays behind the one the user is looking at (WhatsApp sends).
-    const tab = args.newTab ? await chrome.tabs.create({ url: args.url, active: !args.background }) : await chrome.tabs.update((await activeTab()).id, { url: args.url });
+    // tabId: load the page in that tab (an AI site's own tab gets a fresh chat without a new tab).
+    const tab = args.tabId ? await chrome.tabs.update(args.tabId, { url: args.url })
+      : args.newTab ? await chrome.tabs.create({ url: args.url, active: !args.background }) : await chrome.tabs.update((await activeTab()).id, { url: args.url });
     if (!args.background) await chrome.windows.update(tab.windowId, { focused: true });
     await loaded(tab.id);
     return { tabId: tab.id };
@@ -103,7 +105,7 @@ async function handle(cmd, args) {
     }
     return { found: false };
   }
-  if (['read', 'click', 'type', 'select', 'key', 'scroll', 'attach', 'has', 'query', 'clickSel', 'typeSel'].includes(cmd)) {
+  if (['read', 'click', 'type', 'select', 'key', 'scroll', 'attach', 'has', 'query', 'textOf', 'clickSel', 'typeSel'].includes(cmd)) {
     const result = await inPage(tab.id, cmd, args);
     if (cmd === 'click' || cmd === 'key') await loaded(tab.id, 1500);
     return result;

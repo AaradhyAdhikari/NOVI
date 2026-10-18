@@ -1,0 +1,20 @@
+{
+  "chatgpt": {
+    "name": "ChatGPT",
+    "url": "https://chatgpt.com/",
+    "input": "#prompt-textarea, div[contenteditable=\"true\"][id*=\"prompt\"]",
+    "send": "button[data-testid=\"send-button\"], button[aria-label=\"Send prompt\"]",
+    "busy": "button[data-testid=\"stop-button\"], button[aria-label*=\"Stop\"]",
+    "answer": "[data-message-author-role=\"assistant\"]",
+    "login": "button[data-testid=\"login-button\"], a[href*=\"auth/login\"]"
+  },
+  "gemini": {
+    "name": "Gemini",
+    "url": "https://gemini.google.com/app",
+    "input": "rich-textarea .ql-editor, div[contenteditable=\"true\"][role=\"textbox\"]",
+    "send": "button.send-button, button[aria-label*=\"Send message\"]",
+    "busy": "button[aria-label*=\"Stop response\"], button.stop",
+    "answer": "model-response message-content, model-response .markdown",
+    "login": "a[href*=\"accounts.google.com/ServiceLogin\"], a[aria-label=\"Sign in\"]"
+  }
+}
