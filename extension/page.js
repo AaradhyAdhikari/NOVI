@@ -78,8 +78,10 @@
       return { count: all.length, text: all.length ? String(all.at(-1).innerText || '').trim().slice(0, 20000) : '' };
     },
     // firstLine: a card's name (its first line); attr: that attribute of each match too (a link's href).
-    query({ selector, firstLine = false, attr = null }) {
+    // scrollLast: show the last match, so a list that loads more as you scroll (claude.ai) shows more.
+    query({ selector, firstLine = false, attr = null, scrollLast = false }) {
       const els = [...document.querySelectorAll(selector)].filter(visible);
+      if (scrollLast && els.length) els[els.length - 1].scrollIntoView({ block: 'end' });
       const text = (el) => (firstLine ? String(el.innerText || '').split('\n').map((l) => l.trim()).find(Boolean) || '' : el.getAttribute('title') || el.innerText);
       return { texts: els.map((el) => clean(text(el))), ...(attr ? { values: els.map((el) => el.getAttribute(attr) || '') } : {}) };
     },

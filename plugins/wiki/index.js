@@ -35,6 +35,8 @@ export function createWikiPlugin({ now = () => new Date(), env = process.env, ho
       // Other plugins save into Novi Memory without the note_write card (the orchestrator's briefs).
       if (api.runtime) {
         api.runtime.wikiWrite = ({ title, text }) => ((looksSecret(text) || looksSecret(title)) ? { refused: true } : notes.write({ title, text }));
+        // "portfolio brief" → "Portfolio brief" (only an all-lowercase title takes new capitals).
+        api.runtime.wikiRecase = (title) => notes.recase(title);
         api.runtime.wikiRead = (title) => { const t = notes.find(title); return t ? notes.body(t).trim() : null; };
       }
 

@@ -2,7 +2,7 @@
   "name": "Claude",
   "list": "https://claude.ai/projects",
   "create": "https://claude.ai/projects/create",
-  "cards": "a[href^=\"/project/\"]",
+  "cards": "a[href*=\"/project/\"]",
   "page": "main, [data-testid=\"project-page\"]",
   "nameInput": "input#project-name, input[name=\"name\"], input[placeholder*=\"name\" i]",
   "descriptionInput": "textarea#project-description, textarea[name=\"description\"], textarea[placeholder*=\"describ\" i]",
