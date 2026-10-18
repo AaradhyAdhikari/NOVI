@@ -5,8 +5,8 @@ import { X, Search } from 'lucide-react';
 // by folder and sized by its links; tap one to fly to it and read it. Narrow screens get a list.
 // The note text is shown as plain text (<pre>), never as HTML.
 const COLORS = { Notes: '#00f2fe', Actions: '#ffb547', Home: '#e8ecf4', Shortcuts: '#7cf29a', 'Project files': '#ff8ad8' };
-// Shortcuts and a project's files are many small dots: their names show only up close or when picked.
-const QUIET_LABELS = new Set(['Shortcuts', 'Project files']);
+// Shortcuts are many small dots: their names show only up close or when picked.
+const QUIET_LABELS = new Set(['Shortcuts']);
 const colorOf = (folder) => COLORS[folder] || '#b18cff';
 const NARROW = 600;
 

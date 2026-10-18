@@ -71,6 +71,7 @@ describe('buildGraph: project groups', () => {
   fs.writeFileSync(path.join(folder, 'public', 'images', 'hero.jpg'), 'x');
   fs.mkdirSync(path.join(folder, 'node_modules', 'pkg'), { recursive: true });
   fs.writeFileSync(path.join(folder, 'node_modules', 'pkg', 'icon.png'), 'x');
+  for (const size of ['32', '64', '192', '512']) fs.writeFileSync(path.join(folder, `icon-${size}.png`), 'x');
   const vault = vaultWith({
     'Notes/Portfolio project.md': `# Portfolio project\n\nFolder: ${folder}\nOn claude.ai: https://claude.ai/project/p`,
     'Notes/Portfolio logo ideas.md': '# Portfolio logo ideas\n\nround, blue',
@@ -88,11 +89,16 @@ describe('buildGraph: project groups', () => {
   it('every note named after the project hangs off it', () => {
     expect(has('Notes/Portfolio logo ideas.md', 'Notes/Portfolio project.md')).toBe(true);
   });
-  it("the project's README, logo and pictures are dots on it (never node_modules)", () => {
+  it("at most 3 simple dots per project: Context (README), Pictures (one dot, icon sizes count once), Files", () => {
     const files = g.nodes.filter((n) => n.folder === 'Project files');
-    expect(files.map((n) => n.title).sort()).toEqual(['README.md', 'hero.jpg', 'logo.png']);
+    expect(files.map((n) => n.title).sort()).toEqual(['Context', 'Files', 'Pictures']);
     for (const f of files) expect(has(f.id, 'Notes/Portfolio project.md')).toBe(true);
-    expect(files.find((n) => n.title === 'README.md').excerpt).toBe('Portfolio My site with a blog.');
-    expect(files.find((n) => n.title === 'logo.png').excerpt).toBe(`Picture in Portfolio: ${path.join(folder, 'logo.png')}`);
+    expect(files.find((n) => n.title === 'Context').excerpt).toBe('Portfolio My site with a blog.');
+    expect(files.find((n) => n.title === 'Pictures').excerpt).toBe('3 pictures in Portfolio: logo.png, icon.png, hero.jpg');
+    expect(files.find((n) => n.title === 'Files').excerpt).toBe(`7 files in ${folder}`);
+  });
+  it('the old per-picture check stays out', () => {
+    const files = g.nodes.filter((n) => n.folder === 'Project files');
+    expect(files.some((n) => /icon-\d+/.test(n.title))).toBe(false);
   });
 });

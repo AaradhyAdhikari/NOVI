@@ -52,6 +52,9 @@ export default function SystemPanel({ api }) {
         <li><div><strong>Version</strong><span className="muted">{health.version}</span></div></li>
         <li><div><strong>Running for</strong><span className="muted">{uptime(health.uptimeSec)}{health.supervised ? `, ${health.restarts} automatic restart${health.restarts === 1 ? '' : 's'}` : ' (not supervised: start with Start Novi.cmd to auto-restart)'}</span></div></li>
         <li><div><strong>AI providers</strong><span className="muted">{providers}</span></div></li>
+        {health.aiKeys && <li><div><strong>AI keys</strong><span className="muted">{health.aiKeys.filter((k) => !k.keys).length
+          ? `Missing: ${health.aiKeys.filter((k) => !k.keys).map((k) => k.name).join(', ')} — add ${health.aiKeys.filter((k) => !k.keys).map((k) => `${k.name.toUpperCase()}_API_KEYS`).join(', ')} to .env for more fallbacks.`
+          : 'every free provider has a key'} {health.aiKeys.filter((k) => k.keys).map((k) => `${k.name} ${k.keys}`).join(' · ')}</span></div></li>}
         <li><div><strong>“Hey Novi”</strong><span className="muted">{health.wakeWord === 'server' ? 'laptop microphone (always on)' : 'this browser'}</span></div></li>
         <li><div><strong>Voice check</strong><span className="muted">{VOICE_CHECK[health.speakerCheck] || 'off'}</span></div></li>
         <li><div><strong>Last backup</strong><span className="muted">{health.lastBackup ? `${ago(health.lastBackup.at)} (${health.lastBackup.file})` : 'none yet'}</span></div></li>

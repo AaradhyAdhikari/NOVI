@@ -63,11 +63,10 @@ export function buildGraph(vault) {
     const name = p.title.replace(/ project$/i, '');
     for (const n of notes) if (n.id !== p.id && n.title.toLowerCase().startsWith(`${name.toLowerCase()} `)) add(n.id, p.id);
     const folder = /^Folder: (.+)$/m.exec(stripFront(p.text))?.[1]?.trim();
-    for (const f of projectFiles(folder)) {
-      const id = `file:${f.path}`;
-      if (nodes.some((x) => x.id === id)) continue;
-      nodes.push({ id, title: path.basename(f.path), folder: 'Project files', updated: day(f.mtime), excerpt: (f.readme ? plain(f.readme) : `Picture in ${name}: ${f.path}`).slice(0, EXCERPT) });
-      add(id, p.id);
+    for (const d of projectDots(folder, name)) {
+      if (nodes.some((x) => x.id === d.id)) continue;
+      nodes.push({ ...d, folder: 'Project files', excerpt: d.excerpt.slice(0, EXCERPT) });
+      add(d.id, p.id);
     }
   }
   // A note linked to nothing still belongs to Novi Memory instead of floating alone.
@@ -78,29 +77,43 @@ export function buildGraph(vault) {
 
 const IMAGE = /\.(png|jpe?g|svg|webp|gif|ico)$/i;
 const SKIP = new Set(['node_modules', '.git', 'dist', 'build', 'data', '.next', 'coverage', 'vendor', '.venv', 'venv']);
-const MAX_PICTURES = 6;
 
-// The README and up to 6 pictures (logo / icon / favicon first) of a project folder, 3 levels deep.
-export function projectFiles(folder) {
+// A project's folder as at most 3 simple dots (user, 2026-10-18: "why so many different icons… make
+// everything simple"): Context (the README), Pictures (one dot; icon-32/icon-192/… count once), Files.
+export function projectDots(folder, name) {
   if (!folder) return [];
-  const out = [];
+  const dots = [];
   const readme = ['README.md', 'readme.md', 'Readme.md'].map((n) => path.join(folder, n)).find((f) => fs.existsSync(f));
-  if (readme) out.push({ path: readme, mtime: safeStat(readme), readme: fs.readFileSync(readme, 'utf8').slice(0, 2000) });
+  if (readme) dots.push({ id: `context:${folder}`, title: 'Context', updated: day(safeStat(readme)), excerpt: plain(fs.readFileSync(readme, 'utf8').slice(0, 2000)) });
   const pictures = [];
+  let files = 0;
   const walk = (dir, depth) => {
     let entries = [];
     try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
     for (const e of entries) {
       if (e.name.startsWith('.') || SKIP.has(e.name)) continue;
       const full = path.join(dir, e.name);
-      if (e.isDirectory() && depth < 3) walk(full, depth + 1);
-      else if (e.isFile() && IMAGE.test(e.name)) pictures.push(full);
+      if (e.isDirectory()) { if (depth < 3) walk(full, depth + 1); continue; }
+      if (!e.isFile()) continue;
+      files += 1;
+      if (IMAGE.test(e.name)) pictures.push(full);
     }
   };
   walk(folder, 1);
+  // "icon-192.png", "icon@2x.png", "logo_512x512.png" are sizes of one picture.
+  const stem = (f) => path.basename(f).replace(/\.[^.]+$/, '').replace(/[-_@]?(?:\d{2,4}(?:x\d{2,4})?|\dx)$/i, '').toLowerCase();
   const rank = (f) => (/logo|icon|favicon/i.test(path.basename(f)) ? 0 : 1);
-  pictures.sort((a, b) => rank(a) - rank(b) || a.length - b.length).slice(0, MAX_PICTURES).forEach((f) => out.push({ path: f, mtime: safeStat(f) }));
-  return out;
+  const distinct = new Map();
+  for (const f of pictures.sort((a, b) => rank(a) - rank(b) || a.length - b.length)) {
+    const s = stem(f);
+    if (!distinct.has(s)) distinct.set(s, `${s}${path.extname(f).toLowerCase()}`);
+  }
+  if (distinct.size) {
+    const names = [...distinct.values()];
+    dots.push({ id: `pictures:${folder}`, title: 'Pictures', updated: null, excerpt: `${names.length} picture${names.length === 1 ? '' : 's'} in ${name}: ${names.slice(0, 8).join(', ')}` });
+  }
+  dots.push({ id: `files:${folder}`, title: 'Files', updated: null, excerpt: `${files} file${files === 1 ? '' : 's'} in ${folder}` });
+  return dots;
 }
 const safeStat = (f) => { try { return fs.statSync(f).mtimeMs; } catch { return null; } };
 

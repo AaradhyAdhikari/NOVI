@@ -10,6 +10,7 @@ import { buildGraph, readNote } from '../plugins/wiki/graph.js';
 import express from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
+import { PROVIDER_NAMES } from './config.js';
 import { WebSocketServer } from 'ws';
 import { Memory } from './memory.js';
 import { ApprovalQueue } from './permissions.js';
@@ -190,6 +191,7 @@ export function createNovi(config, overrides = {}) {
         return result;
       },
       // Novi's remembered projects (plugins/claude-link adds the folders Claude Code worked in).
+      aiKeys: () => aiKeys(),
       projects: {
         list: () => memory.listProjects().map(({ name, path: at }) => ({ name, path: at })),
         remember: (name, at) => memory.rememberProject(name, at),
@@ -264,6 +266,8 @@ export function createNovi(config, overrides = {}) {
   // also the backup when Groq is down; Gemini last (it timed out often in the 2026-10-07 benchmark).
   const sarvam = createSarvamStt({ keys: config.speechKeys?.sarvam || [] });
   // Settings → Words: your word list (hint + fixes) and the log of what was heard.
+  // How many keys each AI provider has (never the keys): Settings → System and "which AI keys are missing".
+  const aiKeys = () => PROVIDER_NAMES.map((name) => ({ name, keys: (config.providers || []).find((p) => p.name === name)?.keys?.length || 0 }));
   const vocabulary = createVocabulary({ file: path.join(config.dataDir, 'vocabulary.json') });
   // Project names ("TraceBite", "MediKiosk AI") heard right: the folders' own spelling + claude.ai's.
   const projectWords = () => {
@@ -691,6 +695,7 @@ export function createNovi(config, overrides = {}) {
     wakeWord,
     speakerCheck: speakerCheck(),
     providers: router.status(),
+    aiKeys: aiKeys(),
     lastBackup: lastBackup(),
     errors: overrides.logBuffer?.recent() || [],
   }));

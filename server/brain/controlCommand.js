@@ -85,6 +85,13 @@ export function historyCommand(text) {
 
 // "How much free space is on my C drive?" / "storage left" / "C drive me kitni jagah bachi hai" →
 // laptop_disk (a fixed command, Windows units), no AI. "Free up space" (cleaning) stays with the AI.
+// "Which AI keys are missing" / "check my API keys" → ai_keys_status (plugins/ai-keys), no AI.
+export function keysCommand(text) {
+  const t = clean(text).replace(/[.!?]+$/, '');
+  return /\b(?:ai|api)\s+(?:keys?|providers?)\b/i.test(t) && /\b(?:which|what|check|missing|list|show|kaunsi|kaun|do i have)\b/i.test(t)
+    ? { tool: 'ai_keys_status', args: {} } : null;
+}
+
 export function diskCommand(text) {
   const t = clean(text).replace(/[.!?]+$/, '');
   if (/\b(?:free up|clean|clear|delete|remove)\b/i.test(t)) return null;

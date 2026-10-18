@@ -6,7 +6,7 @@ import { firstSentence } from '../narrator.js';
 import { answerKind } from './answers.js';
 import { matchAnswer, answerFor } from '../claude/questions.js';
 import { FILE_LEAD, FILE_TAIL } from './phrases.js';
-import { controlCommand, isCancelWord, historyCommand, diskCommand } from './controlCommand.js';
+import { controlCommand, isCancelWord, historyCommand, diskCommand, keysCommand } from './controlCommand.js';
 import { browserCommand, isDoneWord } from './browserCommand.js';
 import { previewCommand, openCommand } from './previewCommand.js';
 import { replyFrom } from './shortcuts.js';
@@ -389,6 +389,11 @@ export class Agent {
       // No website to run (a CLI, a library…): open the project in the editor instead.
       if (out.askClaude && this.tools.get('open_project')) out = await open('open_project', { project: opened.args.project });
       return this._remember(text, out.error || out.note || out.text || 'Done.');
+    }
+    const keys = keysCommand(text);
+    if (keys && this.tools.get(keys.tool)) {
+      const { output } = await this._runTool({ id: `keys-${Date.now()}`, function: { name: keys.tool, arguments: '{}' } }, { direct: true });
+      return this._remember(text, output?.error || output?.note || "I couldn't check the keys.");
     }
     const disk = diskCommand(text);
     if (disk && this.tools.get(disk.tool)) {

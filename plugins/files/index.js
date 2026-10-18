@@ -77,6 +77,12 @@ export function createFilesPlugin({ roots, home = os.homedir(), docsDir, openPat
       const lastMoveFile = path.join(dataDir, 'last-move.json');
       const docs = docsDir || defaultDocs(home);
 
+      // The second brain (plugins/brain) reads the same list and the same readers.
+      if (api.runtime) {
+        api.runtime.fileEntries = () => index.entries();
+        api.runtime.readFileText = (p) => readFileText(p);
+      }
+
       api.registerService({
         id: 'files-index',
         async start() {
