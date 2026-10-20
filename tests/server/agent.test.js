@@ -1429,6 +1429,8 @@ describe('link a folder to a project, no AI', () => {
     const s = setup({ found: [{ name: 'flexr context', folder: dir, folderItself: true, path: ctx }] });
     expect(await s.agent.handle('link the FLEXR context file to my FLEXR project according to u')).toBe('Linked the FLEXR context folder to FLEXR. Ask me about FLEXR, open it, or tell Claude to work on it anytime.');
     expect(s.ran.find(([n]) => n === 'remember_project')[1]).toEqual({ name: 'FLEXR', path: ctx });
+    // …and its note gets the folder, so Novi Memory shows the project's files.
+    expect(s.ran.find(([n]) => n === 'note_write')[1]).toEqual({ title: 'FLEXR project', text: `Folder: ${ctx}` });
   });
 
   it('a project that already has its folder gets the new one as context in its note', async () => {

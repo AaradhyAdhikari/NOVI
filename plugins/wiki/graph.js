@@ -62,8 +62,13 @@ export function buildGraph(vault) {
     add(p.id, hub);
     const name = p.title.replace(/ project$/i, '');
     for (const n of notes) if (n.id !== p.id && n.title.toLowerCase().startsWith(`${name.toLowerCase()} `)) add(n.id, p.id);
-    const folder = /^Folder: (.+)$/m.exec(stripFront(p.text))?.[1]?.trim();
-    for (const d of projectDots(folder, name)) {
+    // The newest `Folder:` line (a folder linked later wins), plus any `Context:` folders.
+    const body = stripFront(p.text);
+    const folder = [...body.matchAll(/^Folder: (.+)$/gm)].pop()?.[1]?.trim();
+    const contexts = [...body.matchAll(/^Context: (.+)$/gm)].map((m) => m[1].trim()).filter((c) => c !== folder && isDirectory(c));
+    const dots = projectDots(folder, name);
+    for (const c of contexts) dots.push(...projectDots(c, name).filter((d) => d.title !== 'Context' || !dots.some((x) => x.title === 'Context')));
+    for (const d of dots) {
       if (nodes.some((x) => x.id === d.id)) continue;
       nodes.push({ ...d, folder: 'Project files', excerpt: d.excerpt.slice(0, EXCERPT) });
       add(d.id, p.id);
@@ -115,6 +120,7 @@ export function projectDots(folder, name) {
   dots.push({ id: `files:${folder}`, title: 'Files', updated: null, excerpt: `${files} file${files === 1 ? '' : 's'} in ${folder}` });
   return dots;
 }
+const isDirectory = (f) => { try { return fs.statSync(f).isDirectory(); } catch { return false; } };
 const safeStat = (f) => { try { return fs.statSync(f).mtimeMs; } catch { return null; } };
 
 function safeMtime(vault, id) {

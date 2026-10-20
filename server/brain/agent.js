@@ -973,7 +973,10 @@ export class Agent {
       return out.error || `Added the ${label} to ${owner} as its context.`;
     }
     const out = await run('remember_project', { name: project, path: target });
-    return out.error || `Linked the ${label} to ${project}. Ask me about ${project}, open it, or tell Claude to work on it anytime.`;
+    if (out.error) return out.error;
+    // The project's note gets the folder too: Novi Memory shows a project's files from its `Folder:` line.
+    if (this.tools.get('note_write')) await run('note_write', { title: `${project} project`, text: `Folder: ${target}` });
+    return `Linked the ${label} to ${project}. Ask me about ${project}, open it, or tell Claude to work on it anytime.`;
   }
 
   async _memoryCommand(text) {

@@ -102,3 +102,18 @@ describe('buildGraph: project groups', () => {
     expect(files.some((n) => /icon-\d+/.test(n.title))).toBe(false);
   });
 });
+
+describe('buildGraph: a project whose folder came later', () => {
+  it('reads the newest Folder: line, and Context: folders add their files too', () => {
+    const a = fs.mkdtempSync(path.join(os.tmpdir(), 'novi-flexr-'));
+    fs.writeFileSync(path.join(a, 'README.md'), '# FLEXR\n\nFitness app.');
+    const b = fs.mkdtempSync(path.join(os.tmpdir(), 'novi-flexr-ctx-'));
+    fs.writeFileSync(path.join(b, 'notes.txt'), 'x');
+    const vault = vaultWith({ 'Notes/FLEXR project.md': `# FLEXR project\n\nOn claude.ai: https://claude.ai/project/f\nNo folder on the laptop yet.\n\nFolder: ${a}\n\nContext: ${b}` });
+    const g = buildGraph(vault);
+    const dots = g.nodes.filter((n) => n.folder === 'Project files').map((n) => `${n.title}: ${n.excerpt}`);
+    expect(dots).toContain('Context: FLEXR Fitness app.');
+    expect(dots).toContain(`Files: 1 file in ${a}`);
+    expect(dots).toContain(`Files: 1 file in ${b}`);
+  });
+});
