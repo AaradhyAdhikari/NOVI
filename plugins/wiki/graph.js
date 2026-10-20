@@ -2,6 +2,7 @@
 // plain mentions of another note's title are lines. The daily Actions files are one "Actions" dot.
 import fs from 'node:fs';
 import path from 'node:path';
+import { parseSame, mainName, isContainerName } from './same.js';
 
 const EXCERPT = 200;
 const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -57,18 +58,64 @@ export function buildGraph(vault) {
   // One group per project (user, 2026-10-18): "X project" hangs off Novi Memory; "X brief" and every
   // other note named "X …", plus the project's README, logo and pictures, hang off "X project".
   const hub = nodes.find((n) => n.id === 'Novi Memory.md')?.id;
-  const projects = notes.filter((n) => / project$/i.test(n.title));
+  // One dot per thing (user, 2026-10-20): names the "Same things" note joins are one project, shown with
+  // the shortest clean name; the other notes' dots fold into it. A Documents-like folder is no project.
+  const sameNote = notes.find((n) => n.title.toLowerCase() === 'same things');
+  const same = parseSame(sameNote ? stripFront(sameNote.text) : '');
+  const mainOf = new Map();
+  for (const g of same.groups) { const m = mainName(g); for (const n of g) mainOf.set(n.toLowerCase(), m); }
+  const nameOf = (p) => p.title.replace(/ project$/i, '').trim();
+  const dropped = new Map(); // folded or removed note id → the dot it became (null = gone)
+  const byMain = new Map();
+  for (const p of notes.filter((n) => / project$/i.test(n.title))) {
+    if (!/[\p{L}\p{N}]/u.test(nameOf(p)) || isContainerName(nameOf(p))) { dropped.set(p.id, null); continue; }
+    const main = mainOf.get(nameOf(p).toLowerCase()) || nameOf(p);
+    byMain.set(main.toLowerCase(), [...(byMain.get(main.toLowerCase()) || []), { p, main }]);
+  }
+  const aliases = new Map(); // project note id → every name it goes by
+  const projects = [...byMain.values()].map((group) => {
+    const main = group[0].main;
+    const keep = (group.find((x) => nameOf(x.p).toLowerCase() === main.toLowerCase()) || group[0]).p;
+    for (const { p } of group) if (p !== keep) dropped.set(p.id, keep.id);
+    const node = nodes.find((n) => n.id === keep.id);
+    node.title = `${main} project`;
+    const names = [main, ...group.map((x) => nameOf(x.p)), ...(same.groups.find((g) => g.some((n) => n.toLowerCase() === main.toLowerCase())) || [])];
+    aliases.set(keep.id, [...new Set(names.map((n) => n.toLowerCase()))]);
+    return { ...keep, title: `${main} project`, text: group.map((x) => x.p.text).join('\n\n') };
+  });
   // Projects on claude.ai hang off one "Claude" dot (user, 2026-10-20: "easy for Novi to find them").
   const onClaude = projects.filter((p) => /^On claude\.ai: /m.test(stripFront(p.text)));
-  if (onClaude.length) {
+  // ChatGPT plans, Claude builds (user, 2026-10-20). The "ChatGPT" dot holds the user's ChatGPT projects
+  // ("On ChatGPT:" in "X project", unless a later "No longer on ChatGPT:"), pinned chats ("X (pinned chat)"
+  // until "Unpinned on ChatGPT:"), the planning chat note ("ChatGPT plan") and every "X brief".
+  const lastOf = (text, re) => [...stripFront(text).matchAll(re)].pop()?.[1];
+  const onChatGPT = projects.filter((p) => lastOf(p.text, /^(On ChatGPT|No longer on ChatGPT): /gm) === 'On ChatGPT');
+  const pinned = notes.filter((n) => / \(pinned chat\)$/i.test(n.title) && lastOf(n.text, /^(Pinned|Unpinned) on ChatGPT: /gm) === 'Pinned');
+  const plan = notes.find((n) => n.title.toLowerCase() === 'chatgpt plan');
+  const briefs = notes.filter((n) => / brief$/i.test(n.title));
+  const hasChatGPT = Boolean(onChatGPT.length || pinned.length || plan || briefs.length);
+  const counted = (list, one, many, strip) => (list.length ? `${list.length} ${list.length === 1 ? one : many} (${list.map((n) => n.title.replace(strip, '')).join(', ')})` : null);
+  const and = (parts) => (parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : parts[0]);
+  if (onClaude.length || hasChatGPT) {
     const names = onClaude.map((p) => p.title.replace(/ project$/i, ''));
-    nodes.push({ id: 'Claude', title: 'Claude', folder: 'Claude', updated: null, excerpt: `Your ${names.length} project${names.length === 1 ? '' : 's'} on claude.ai: ${names.join(', ')}`.slice(0, EXCERPT) });
+    const excerpt = names.length ? `Your ${names.length} project${names.length === 1 ? '' : 's'} on claude.ai: ${names.join(', ')}` : 'Claude builds what ChatGPT plans.';
+    nodes.push({ id: 'Claude', title: 'Claude', folder: 'Claude', updated: null, excerpt: excerpt.slice(0, EXCERPT) });
     add('Claude', hub);
   }
+  if (hasChatGPT) {
+    const parts = [counted(onChatGPT, 'project', 'projects', / project$/i), counted(pinned, 'pinned chat', 'pinned chats', / \(pinned chat\)$/i),
+      plan && 'your planning chat (ChatGPT plan)', counted(briefs, 'project brief', 'project briefs', / brief$/i)].filter(Boolean);
+    nodes.push({ id: 'ChatGPT', title: 'ChatGPT', folder: 'ChatGPT', updated: null, excerpt: `On ChatGPT: ${and(parts)}. Claude builds them.`.slice(0, EXCERPT) });
+    add('ChatGPT', hub);
+    add('ChatGPT', 'Claude'); // they work together (user, 2026-10-20: "make a direct relationship")
+    for (const n of [...pinned, ...briefs, ...(plan ? [plan] : [])]) add(n.id, 'ChatGPT');
+  }
   for (const p of projects) {
-    add(p.id, onClaude.includes(p) ? 'Claude' : hub);
+    const hubs = [onClaude.includes(p) && 'Claude', onChatGPT.includes(p) && 'ChatGPT'].filter(Boolean);
+    for (const h of hubs.length ? hubs : [hub]) add(p.id, h);
     const name = p.title.replace(/ project$/i, '');
-    for (const n of notes) if (n.id !== p.id && n.title.toLowerCase().startsWith(`${name.toLowerCase()} `)) add(n.id, p.id);
+    // "X brief", "X (pinned chat)", any "X …" — under any name the project goes by.
+    for (const n of notes) if (n.id !== p.id && !dropped.has(n.id) && aliases.get(p.id).some((a) => n.title.toLowerCase().startsWith(`${a} `))) add(n.id, p.id);
     // The newest `Folder:` line (a folder linked later wins), plus any `Context:` folders.
     const body = stripFront(p.text);
     const folder = [...body.matchAll(/^Folder: (.+)$/gm)].pop()?.[1]?.trim();
@@ -81,22 +128,18 @@ export function buildGraph(vault) {
       add(d.id, p.id);
     }
   }
-  // ChatGPT plans, Claude builds (user, 2026-10-20): the planning chat note ("ChatGPT plan", plugins/chatgpt-plan)
-  // and every "X brief" (planned on ChatGPT by the orchestrator) hang off one "ChatGPT" dot too.
-  const plan = notes.find((n) => n.title.toLowerCase() === 'chatgpt plan');
-  const briefs = notes.filter((n) => / brief$/i.test(n.title));
-  if (plan || briefs.length) {
-    const names = briefs.map((b) => b.title.replace(/ brief$/i, ''));
-    const parts = [plan && 'your planning chat (ChatGPT plan)', names.length && `${names.length} project brief${names.length === 1 ? '' : 's'}: ${names.join(', ')}`].filter(Boolean);
-    nodes.push({ id: 'ChatGPT', title: 'ChatGPT', folder: 'ChatGPT', updated: null, excerpt: `Plans from ChatGPT: ${parts.join(' and ')}. Claude builds them.`.slice(0, EXCERPT) });
-    add('ChatGPT', hub);
-    if (plan) add(plan.id, 'ChatGPT');
-    for (const b of briefs) add(b.id, 'ChatGPT');
-  }
   // A note linked to nothing still belongs to Novi Memory instead of floating alone.
   const linked = new Set(links.flatMap((l) => [l.source, l.target]));
   for (const n of nodes) if (!linked.has(n.id)) add(n.id, hub);
-  return { nodes, links };
+  // Folded notes' lines move to the dot they became; removed ones (and lines to themselves) go.
+  const kept = nodes.filter((n) => !dropped.has(n.id));
+  const moved = new Map();
+  for (const l of links) {
+    const a = dropped.has(l.source) ? dropped.get(l.source) : l.source;
+    const b = dropped.has(l.target) ? dropped.get(l.target) : l.target;
+    if (a && b && a !== b) moved.set([a, b].sort().join('\n'), { source: a, target: b });
+  }
+  return { nodes: kept, links: [...moved.values()] };
 }
 
 const IMAGE = /\.(png|jpe?g|svg|webp|gif|ico)$/i;

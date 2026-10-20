@@ -100,6 +100,8 @@ export function createNovi(config, overrides = {}) {
       : new FreeCoderSession({ router, ...opts })),
   });
   // Every feature is an OpenClaw-shaped plugin; built-ins wrap the existing tool registries.
+  // A project under any of its names (the wiki plugin's "Same things" note: NOVI = NOVI CONTEXT).
+  memory.aliasesOf ||= (name) => plugins.runtime.sameAliases?.(name) || [];
   // What Novi is doing on the laptop (listening / thinking / speaking / quiet), for the desktop orb.
   const laptopState = createLaptopState();
   const plugins = new PluginHost({

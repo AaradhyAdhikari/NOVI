@@ -10,6 +10,8 @@ import { controlCommand, isCancelWord, historyCommand, diskCommand, keysCommand 
 import { browserCommand, isDoneWord } from './browserCommand.js';
 import { previewCommand, openCommand } from './previewCommand.js';
 import { browseCommand } from './browseCommand.js';
+import { chatgptCommand } from './chatgptCommand.js';
+import { sameCommand } from './sameCommand.js';
 import { replyFrom } from './shortcuts.js';
 import { briefCommand, changeCommand } from './briefCommand.js';
 import { dictationCommand } from './dictationCommand.js';
@@ -399,6 +401,12 @@ export class Agent {
       const { output } = await this._runTool({ id: `status-${Date.now()}`, function: { name: st.tool, arguments: JSON.stringify(st.args) } }, { direct: true });
       return this._remember(text, output?.error || output?.note || 'Checking…');
     }
+    // "Sync my pinned chats" / "check my ChatGPT plan" and "X and Y are the same / different": no AI.
+    const said = (this.tools.get('chatgpt_plan_sync') && chatgptCommand(text)) || (this.tools.get('same_set') && sameCommand(text)) || null;
+    if (said) {
+      const { output } = await this._runTool({ id: `said-${Date.now()}`, function: { name: said.tool, arguments: JSON.stringify(said.args) } }, { direct: true });
+      return this._remember(text, output?.error || output?.note || 'Done.');
+    }
     const linkSaid = claudeLinkCommand(text);
     // "Open X in Claude": a folder project opens in Claude Code (below), only a claude.ai-only one here.
     const link = linkSaid?.soft && this.memory?.findProject?.(linkSaid.args.project) ? null : linkSaid;
@@ -601,6 +609,8 @@ export class Agent {
     if (file && this.tools.get(file.tool)) return { quick: null, calls: [{ name: file.tool, args: file.args }], reply: null, provider: 'direct' };
     const web = webCommand(text);
     if (web && this.tools.get(web.tool)) return { quick: null, calls: [{ name: web.tool, args: web.args }], reply: null, provider: 'direct' };
+    const sd = (this.tools.get('chatgpt_plan_sync') && chatgptCommand(text)) || (this.tools.get('same_set') && sameCommand(text)) || null;
+    if (sd) return { quick: null, calls: [{ name: sd.tool, args: sd.args }], reply: null, provider: 'direct' };
     const bw = this.tools.get('open_website') ? browseCommand(text) : null;
     if (bw?.target) return { quick: null, calls: [{ name: 'open_website', args: { target: bw.target, ...(bw.on ? { on: bw.on } : {}) } }], reply: null, provider: 'direct' };
     const sc = this.shortcuts?.find(text);

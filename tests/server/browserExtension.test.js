@@ -97,7 +97,7 @@ describe('page.js numbering (fake page)', () => {
     expect(novi.textsOf({ selector: 'x', attrs: ['data-message-author-role', 'data-user-message-bubble'] }).items[0].attrs)
       .toEqual({ 'data-message-author-role': 'user', 'data-user-message-bubble': null });
     expect(read('background.js')).toMatch(/'textsOf'/);
-    expect(JSON.parse(read('manifest.json')).version).toBe('1.6.0');
+    expect(JSON.parse(read('manifest.json')).version).toBe('1.7.0');
   });
   // claude.ai's project list (2026-10-18): each card's name is its first line, its link the href.
   it('query: first line only and an attribute when asked; plain query as before', () => {

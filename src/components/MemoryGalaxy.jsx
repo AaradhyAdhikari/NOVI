@@ -77,7 +77,7 @@ export default function MemoryGalaxy({ api, onClose }) {
         .graphData({ nodes: graph.nodes.map((n) => ({ ...n })), links: graph.links.map((l) => ({ ...l })) })
         .nodeId('id')
         .nodeLabel((n) => `${n.title}${n.updated ? ` · ${n.updated}` : ''}`)
-        .nodeVal((n) => 2 + 2 * (degree[n.id] || 0))
+        .nodeVal((n) => 2 + 2 * (degree[n.id] || 0) + (n.folder === 'Claude' || n.folder === 'ChatGPT' ? 10 : 0)) // the two hub dots stand out
         .nodeCanvasObject((n, ctx, scale) => {
           const dim = focus.current && !focus.current.has(n.id);
           const r = Math.sqrt(2 + 2 * (degree[n.id] || 0)) * 2;

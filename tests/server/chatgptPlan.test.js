@@ -137,12 +137,14 @@ describe('ChatGPT page layouts (live 2026-10-20: the role attribute was gone, th
   });
 
   it('an extension that was not reloaded (no attrs back) is told to reload', async () => {
-    expect((await setup({ chrome: fakeChrome({ items: [{ text: 'x', attr: null }] }) }).sync()).error).toMatch(/Reload the Novi extension.*1\.6\.0/);
+    expect((await setup({ chrome: fakeChrome({ items: [{ text: 'x', attr: null }] }) }).sync()).error).toMatch(/Reload the Novi extension.*1.7.0/);
   });
 
   it('a Chrome timeout is said plainly', async () => {
     const s = setup();
     const sync = createSync({ dir: s.dir, guideFile: 'none', runtime: { browserRequest: async () => { throw new Error('timeout'); }, browserStatus: () => ({ connected: true }) } });
     expect((await sync()).error).toMatch(/Chrome didn't answer in time/);
+    const old = createSync({ dir: s.dir, guideFile: 'none', runtime: { browserRequest: async (cmd) => { if (cmd === 'textsOf') throw new Error('unknown command textsOf'); return cmd === 'waitFor' ? { found: true } : {}; }, browserStatus: () => ({ connected: true }) } });
+    expect((await old()).error).toMatch(/Reload the Novi extension.*1\.7\.0/);
   });
 });

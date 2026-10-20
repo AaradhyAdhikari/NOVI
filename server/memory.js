@@ -38,7 +38,18 @@ export class Memory {
     return Object.entries(this.data.projects).map(([name, p]) => ({ name, ...p }));
   }
 
+  // Another name for the same thing ("Same things" note, set by the wiki plugin: novi → NOVI CONTEXT).
   findProject(name) {
+    const found = this._findProject(name);
+    if (found) return found;
+    for (const alt of this.aliasesOf?.(String(name || '')) || []) {
+      const key = Memory.key(alt);
+      if (this.data.projects[key]) return { name: key, ...this.data.projects[key] };
+    }
+    return null;
+  }
+
+  _findProject(name) {
     const key = Memory.key(name);
     if (this.data.projects[key]) return { name: key, ...this.data.projects[key] };
     // "sample project" = "sample-project" = "Sample_Project" (spoken names have no dashes).

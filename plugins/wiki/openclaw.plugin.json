@@ -11,7 +11,8 @@
       "note_write",
       "notes_ask",
       "note_open",
-      "notes_list"
+      "notes_list",
+      "same_set"
     ]
   },
   "activation": {

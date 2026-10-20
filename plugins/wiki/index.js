@@ -6,6 +6,7 @@ import { definePluginEntry } from '#plugin-sdk';
 import { memoryDir, createVault, looksSecret } from './vault.js';
 import { createActionLog } from './actions.js';
 import { createNotes, words } from './notes.js';
+import { createSameThings } from './sameService.js';
 
 // Novi Memory: a Markdown folder the user can open in Obsidian (Documents\Novi Memory). Novi logs her
 // own actions there automatically; notes are written and read only when the user asks.
@@ -41,6 +42,25 @@ export function createWikiPlugin({ now = () => new Date(), env = process.env, ho
         // Every note's title and text (the second brain searches them).
         api.runtime.wikiNotes = () => notes.titles().map((t) => ({ title: t, text: notes.body(t) }));
       }
+      // Same thing = one dot (user, 2026-10-20): the "Same things" note, kept up to date every 30 minutes.
+      const same = createSameThings({ notes, rt: api.runtime || {}, log: (m) => api.logger?.info?.(m) });
+      if (api.runtime) api.runtime.sameAliases = (name) => same.aliasesOf(name);
+      let sameTimers = [];
+      api.registerService({
+        id: 'same-things',
+        start() {
+          const tick = () => same.check().catch((err) => api.logger?.info?.(`[same] ${err.message}`));
+          sameTimers = [setTimeout(tick, 2 * 60_000), setInterval(tick, 30 * 60_000)];
+          for (const t of sameTimers) t.unref?.();
+        },
+        stop() { clearTimeout(sameTimers[0]); clearInterval(sameTimers[1]); },
+      });
+      api.registerTool({
+        name: 'same_set',
+        description: 'Two names are one thing (same: true — "NOVI CONTEXT and NOVI are the same") or not (same: false — "X and Y are different"). Joins or splits their dots in Novi Memory and lets Novi find a project by either name.',
+        parameters: obj({ a: str('First name'), b: str('Second name'), same: { type: 'boolean', description: 'true = the same thing, false = different' } }, ['a', 'b', 'same']),
+        async execute(_id, { a, b, same: isSame } = {}) { return reply(same.set(String(a).trim(), String(b).trim(), isSame !== false)); },
+      });
 
       api.on('after_tool_call', (event) => { actions.record(event); });
       // Only for words that point back ("it", "that", "the folder you just made", "usko"); the

@@ -147,7 +147,7 @@ describe('buildGraph: a ChatGPT dot (user, 2026-10-20: ChatGPT plans, Claude bui
     });
     const g = buildGraph(vault);
     const has = (a, b) => g.links.some((l) => (l.source === a && l.target === b) || (l.source === b && l.target === a));
-    expect(g.nodes.find((n) => n.id === 'ChatGPT')).toMatchObject({ title: 'ChatGPT', folder: 'ChatGPT', excerpt: 'Plans from ChatGPT: your planning chat (ChatGPT plan) and 1 project brief: Portfolio. Claude builds them.' });
+    expect(g.nodes.find((n) => n.id === 'ChatGPT')).toMatchObject({ title: 'ChatGPT', folder: 'ChatGPT', excerpt: 'On ChatGPT: your planning chat (ChatGPT plan) and 1 project brief (Portfolio). Claude builds them.' });
     expect(has('ChatGPT', 'Novi Memory.md')).toBe(true);
     expect(has('Notes/ChatGPT plan.md', 'ChatGPT')).toBe(true);
     expect(has('Notes/ChatGPT plan.md', 'Novi Memory.md')).toBe(false);

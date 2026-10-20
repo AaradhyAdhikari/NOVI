@@ -87,6 +87,25 @@
         ...(attrs ? { attrs: Object.fromEntries(attrs.map((a) => [a, el.getAttribute(a)])) } : {}),
       })) };
     },
+    // Links grouped under the heading above them (ChatGPT's sidebar: "Projects", "Pinned", "Recents").
+    // A heading = a text-only element (no children, not inside a link) whose whole text matches one of `headings`.
+    groups({ root = 'nav', headings = [], item = 'a[href]' }) {
+      const box = document.querySelector(root);
+      if (!box) return { groups: [] };
+      const heads = headings.map((h) => new RegExp(h, 'i'));
+      const out = [];
+      let current = null;
+      for (const el of box.querySelectorAll('*')) {
+        if (el.matches(item)) {
+          if (current && visible(el)) current.items.push({ text: clean(el.getAttribute('aria-label') || String(el.innerText || '').split('\n')[0]), href: el.getAttribute('href') });
+          continue;
+        }
+        if (el.children.length || el.closest(item)) continue;
+        const t = String(el.innerText || el.textContent || '').trim();
+        if (t && t.length < 30 && heads.some((h) => h.test(t))) { current = { heading: t, items: [] }; out.push(current); }
+      }
+      return { groups: out };
+    },
     // firstLine: a card's name (its first line); attr: that attribute of each match too (a link's href).
     // scrollLast: show the last match, so a list that loads more as you scroll (claude.ai) shows more.
     query({ selector, firstLine = false, attr = null, scrollLast = false }) {

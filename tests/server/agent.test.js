@@ -1508,3 +1508,33 @@ describe('"browse X" without the AI (2026-10-20: the AI route took 21–25 s)', 
     expect(ran[1]).toEqual({ target: 'https://github.com', on: 'laptop' });
   });
 });
+
+describe('ChatGPT sync and "same thing" by voice, without the AI (2026-10-20)', () => {
+  const setup2 = () => {
+    const router = scriptedRouter([]);
+    const ran = [];
+    const tool = (name, out) => ({ name, description: name, parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => name, run: async (a) => { ran.push([name, a]); return out; } });
+    const tools = new ToolRegistry()
+      .add(tool('chatgpt_plan_sync', { note: 'Checking your ChatGPT chat…' }))
+      .add(tool('same_set', { note: 'Okay, NOVI CONTEXT and NOVI are one thing now.' }))
+      .add(tool('open_website', { opened: 'https://chatgpt.com', on: 'laptop' }));
+    const agent = new Agent({ router, tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
+    return { agent, router, ran };
+  };
+
+  it('"sync my pinned chats of chatgpt" answers what really happens (live: the AI claimed "synced")', async () => {
+    const { agent, router, ran } = setup2();
+    expect(await agent.handle('sync my pinned chats of chatgpt')).toBe('Checking your ChatGPT chat…');
+    expect(await agent.handle('check my ChatGPT plan')).toBe('Checking your ChatGPT chat…');
+    expect(ran.map((r) => r[0])).toEqual(['chatgpt_plan_sync', 'chatgpt_plan_sync']);
+    expect(await agent.handle('open chatgpt.com')).toBe('Opened chatgpt.com.');
+    expect(router.calls).toHaveLength(0);
+  });
+
+  it('"NOVI CONTEXT and NOVI are the same" joins them', async () => {
+    const { agent, router, ran } = setup2();
+    expect(await agent.handle('NOVI CONTEXT and NOVI are the same')).toBe('Okay, NOVI CONTEXT and NOVI are one thing now.');
+    expect(ran).toEqual([['same_set', { a: 'NOVI CONTEXT', b: 'NOVI', same: true }]]);
+    expect(router.calls).toHaveLength(0);
+  });
+});
