@@ -2,10 +2,10 @@
   "chatgpt": {
     "name": "ChatGPT",
     "url": "https://chatgpt.com/",
-    "input": "#prompt-textarea, div[contenteditable=\"true\"][id*=\"prompt\"]",
-    "send": "button[data-testid=\"send-button\"], button[aria-label=\"Send prompt\"]",
+    "input": "#prompt-textarea, div[contenteditable=\"true\"][id*=\"prompt\"], div[contenteditable=\"true\"][role=\"textbox\"][aria-label*=\"ChatGPT\"], div[contenteditable=\"true\"][data-composer-markdown]",
+    "send": "button[data-testid=\"send-button\"], button[aria-label=\"Send prompt\"], #composer-submit-button, button[aria-label*=\"Send\"]",
     "busy": "button[data-testid=\"stop-button\"], button[aria-label*=\"Stop\"]",
-    "answer": "[data-message-author-role=\"assistant\"]",
+    "answer": "[data-message-author-role=\"assistant\"], [data-markdown-text-style=\"assistant-message\"]",
     "login": "button[data-testid=\"login-button\"], a[href*=\"auth/login\"]"
   },
   "gemini": {

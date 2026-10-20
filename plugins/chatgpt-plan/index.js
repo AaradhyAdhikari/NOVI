@@ -8,8 +8,11 @@ import { chatKind, messageKey, newSince, toMarkdown, crosscheckPrompt } from './
 // background tab), keeps a private copy in chatgpt/ (gitignored), and cross-checks every new ChatGPT
 // answer against CLAUDE.md with free Gemini → chatgpt/crosscheck.md + Novi Memory note "ChatGPT plan".
 // Claude reads both files when the user says "implement the ChatGPT plan".
-const MESSAGES = '[data-message-author-role]';
-const ROLE = 'data-message-author-role';
+// Your messages and ChatGPT's. Live 2026-10-20 ChatGPT dropped data-message-author-role (the sync waited
+// for it and timed out); its pages now mark your bubble and its answer with different attributes. Both kept.
+const MESSAGES = '[data-message-author-role], [data-user-message-bubble="true"], [data-markdown-text-style="assistant-message"]';
+const ATTRS = ['data-message-author-role', 'data-user-message-bubble'];
+const roleOf = (m) => (m.attrs['data-message-author-role'] === 'user' || m.attrs['data-user-message-bubble'] === 'true' ? 'you' : 'chatgpt');
 const LOGIN = 'button[data-testid="login-button"], a[href*="auth/login"]';
 const stamp = (d) => d.toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
 const obj = (properties, required = []) => ({ type: 'object', properties, required });
@@ -40,9 +43,9 @@ export function createSync({ dir, guideFile, runtime: rt, now = () => new Date()
     const request = rt.browserRequest;
     const problem = await open(request, url);
     if (problem) return { error: problem };
-    const got = await request('textsOf', { selector: MESSAGES, attr: ROLE, tabId });
-    if (!got?.items) return { error: 'Reload the Novi extension in chrome://extensions (it needs version 1.5.0), then ask again.' };
-    const messages = got.items.filter((m) => m.text).map((m) => ({ role: m.attr === 'user' ? 'you' : 'chatgpt', text: m.text }));
+    const got = await request('textsOf', { selector: MESSAGES, attrs: ATTRS, tabId });
+    if (!got?.items || got.items.some((m) => !m.attrs)) return { error: 'Reload the Novi extension in chrome://extensions (it needs version 1.6.0), then ask again.' };
+    const messages = got.items.filter((m) => m.text).map((m) => ({ role: roleOf(m), text: m.text }));
     const when = stamp(now());
     const title = st.title || 'NOVI';
     fs.mkdirSync(dir, { recursive: true });
@@ -70,7 +73,12 @@ export function createSync({ dir, guideFile, runtime: rt, now = () => new Date()
   }
 
   // One check at a time (the 30-minute timer and a voice request can meet).
-  const sync = () => (running ||= run().finally(() => { running = null; }));
+  // Chrome's bare "timeout" said plainly (a slow or still-loading page).
+  const safeRun = () => run().catch((err) => {
+    if (/timeout/i.test(err.message)) return { error: "Chrome didn't answer in time (the ChatGPT page may still be loading). Try again in a moment." };
+    throw err;
+  });
+  const sync = () => (running ||= safeRun().finally(() => { running = null; }));
   sync.link = (url, title) => {
     const kind = chatKind(url);
     if (!kind) return { error: 'That is not a ChatGPT chat link. Open the chat in ChatGPT and copy its address (chatgpt.com/c/…).' };

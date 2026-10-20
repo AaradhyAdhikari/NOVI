@@ -77,10 +77,15 @@
       const all = [...document.querySelectorAll(selector)].filter(visible);
       return { count: all.length, text: all.length ? String(all.at(-1).innerText || '').trim().slice(0, 20000) : '' };
     },
-    // Every visible match, whole (line breaks kept), with one attribute each (a chat: who wrote each message).
-    textsOf({ selector, attr = null }) {
+    // Every visible match, whole (line breaks kept), with one attribute each (a chat: who wrote each message);
+    // `attrs` = several attributes each (ChatGPT marks your messages and its own with different ones).
+    textsOf({ selector, attr = null, attrs = null }) {
       const all = [...document.querySelectorAll(selector)].filter(visible);
-      return { items: all.slice(-500).map((el) => ({ text: String(el.innerText || '').trim().slice(0, 50000), attr: attr ? el.getAttribute(attr) : null })) };
+      return { items: all.slice(-500).map((el) => ({
+        text: String(el.innerText || '').trim().slice(0, 50000),
+        attr: attr ? el.getAttribute(attr) : null,
+        ...(attrs ? { attrs: Object.fromEntries(attrs.map((a) => [a, el.getAttribute(a)])) } : {}),
+      })) };
     },
     // firstLine: a card's name (its first line); attr: that attribute of each match too (a link's href).
     // scrollLast: show the last match, so a list that loads more as you scroll (claude.ai) shows more.

@@ -58,7 +58,7 @@ function fakeChrome({ items, connected = true, loads = true, login = false } = {
   return { calls, request, status: () => ({ connected }) };
 }
 
-function setup({ chrome = fakeChrome({ items: [{ text: 'Plan the brain', attr: 'user' }, { text: 'Step 1: index files', attr: 'assistant' }] }), answer = '- [Done] index files — plugins/brain', state = { url: 'https://chatgpt.com/c/abc', title: 'NOVI' } } = {}) {
+function setup({ chrome = fakeChrome({ items: [{ text: 'Plan the brain', attrs: { 'data-user-message-bubble': 'true' } }, { text: 'Step 1: index files', attrs: { 'data-markdown-text-style': 'assistant-message' } }] }), answer = '- [Done] index files — plugins/brain', state = { url: 'https://chatgpt.com/c/abc', title: 'NOVI' } } = {}) {
   const dir = mkdir();
   fs.writeFileSync(path.join(dir, 'chat.json'), JSON.stringify(state));
   const guide = path.join(mkdir(), 'CLAUDE.md');
@@ -102,7 +102,7 @@ describe('syncing the ChatGPT chat', () => {
   });
 
   it('only my own new message: saved, but nothing to cross-check yet', async () => {
-    const s = setup({ chrome: fakeChrome({ items: [{ text: 'What next?', attr: 'user' }] }) });
+    const s = setup({ chrome: fakeChrome({ items: [{ text: 'What next?', attrs: { 'data-user-message-bubble': 'true' } }] }) });
     const out = await s.sync();
     expect(s.asked).toHaveLength(0);
     expect(s.read('NOVI.md')).toContain('What next?');
@@ -119,12 +119,30 @@ describe('syncing the ChatGPT chat', () => {
   it('a failed cross-check still saves the chat and says so', async () => {
     const broken = setup();
     let busy = true;
-    const sync = createSync({ dir: broken.dir, guideFile: path.join(broken.dir, 'none.md'), runtime: { browserRequest: fakeChrome({ items: [{ text: 'Do X', attr: 'assistant' }] }).request, browserStatus: () => ({ connected: true }), complete: async () => { if (busy) throw new Error('busy'); return '- [Not built] X'; } } });
+    const sync = createSync({ dir: broken.dir, guideFile: path.join(broken.dir, 'none.md'), runtime: { browserRequest: fakeChrome({ items: [{ text: 'Do X', attrs: { 'data-markdown-text-style': 'assistant-message' } }] }).request, browserStatus: () => ({ connected: true }), complete: async () => { if (busy) throw new Error('busy'); return '- [Not built] X'; } } });
     const out = await sync();
     expect(broken.read('NOVI.md')).toContain('Do X');
     expect(out.note).toMatch(/couldn't cross-check/i);
     busy = false; // the next check catches up
     expect((await sync()).note).toMatch(/cross-checked/);
     expect(broken.read('crosscheck.md')).toContain('[Not built] X');
+  });
+});
+
+describe('ChatGPT page layouts (live 2026-10-20: the role attribute was gone, the sync timed out)', () => {
+  it('reads the old layout (data-message-author-role) too', async () => {
+    const s = setup({ chrome: fakeChrome({ items: [{ text: 'Old question', attrs: { 'data-message-author-role': 'user' } }, { text: 'Old answer', attrs: { 'data-message-author-role': 'assistant' } }] }) });
+    await s.sync();
+    expect(s.read('NOVI.md')).toMatch(/## 1\. You\n\nOld question[\s\S]*## 2\. ChatGPT\n\nOld answer/);
+  });
+
+  it('an extension that was not reloaded (no attrs back) is told to reload', async () => {
+    expect((await setup({ chrome: fakeChrome({ items: [{ text: 'x', attr: null }] }) }).sync()).error).toMatch(/Reload the Novi extension.*1\.6\.0/);
+  });
+
+  it('a Chrome timeout is said plainly', async () => {
+    const s = setup();
+    const sync = createSync({ dir: s.dir, guideFile: 'none', runtime: { browserRequest: async () => { throw new Error('timeout'); }, browserStatus: () => ({ connected: true }) } });
+    expect((await sync()).error).toMatch(/Chrome didn't answer in time/);
   });
 });
