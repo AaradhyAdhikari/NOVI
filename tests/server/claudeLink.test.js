@@ -170,8 +170,8 @@ describe('claude-link plugin', () => {
     });
     const out = await s.run('claude_projects_sync');
     expect(s.remembered.map((p) => p.name)).toEqual(['novi', 'calc', 'portfolio']);
-    expect(s.notes[0].title).toBe('Portfolio project');
-    expect(s.notes[0].text).toMatch(/Folder: \/p\/Portfolio\nLast worked on in Claude Code: 2026-10-17 \(3 conversations\)\nAbout: Portfolio with a blog/);
+    const pf = s.notes.find((n) => n.title === 'Portfolio project');
+    expect(pf.text).toMatch(/Folder: \/p\/Portfolio\nLast worked on in Claude Code: 2026-10-17 \(3 conversations\)\nAbout: Portfolio with a blog/);
     expect(out.note).toBe('I know 3 Claude Code projects now: 1 new (Portfolio). 1 has a name I already use (calc). On claude.ai you have 2 projects: Portfolio, Old notes. 1 is a folder on the laptop too (Portfolio); 1 is only on claude.ai (Old notes).');
     expect(out.added).toEqual(['Portfolio']);
   });
@@ -310,5 +310,19 @@ describe('linking a folder to a project by voice', () => {
   it.each(['add portfolio to my Claude projects', 'add milk to my shopping note', 'link me the youtube video', 'connect to wifi', 'open in my folder on laptop'])('not this: %s', async (text) => {
     const { linkFolderCommand } = await import('../../server/brain/claudeLinkCommand.js');
     expect(linkFolderCommand(text)).toBeNull();
+  });
+});
+
+// Live 2026-10-20: FLEXR (claude.ai-only) was linked to its folder, but Novi Memory showed no files —
+// its note still said "No folder on the laptop yet", and the map takes a project's dots from `Folder:`.
+describe('a linked folder reaches the project note', () => {
+  it('sync writes the folder into the note of every project that has one but whose note lacks it, once', async () => {
+    const s = setup({ known: [{ name: 'flexr', path: '/p/FLEXR context' }], web: { list: { names: ['FLEXR'], projects: [{ name: 'FLEXR', url: 'https://claude.ai/project/f' }] } } });
+    await s.run('claude_projects_sync');
+    const folderNotes = s.notes.filter((n) => /^Folder: /m.test(n.text));
+    expect(folderNotes).toHaveLength(1);
+    expect(folderNotes[0]).toMatchObject({ title: 'FLEXR project', text: expect.stringMatching(/^Folder: \/p\/FLEXR context$/m) });
+    await s.run('claude_projects_sync');
+    expect(s.notes.filter((n) => /^Folder: /m.test(n.text))).toHaveLength(1);
   });
 });

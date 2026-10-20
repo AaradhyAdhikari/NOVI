@@ -81,8 +81,9 @@ export function createClaudeLinkPlugin({ driver = null, listCode = () => listCla
           } else only.push(p.name);
           if (state.noted[key(p.name)]) continue;
           state.noted[key(p.name)] = true;
-          const title = `${at?.path ? displayOf(at, p.name) : p.name} project`;
-          rt.wikiWrite?.({ title, text: `On claude.ai: ${p.url || 'claude.ai/projects'}\n${at?.path ? `Folder: ${at.path}` : 'No folder on the laptop yet.'}` });
+          // The claude.ai name ("FLEXR project"), even when its folder is called something else.
+          rt.wikiWrite?.({ title: `${p.name} project`, text: `On claude.ai: ${p.url || 'claude.ai/projects'}\n${at?.path ? `Folder: ${at.path}` : 'No folder on the laptop yet.'}` });
+          if (at?.path) (state.folderNoted ||= {})[key(at.name)] = true;
         }
         save();
         if (!state.webProjects.length) return "You don't have any projects on claude.ai yet.";
@@ -93,6 +94,22 @@ export function createClaudeLinkPlugin({ driver = null, listCode = () => listCla
         if (tail.length) parts.push(`${tail.join('; ')}.`);
         return parts.join(' ');
       }
+      // Every project that has a folder gets it in its note once (a claude.ai-only project linked to a folder
+      // later, like FLEXR, had "No folder…" there), so Novi Memory shows the project's files.
+      function healNotes() {
+        state.folderNoted ||= {};
+        let wrote = 0;
+        for (const k of rt.projects?.list?.() || []) {
+          const id = key(k.name);
+          if (!k.path || state.folderNoted[id]) continue;
+          const web = (state.webProjects || []).find((p) => key(p.name) === id);
+          rt.wikiWrite?.({ title: `${web?.name || path.basename(k.path)} project`, text: `Folder: ${k.path}` });
+          state.folderNoted[id] = true;
+          wrote += 1;
+        }
+        if (wrote) save();
+      }
+
       // Names Novi should expect to hear (the speech-to-text hint).
       if (api.runtime) api.runtime.claudeProjectNames = () => (state.webProjects || []).map((p) => p.name);
 
@@ -101,6 +118,7 @@ export function createClaudeLinkPlugin({ driver = null, listCode = () => listCla
         async start() {
           const run = async () => {
             try { const { added } = syncCode(); if (added.length) log(`[claude-link] new projects from Claude Code: ${added.join(', ')}`); } catch (err) { log(`[claude-link] sync failed: ${err.message}`); }
+            try { healNotes(); } catch (err) { log(`[claude-link] notes failed: ${err.message}`); }
             // claude.ai every 3 hours (and soon after Chrome connects), in a background tab.
             if (connected() && (!state.webAt || now() - new Date(state.webAt) > webEveryMs)) {
               try { const list = await getWeb().list(); if (list.names) syncWeb(list); } catch (err) { log(`[claude-link] claude.ai sync failed: ${err.message}`); }
@@ -125,6 +143,7 @@ export function createClaudeLinkPlugin({ driver = null, listCode = () => listCla
             const list = await getWeb().list();
             parts.push(list.names ? syncWeb(list) : list.error);
           } else parts.push("Chrome isn't connected, so I didn't check claude.ai.");
+          healNotes();
           return reply({ added, taken, web: state.web, note: parts.join(' ') });
         },
       });
