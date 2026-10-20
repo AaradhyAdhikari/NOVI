@@ -1482,3 +1482,29 @@ describe('project progress route', () => {
     expect(ran).toEqual([{ project: 'flexr' }]);
   });
 });
+
+describe('"browse X" without the AI (2026-10-20: the AI route took 21–25 s)', () => {
+  const browseSetup = (on = 'laptop') => {
+    const router = scriptedRouter([]);
+    const ran = [];
+    const tools = new ToolRegistry()
+      .add({ name: 'open_website', description: 'o', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'o', run: async (a) => { ran.push(a); return { opened: a.target.startsWith('http') ? a.target : `https://www.google.com/search?q=${encodeURIComponent(a.target)}`, on }; } });
+    const agent = new Agent({ router, tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
+    return { agent, router, ran };
+  };
+
+  it('opens the site at once and says where', async () => {
+    const { agent, router, ran } = browseSetup();
+    expect(await agent.handle('browse github.com on my laptop')).toBe('Opened github.com.');
+    expect(ran).toEqual([{ target: 'https://github.com', on: 'laptop' }]);
+    expect(await agent.handle('browse best laptops under 60000')).toBe('Searching Google for best laptops under 60000.');
+    expect(router.calls).toHaveLength(0);
+  });
+
+  it('on the phone: a tap-to-open link; "browse it" opens the same site again', async () => {
+    const { agent, ran } = browseSetup('phone');
+    expect(await agent.handle('open the GitHub website')).toBe("Here's github.com. Tap the link to open it.");
+    expect(await agent.handle('browse it on my laptop')).toBe("Here's github.com. Tap the link to open it.");
+    expect(ran[1]).toEqual({ target: 'https://github.com', on: 'laptop' });
+  });
+});

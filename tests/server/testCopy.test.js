@@ -19,6 +19,7 @@ describe('test copy env', () => {
     expect(env.NOVI_PLUGIN_BROWSER_PORT).toBe('3013');
     expect(env.NOVI_PLUGIN_PREVIEW_PORT).toBe('3015');
     expect(env.NOVI_ORB).toBe('off');
+    expect(env.NOVI_PLUGIN_CHATGPT_PLAN_DIR).toBe(path.join('D:\\t\\data', 'chatgpt'));
     expect(env.NOVI_DIST_DIR).toBe('dist-test'); // its own screen build: the real Novi's dist/ is never touched
     expect(isTestCopy(env)).toBe(true);
     expect(isTestCopy({})).toBe(false);
@@ -29,7 +30,7 @@ describe('test copy env', () => {
   });
 
   it('turns off the jobs that would run twice or reach outside', () => {
-    for (const id of ['reminders', 'backup', 'briefing', 'sheets-log', 'claude-link', 'projects', 'orb', 'brain']) expect(TEST_SKIP_SERVICES).toContain(id);
+    for (const id of ['reminders', 'backup', 'briefing', 'sheets-log', 'claude-link', 'projects', 'orb', 'brain', 'chatgpt-plan']) expect(TEST_SKIP_SERVICES).toContain(id);
     expect(TEST_SKIP_SERVICES).not.toContain('browser');
   });
 });

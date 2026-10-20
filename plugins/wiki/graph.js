@@ -81,6 +81,18 @@ export function buildGraph(vault) {
       add(d.id, p.id);
     }
   }
+  // ChatGPT plans, Claude builds (user, 2026-10-20): the planning chat note ("ChatGPT plan", plugins/chatgpt-plan)
+  // and every "X brief" (planned on ChatGPT by the orchestrator) hang off one "ChatGPT" dot too.
+  const plan = notes.find((n) => n.title.toLowerCase() === 'chatgpt plan');
+  const briefs = notes.filter((n) => / brief$/i.test(n.title));
+  if (plan || briefs.length) {
+    const names = briefs.map((b) => b.title.replace(/ brief$/i, ''));
+    const parts = [plan && 'your planning chat (ChatGPT plan)', names.length && `${names.length} project brief${names.length === 1 ? '' : 's'}: ${names.join(', ')}`].filter(Boolean);
+    nodes.push({ id: 'ChatGPT', title: 'ChatGPT', folder: 'ChatGPT', updated: null, excerpt: `Plans from ChatGPT: ${parts.join(' and ')}. Claude builds them.`.slice(0, EXCERPT) });
+    add('ChatGPT', hub);
+    if (plan) add(plan.id, 'ChatGPT');
+    for (const b of briefs) add(b.id, 'ChatGPT');
+  }
   // A note linked to nothing still belongs to Novi Memory instead of floating alone.
   const linked = new Set(links.flatMap((l) => [l.source, l.target]));
   for (const n of nodes) if (!linked.has(n.id)) add(n.id, hub);

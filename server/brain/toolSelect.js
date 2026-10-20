@@ -34,6 +34,7 @@ const WORDS = {
   wiki: 'note notes noted notebook obsidian diary did done kiya',
   browser: 'browser chrome tab tabs website site page link url login signin form fill submit click leetcode submissions',
   whatsapp: 'whatsapp message text bhej bhejo',
+  chatgpt: 'chatgpt gpt plan plans planned planning',
   leetcode: 'leetcode leet daily streak solved problem problems',
   preview: 'preview homepage website site page dikhao portfolio project',
   commands: 'command commands powershell terminal cmd disk space drive drives storage memory ram cpu process processes running ip network port ports installed size sizes largest biggest jpeg jpg extension extensions service services uptime',

@@ -1,0 +1,9 @@
+{
+  "id": "chatgpt-plan",
+  "name": "ChatGPT plan",
+  "description": "Keeps a private copy of the user's ChatGPT planning chat (via the Novi Chrome extension) and cross-checks new plans against CLAUDE.md with free Gemini.",
+  "categories": ["other"],
+  "contracts": { "tools": ["chatgpt_plan_sync", "chatgpt_plan_link"] },
+  "activation": { "onStartup": true },
+  "configSchema": { "type": "object", "additionalProperties": false, "properties": { "dir": { "type": "string" } } }
+}

@@ -9,6 +9,7 @@ import { FILE_LEAD, FILE_TAIL } from './phrases.js';
 import { controlCommand, isCancelWord, historyCommand, diskCommand, keysCommand } from './controlCommand.js';
 import { browserCommand, isDoneWord } from './browserCommand.js';
 import { previewCommand, openCommand } from './previewCommand.js';
+import { browseCommand } from './browseCommand.js';
 import { replyFrom } from './shortcuts.js';
 import { briefCommand, changeCommand } from './briefCommand.js';
 import { dictationCommand } from './dictationCommand.js';
@@ -468,6 +469,9 @@ export class Agent {
       const n = output?.contributions;
       return this._remember(text, output?.error || `You made ${n} contribution${n === 1 ? '' : 's'} ${gh.when}.`);
     }
+    // "Browse X" / "open X website": straight to open_website, no AI (it took 21–25 s through the AI).
+    const browsed = await this._browse(text);
+    if (browsed) return this._remember(text, browsed);
 
     // A learned shortcut: words the AI already solved with one quiet tool → that tool at once.
     const learned = this.shortcuts?.find(text);
@@ -597,6 +601,8 @@ export class Agent {
     if (file && this.tools.get(file.tool)) return { quick: null, calls: [{ name: file.tool, args: file.args }], reply: null, provider: 'direct' };
     const web = webCommand(text);
     if (web && this.tools.get(web.tool)) return { quick: null, calls: [{ name: web.tool, args: web.args }], reply: null, provider: 'direct' };
+    const bw = this.tools.get('open_website') ? browseCommand(text) : null;
+    if (bw?.target) return { quick: null, calls: [{ name: 'open_website', args: { target: bw.target, ...(bw.on ? { on: bw.on } : {}) } }], reply: null, provider: 'direct' };
     const sc = this.shortcuts?.find(text);
     if (sc && this.tools.get(sc.tool)) return { quick: null, calls: [{ name: sc.tool, args: sc.args }], reply: null, provider: 'shortcut' };
     const { extra, messages, offered, purpose } = await this._prepare(text);
@@ -919,6 +925,24 @@ export class Agent {
     if (!cmd || !this.tools.get(cmd.tool)) return null;
     const known = cmd.args.project || this.tasks?.status?.()?.project || this.memory?.lastTask?.()?.project;
     return known ? cmd : null;
+  }
+
+  // "Browse X": a domain, a known site or a Google search; "browse it" = the site opened last (30 min).
+  async _browse(text) {
+    const cmd = this.tools.get('open_website') ? browseCommand(text) : null;
+    if (!cmd) return null;
+    const recent = [this._browsed, this._lastLink].filter((l) => l && Date.now() - l.at < 30 * 60_000).sort((a, b) => b.at - a.at)[0];
+    const target = cmd.last ? recent?.url : cmd.target;
+    if (!target) return null; // "browse this" with nothing opened lately → the AI
+    const { output = {} } = await this._runTool({ id: `browse-${Date.now()}`, function: { name: 'open_website', arguments: JSON.stringify({ target, ...(cmd.on ? { on: cmd.on } : {}) }) } }, { direct: true });
+    if (output.error) return output.error;
+    const url = output.opened || target;
+    this._browsed = { url, at: Date.now() };
+    const search = !/^https?:\/\//i.test(target);
+    let host = url;
+    try { host = new URL(url).hostname.replace(/^www\./, ''); } catch { /* keep the words */ }
+    if (output.on === 'phone') return search ? `Here's a Google search for ${target}. Tap the link to open it.` : `Here's ${host}. Tap the link to open it.`;
+    return search ? `Searching Google for ${target}.` : `Opened ${host}.`;
   }
 
   // "Open portfolio" / "open portfolio in VS Code" — only for a project Novi knows; "open spotify" goes on.

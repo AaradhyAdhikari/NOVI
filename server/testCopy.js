@@ -8,7 +8,7 @@ import path from 'node:path';
 export const TEST_PORT = 3002;
 export const TEST_DIST = 'dist-test';
 // Plugin services the test copy never starts.
-export const TEST_SKIP_SERVICES = ['reminders', 'backup', 'briefing', 'sheets-log', 'claude-link', 'projects', 'orb', 'brain'];
+export const TEST_SKIP_SERVICES = ['reminders', 'backup', 'briefing', 'sheets-log', 'claude-link', 'projects', 'orb', 'brain', 'chatgpt-plan'];
 // Big or only-useful-to-the-real-Novi folders left out of the copy.
 const SKIP_DATA = new Set(['brain', 'logs', 'voice-samples', 'voice-log', 'task-logs', 'backup']);
 
@@ -28,6 +28,7 @@ export function testCopyEnv(env, { dataDir }) {
     NOVI_PLUGIN_BROWSER_PORT: '3013', // the real Novi's Chrome link keeps 3003
     NOVI_PLUGIN_PREVIEW_PORT: '3015', // and its preview port 3005
     NOVI_ORB: 'off',
+    NOVI_PLUGIN_CHATGPT_PLAN_DIR: path.join(dataDir, 'chatgpt'), // the real chatgpt/ copy stays the real Novi's
     NOVI_DIST_DIR: TEST_DIST, // its own screen build, so the real Novi's page never changes under it
   };
 }

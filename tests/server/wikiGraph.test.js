@@ -136,3 +136,28 @@ describe('buildGraph: a Claude dot', () => {
     expect(has('Notes/Calc project.md', 'Novi Memory.md')).toBe(true);
   });
 });
+
+describe('buildGraph: a ChatGPT dot (user, 2026-10-20: ChatGPT plans, Claude builds)', () => {
+  it('the planning chat note and every brief ChatGPT planned hang off one "ChatGPT" dot', () => {
+    const vault = vaultWith({
+      'Notes/ChatGPT plan.md': '# ChatGPT plan\n\n## 2026-10-20\nNew from ChatGPT: brain tidy-up',
+      'Notes/Portfolio project.md': '# Portfolio project\n\nFolder: /nope',
+      'Notes/Portfolio brief.md': '# Portfolio brief\n\n## 2026-10-18\nGoal: a blog',
+      'Notes/Groceries.md': '# Groceries\n\nmilk',
+    });
+    const g = buildGraph(vault);
+    const has = (a, b) => g.links.some((l) => (l.source === a && l.target === b) || (l.source === b && l.target === a));
+    expect(g.nodes.find((n) => n.id === 'ChatGPT')).toMatchObject({ title: 'ChatGPT', folder: 'ChatGPT', excerpt: 'Plans from ChatGPT: your planning chat (ChatGPT plan) and 1 project brief: Portfolio. Claude builds them.' });
+    expect(has('ChatGPT', 'Novi Memory.md')).toBe(true);
+    expect(has('Notes/ChatGPT plan.md', 'ChatGPT')).toBe(true);
+    expect(has('Notes/ChatGPT plan.md', 'Novi Memory.md')).toBe(false);
+    expect(has('Notes/Portfolio brief.md', 'ChatGPT')).toBe(true);
+    expect(has('Notes/Portfolio brief.md', 'Notes/Portfolio project.md')).toBe(true);
+    expect(has('Notes/Groceries.md', 'ChatGPT')).toBe(false);
+  });
+
+  it('no plan and no brief: no ChatGPT dot', () => {
+    const g = buildGraph(vaultWith({ 'Notes/Groceries.md': '# Groceries\n\nmilk' }));
+    expect(g.nodes.some((n) => n.id === 'ChatGPT')).toBe(false);
+  });
+});

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import vm from 'node:vm';
+import { fileURLToPath } from 'node:url';
 
 const read = (f) => fs.readFileSync(new URL(`../../extension/${f}`, import.meta.url), 'utf8');
 
@@ -17,7 +18,8 @@ describe('Novi Chrome extension (static checks; it runs only in Chrome)', () => 
 
   it('scripts are valid JavaScript', () => {
     for (const f of ['background.js', 'page.js', 'popup.js']) {
-      expect(() => execFileSync(process.execPath, ['--check', new URL(`../../extension/${f}`, import.meta.url).pathname]), f).not.toThrow();
+      // fileURLToPath, not .pathname: the laptop's folder (ドキュメント, spaces) broke the URL path on Windows.
+      expect(() => execFileSync(process.execPath, ['--check', fileURLToPath(new URL(`../../extension/${f}`, import.meta.url))]), f).not.toThrow();
     }
   });
 
@@ -81,7 +83,19 @@ describe('page.js numbering (fake page)', () => {
     expect(fakePage([]).textOf({ selector: '.answer' })).toEqual({ count: 0, text: '' });
     expect(read('background.js')).toMatch(/'textOf'/);
     expect(read('background.js')).toMatch(/args\.tabId \? await chrome\.tabs\.update\(args\.tabId/);
-    expect(JSON.parse(read('manifest.json')).version).toBe('1.4.0');
+  });
+  // The ChatGPT planning chat (2026-10-20): every message, whole, with who wrote it.
+  it('textsOf: every visible match, whole, with an attribute; hidden ones left out', () => {
+    const q = el('How should the brain work?');
+    q.attrs['data-message-author-role'] = 'user';
+    const a = el('Plan:\n1. Index\n2. Search');
+    a.attrs['data-message-author-role'] = 'assistant';
+    const novi = fakePage([q, a, el('gone', false)]);
+    expect(novi.textsOf({ selector: '[data-message-author-role]', attr: 'data-message-author-role' })).toEqual({
+      items: [{ text: 'How should the brain work?', attr: 'user' }, { text: 'Plan:\n1. Index\n2. Search', attr: 'assistant' }],
+    });
+    expect(read('background.js')).toMatch(/'textsOf'/);
+    expect(JSON.parse(read('manifest.json')).version).toBe('1.5.0');
   });
   // claude.ai's project list (2026-10-18): each card's name is its first line, its link the href.
   it('query: first line only and an attribute when asked; plain query as before', () => {

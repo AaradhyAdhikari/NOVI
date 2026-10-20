@@ -105,7 +105,7 @@ async function handle(cmd, args) {
     }
     return { found: false };
   }
-  if (['read', 'click', 'type', 'select', 'key', 'scroll', 'attach', 'has', 'query', 'textOf', 'clickSel', 'typeSel'].includes(cmd)) {
+  if (['read', 'click', 'type', 'select', 'key', 'scroll', 'attach', 'has', 'query', 'textOf', 'textsOf', 'clickSel', 'typeSel'].includes(cmd)) {
     const result = await inPage(tab.id, cmd, args);
     if (cmd === 'click' || cmd === 'key') await loaded(tab.id, 1500);
     return result;
