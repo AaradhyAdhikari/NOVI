@@ -187,6 +187,18 @@ describe('Novi server', () => {
     expect(spoken).toEqual(['echo: heard 4 bytes of audio/wav']);
   });
 
+  // Live 2026-10-20 ("there is a delay"): the second brain pauses while a request runs; Settings shows lag.
+  it('tells plugins Novi is busy while a request runs, and reports how long Novi was blocked', async () => {
+    let seen = null;
+    const { novi, base } = await start({ agent: { handle: async () => { seen = novi.plugins.runtime.busy(); return 'ok'; } } });
+    expect(novi.plugins.runtime.busy()).toBe(false);
+    await novi.handleMessage({ type: 'user_message', text: 'hi' });
+    expect(seen).toBe(true);
+    expect(novi.plugins.runtime.busy()).toBe(false);
+    const h = await (await fetch(`${base}/api/health`)).json();
+    expect(h.lag).toEqual({ p99Ms: expect.any(Number), maxMs: expect.any(Number) });
+  });
+
   it('ignores a voice command that came out empty', async () => {
     const { novi } = await start({ transcribe: async () => '  ' });
     await novi.runVoiceCommand(Buffer.from('RIFF'));

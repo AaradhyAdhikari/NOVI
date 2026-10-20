@@ -4,6 +4,7 @@ import { openStore, sqliteAvailable } from './store.js';
 import { createIngest } from './ingest.js';
 import { searchBrain, contextFor, hybridSearch, aboutOwnThings, namedProject } from './search.js';
 import { createEmbedder, quantize } from './embed.js';
+import { createWorkerReader } from './reader.js';
 
 // Novi's second brain, Part 1 (2026-10-18, spec docs/superpowers/specs/2026-10-18-novi-second-brain-design.md):
 // every file and folder by name, the words inside every readable file, projects and notes in one SQLite
@@ -24,7 +25,7 @@ export async function embedSome(store, embedder, n = 16) {
   return rows.length;
 }
 
-export function createBrainPlugin({ dbFile = null, autoStart = true, syncEveryMs = 15 * 60_000, readEveryMs = 1500, batch = 4, embedder: givenEmbedder = null, embedBatch = 16 } = {}) {
+export function createBrainPlugin({ dbFile = null, autoStart = true, syncEveryMs = 15 * 60_000, readEveryMs = 1500, batch = 4, embedder: givenEmbedder = null, embedBatch = 16, useWorker = true, quietMs = 4000 } = {}) {
   return definePluginEntry({
     id: 'brain',
     name: 'Second brain',
@@ -35,6 +36,20 @@ export function createBrainPlugin({ dbFile = null, autoStart = true, syncEveryMs
       const on = sqliteAvailable();
       let store = null;
       let ingest = null;
+      // Live 2026-10-20: what the user said or typed took a while to reach Novi. Reading big PDFs/Word files
+      // ran on Novi's only thread; it now runs in a worker thread, and the brain waits while a request is
+      // running and for quietMs after it.
+      let reader = null;
+      const readText = (p) => {
+        if (!useWorker) return rt.readFileText(p);
+        reader ||= createWorkerReader();
+        return reader.read(p);
+      };
+      let lastBusy = 0;
+      const paused = () => {
+        if (rt.busy?.()) { lastBusy = Date.now(); return true; }
+        return quietMs > 0 && Date.now() - lastBusy < quietMs;
+      };
       const ready = () => {
         if (!on) return false;
         if (store) return true;
@@ -42,7 +57,7 @@ export function createBrainPlugin({ dbFile = null, autoStart = true, syncEveryMs
         ingest = createIngest({
           store,
           entries: () => rt.fileEntries?.() || [],
-          readText: (p) => rt.readFileText(p),
+          readText,
           projects: () => rt.projects?.list?.() || [],
           notes: () => rt.wikiNotes?.() || [],
           skipDirs: [rt.dataDir].filter(Boolean),
@@ -56,12 +71,21 @@ export function createBrainPlugin({ dbFile = null, autoStart = true, syncEveryMs
       };
       let embedder = null;
       let reading = false;
-      async function readAll() {
+      async function readAll({ respectBusy = false } = {}) {
         if (reading) return;
         reading = true;
-        try { while (await ingest.readSome(50)) { /* until everything is read */ } } finally { reading = false; }
+        try {
+          while (!(respectBusy && paused()) && await ingest.readSome(respectBusy ? 5 : 50)) { /* until everything is read */ }
+        } finally { reading = false; }
       }
-      if (api.runtime) api.runtime.brainSync = async () => { if (!ready()) return; await ingest.syncAll(); await readAll(); };
+      if (api.runtime) {
+        api.runtime.brainSync = async ({ respectBusy = false } = {}) => {
+          if (!ready()) return;
+          if (respectBusy && paused()) return;
+          await ingest.syncAll();
+          await readAll({ respectBusy });
+        };
+      }
       const projectNames = () => (rt.projects?.list?.() || []).flatMap((p) => [p.name, p.path && path.basename(p.path)]).filter(Boolean);
 
       api.registerService({
@@ -69,11 +93,15 @@ export function createBrainPlugin({ dbFile = null, autoStart = true, syncEveryMs
         async start() {
           if (!autoStart) return;
           if (!ready()) { log(`[brain] ${OFF}`); return; }
-          const sync = () => ingest.syncAll().catch((err) => log(`[brain] sync failed: ${err.message}`));
+          const sync = async () => {
+            if (paused()) { setTimeout(sync, 30_000).unref?.(); return; } // not while the user is talking to Novi
+            await ingest.syncAll().catch((err) => log(`[brain] sync failed: ${err.message}`));
+          };
           // Reading runs a few files at a time so Novi stays quick while the brain fills.
           // …and then gives the read passages their meaning vectors (the model downloads once, ~118 MB).
           const step = async () => {
             try {
+              if (paused()) { setTimeout(step, readEveryMs).unref?.(); return; }
               const read = await ingest.readSome(batch);
               if (!read && embedder.ready()) await embedSome(store, embedder, embedBatch);
               else if (!read && embedder.broken?.()) embedder.start(); // tries again after 30 min
@@ -83,6 +111,7 @@ export function createBrainPlugin({ dbFile = null, autoStart = true, syncEveryMs
           setTimeout(() => { sync().then(() => { embedder.start(); step(); }); }, 20_000).unref?.();
           if (syncEveryMs > 0) setInterval(sync, syncEveryMs).unref?.();
         },
+        stop() { reader?.close(); reader = null; },
       });
 
       api.registerTool({
