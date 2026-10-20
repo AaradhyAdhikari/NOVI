@@ -59,8 +59,12 @@ import { enrollVoice, readClips, createVoiceprintStore } from './voice/speaker/e
 import { createVocabulary } from './voice/vocabulary.js';
 import { createVoiceLog } from './voice/voiceLog.js';
 import { createWatchWindows } from './claude/watchWindow.js';
+import { createLagMeter } from './lag.js';
 
 export function createNovi(config, overrides = {}) {
+  // Requests running right now (busy → background work waits) and how long Novi's one thread gets blocked.
+  let working = 0;
+  const lag = overrides.lag || createLagMeter({ logger: console });
   const memory = overrides.memory || new Memory(path.join(config.dataDir, 'memory.json'), { projectsDir: config.projectsDir });
   const accounts = overrides.accounts || new AccountRegistry(path.join(config.dataDir, 'accounts.json'));
   const secrets = new SecretStore({ file: path.join(config.dataDir, 'secrets.json'), cipher: overrides.cipher || defaultCipher(config.dataDir) });
@@ -195,6 +199,8 @@ export function createNovi(config, overrides = {}) {
       },
       // Novi's remembered projects (plugins/claude-link adds the folders Claude Code worked in).
       aiKeys: () => aiKeys(),
+      // True while a request (or its speech-to-text) runs: background work (the second brain) waits.
+      busy: () => working > 0,
       // A one-time download link for a file (plugins/files file_send_phone).
       fileLink: (file) => {
         const token = crypto.randomBytes(24).toString('base64url');
@@ -302,7 +308,9 @@ export function createNovi(config, overrides = {}) {
   });
   // Speech → text with your fixes applied; logged (with the recording) for Settings → Words.
   async function hear(audio, mimeType, source) {
-    const heard = String(await stt(audio, mimeType)).trim();
+    working += 1;
+    let heard;
+    try { heard = String(await stt(audio, mimeType)).trim(); } finally { working -= 1; }
     const text = vocabulary.apply(heard);
     let id = null;
     if (heard && heard !== '.') {
@@ -723,6 +731,7 @@ export function createNovi(config, overrides = {}) {
     speakerCheck: speakerCheck(),
     providers: router.status(),
     aiKeys: aiKeys(),
+    lag: lag.stats(),
     lastBackup: lastBackup(),
     errors: overrides.logBuffer?.recent() || [],
   }));
@@ -858,6 +867,7 @@ export function createNovi(config, overrides = {}) {
     if (msg.type === 'user_message' && typeof msg.text === 'string' && msg.text.trim()) {
       const text = msg.text.trim().slice(0, 4000);
       active = from;
+      working += 1;
       say('user', text, from);
       sendTo(from, { type: 'thinking', on: true });
       try {
@@ -873,6 +883,7 @@ export function createNovi(config, overrides = {}) {
       } catch (err) {
         say('novi', `Something went wrong: ${err.message}`, from);
       } finally {
+        working -= 1;
         sendTo(from, { type: 'thinking', on: false });
         refresh();
       }
@@ -956,5 +967,5 @@ export function createNovi(config, overrides = {}) {
     broadcast({ type: 'stop_speaking' });
   };
 
-  return { app, activity, shortcuts, codeEdits, setQuiet: (on, minutes) => (on ? quiet.on(minutes) : quiet.off()), attachWebSocket, remotePin, setWakeTools, setSpeakerVerifier, checkVoice, stopSpeaking, wakeThreshold, snapshot, runVoiceCommand, setWakeWord, memory, accounts, approvals, tasks, router, agent, tools, plugins, pairing, broadcast };
+  return { app, activity, shortcuts, codeEdits, setQuiet: (on, minutes) => (on ? quiet.on(minutes) : quiet.off()), attachWebSocket, remotePin, setWakeTools, setSpeakerVerifier, checkVoice, stopSpeaking, wakeThreshold, snapshot, runVoiceCommand, handleMessage, setWakeWord, memory, accounts, approvals, tasks, router, agent, tools, plugins, pairing, broadcast };
 }

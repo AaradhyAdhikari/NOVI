@@ -1,4 +1,4 @@
-import { mergeTranscript } from './transcript.js';
+import { mergeTranscript, addChat, addPending } from './transcript.js';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getItem, setItem } from './storage.js';
 import { pairCodeFromHash, deviceName, tryAutoPair } from './pairing.js';
@@ -28,7 +28,7 @@ export function useNovi({ onSpeak }) {
           setState((s) => ({ ...s, ...rest, transcript: mergeTranscript(s.transcript, rest.transcript) }));
           break;
         }
-        case 'chat': setState((s) => ({ ...s, transcript: [...s.transcript, msg.entry].slice(-100) })); break;
+        case 'chat': setState((s) => ({ ...s, transcript: addChat(s.transcript, msg.entry) })); break;
         case 'feed': setState((s) => ({ ...s, feed: [...s.feed, { text: msg.text, taskId: msg.taskId, at: Date.now() }].slice(-200) })); break;
         case 'task': setState((s) => ({ ...s, task: msg.task })); break;
         case 'quiet': setState((s) => ({ ...s, quiet: { on: msg.on, until: msg.until } })); break;
@@ -78,7 +78,9 @@ export function useNovi({ onSpeak }) {
 
   const send = useCallback((msg) => {
     const ws = wsRef.current;
-    if (ws?.readyState === 1) ws.send(JSON.stringify(msg));
+    if (ws?.readyState !== 1) return;
+    ws.send(JSON.stringify(msg));
+    if (msg.type === 'user_message' && String(msg.text || '').trim()) setState((s) => ({ ...s, transcript: addPending(s.transcript, String(msg.text).trim()), thinking: true }));
   }, []);
 
   const api = useCallback((path, init = {}) => fetch(path, {

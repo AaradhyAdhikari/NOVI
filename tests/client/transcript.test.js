@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mergeTranscript } from '../../src/lib/transcript.js';
+import { mergeTranscript, addPending, addChat } from '../../src/lib/transcript.js';
 
 describe('mergeTranscript (a refresh must not erase pictures, videos or links)', () => {
   it('keeps the picture / video / link the page already has for the same entry', () => {
@@ -37,5 +37,27 @@ describe('chat extras (2026-10-17)', () => {
     const { linkLabel } = await import('../../src/lib/transcript.js');
     expect(linkLabel('Open the portfolio homepage live')).toBe('Open the portfolio homepage live');
     expect(linkLabel('the portfolio site')).toBe('Open the portfolio site');
+  });
+});
+
+// Live 2026-10-20: what the user typed or said took a while to show up — it waited for Novi's echo.
+describe('your words show at once', () => {
+  it('a sent message shows right away and the echo from Novi takes its place', () => {
+    let list = addPending([], 'open notepad');
+    expect(list).toEqual([expect.objectContaining({ role: 'user', text: 'open notepad', pending: true })]);
+    list = addChat(list, { role: 'user', text: 'open notepad', at: 't1' });
+    expect(list).toEqual([{ role: 'user', text: 'open notepad', at: 't1' }]);
+  });
+
+  it("another device's message or Novi's reply is simply added", () => {
+    let list = addPending([], 'hi');
+    list = addChat(list, { role: 'novi', text: 'Hello!', at: 't2' });
+    expect(list.map((e) => e.text)).toEqual(['hi', 'Hello!']);
+    expect(addChat([], { role: 'user', text: 'x', at: 't3' })).toEqual([{ role: 'user', text: 'x', at: 't3' }]);
+  });
+
+  it('a refresh from Novi keeps a message it has not echoed yet', () => {
+    const shown = addPending([{ role: 'novi', text: 'Hi', at: 't0' }], 'weather');
+    expect(mergeTranscript(shown, [{ role: 'novi', text: 'Hi', at: 't0' }]).map((e) => e.text)).toEqual(['Hi', 'weather']);
   });
 });
