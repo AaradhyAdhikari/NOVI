@@ -88,8 +88,8 @@ export function createFileIndex({ roots, home = '', file, maxEntries = 500_000, 
     list = found;
     if (file) {
       try {
-        fs.mkdirSync(path.dirname(file), { recursive: true });
-        fs.writeFileSync(file, JSON.stringify({ builtAt: now(), entries: list }));
+        await fs.promises.mkdir(path.dirname(file), { recursive: true });
+        await fs.promises.writeFile(file, JSON.stringify({ builtAt: now(), entries: list })); // never blocks Novi
       } catch { /* best effort */ }
     }
     return list.length;
