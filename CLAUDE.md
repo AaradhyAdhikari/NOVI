@@ -30,7 +30,7 @@ Novi is a voice-first personal AI companion that runs on the user's Windows lapt
 ## Commands (Windows: PowerShell blocks `npm.ps1`, so use `npm.cmd` or Bash)
 - Tests: `npx vitest run` (all) or `npx vitest run tests/server/<file>.test.js`
 - Build UI: `npm run build` · Run: `npm.cmd start` or double-click `Start Novi.cmd` → https://localhost:3001
-- Live checks without disturbing the user's instance: `NOVI_PORT=3002 node --env-file-if-exists=.env server/index.js`, then talk to `wss://localhost:3002/ws` (send `{type:'user_message', text}`, read `chat` entries with role `novi`).
+- Live checks without disturbing the user's instance: **`Test Novi.cmd`** / `node scripts/test-copy.mjs` (`server/testCopy.js`) — a second Novi on https://localhost:3002 next to the real one (3001): fresh copy of data/ (minus brain/logs/voice/task-logs/backup) + Novi Memory in `%LOCALAPPDATA%\Novi\test-copy\data` each start, own screen build `dist-test/`, Chrome link 3013, preview 3015; no wake word/mic, keep-awake, orb, reminders, backup, briefing, sheets-log, claude-link, projects or brain services (`startServices({ skip })`). Then talk to `wss://localhost:3002/ws` (send `{type:'user_message', text}`, read `chat` entries with role `novi`). This session runs on the laptop (2026-10-20), so live checks are possible here.
 
 ## State (2026-10-04)
 - Done: MVP (voice, Groq/Gemini brain with fallback, Novi Coder, approvals, phone pairing), laptop basics (websites, YouTube by position, apps), Gmail multi-account, plugin system, GitHub plugin (needs `NOVI_PLUGIN_GITHUB_CLIENT_ID` in `.env`; user will set it up later). 238 tests green.

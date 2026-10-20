@@ -85,8 +85,11 @@ export class PluginHost {
     }
   }
 
-  async startServices() {
+  // skip: plugin ids whose services stay off (the test copy, server/testCopy.js).
+  async startServices({ skip = [] } = {}) {
+    this.skipped = skip;
     for (const plugin of this.plugins) {
+      if (skip.includes(plugin.id)) continue;
       for (const service of plugin.services) {
         try {
           await service.start?.();
@@ -99,6 +102,7 @@ export class PluginHost {
 
   async stopServices() {
     for (const plugin of this.plugins) {
+      if (this.skipped?.includes(plugin.id)) continue;
       for (const service of plugin.services) {
         try { await service.stop?.(); } catch { /* shutting down anyway */ }
       }

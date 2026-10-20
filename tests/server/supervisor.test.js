@@ -143,4 +143,13 @@ describe('uiIsStale (rebuild the screen after a git pull, even on a restart from
     touch(path.join(root, 'src', 'components', 'b.jsx'), 3000);
     expect(uiIsStale(root)).toBe(true);
   });
+
+  it('checks another build folder when given (the test copy builds into dist-test)', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'novi-ui-'));
+    touch(path.join(root, 'src', 'a.js'), 1000);
+    touch(path.join(root, 'dist', 'index.html'), 2000);
+    expect(uiIsStale(root, 'dist-test')).toBe(true);
+    touch(path.join(root, 'dist-test', 'index.html'), 2000);
+    expect(uiIsStale(root, 'dist-test')).toBe(false);
+  });
 });

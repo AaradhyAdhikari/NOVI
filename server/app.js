@@ -832,7 +832,7 @@ export function createNovi(config, overrides = {}) {
     res.sendFile(path.resolve(dir, req.params.file));
   });
 
-  const dist = path.resolve('dist');
+  const dist = config.distDir || path.resolve('dist');
   if (fs.existsSync(dist)) {
     app.use(express.static(dist));
     app.get(/^\/(?!api|ws).*/, (req, res) => res.sendFile(path.join(dist, 'index.html')));

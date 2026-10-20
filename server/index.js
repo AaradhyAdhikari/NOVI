@@ -13,6 +13,7 @@ import { createLocalSpeaker } from './voice/localSpeaker.js';
 import { rememberOwnProject } from './ownProject.js';
 import { createEdgeTts, DEFAULT_VOICES } from './voice/edgeTts.js';
 import { createLogBuffer } from './logBuffer.js';
+import { isTestCopy, TEST_SKIP_SERVICES } from './testCopy.js';
 
 const logBuffer = createLogBuffer();
 logBuffer.capture(console);
@@ -21,6 +22,8 @@ try { version = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { encoding
 const system = { version, supervised: process.env.NOVI_SUPERVISED === '1', restarts: Number(process.env.NOVI_RESTARTS || 0) };
 
 const config = loadConfig();
+// Test Novi.cmd: a second Novi next to the real one (no mic, orb, reminders, backups…).
+const testCopy = isTestCopy();
 if (!config.providers.length) console.warn('⚠  No AI provider keys found. Add GROQ_API_KEYS / GEMINI_API_KEYS to .env');
 
 const lanUrls = lanAddresses().map((ip) => `https://${ip}:${config.port}`);
@@ -42,7 +45,7 @@ const serverTls = {
 const novi = createNovi(config, { lanUrls, localSpeaker, logBuffer, system, tsName: ts?.name || null, tls: serverTls });
 await novi.plugins.loadDirectory(path.resolve('plugins'));
 rememberOwnProject(novi.memory, process.cwd());
-await novi.plugins.startServices();
+await novi.plugins.startServices({ skip: testCopy ? TEST_SKIP_SERVICES : [] });
 const server = https.createServer(serverTls, novi.app);
 // Tailscale certificates last 90 days; `tailscale cert` renews only when needed.
 if (ts) setInterval(async () => {
@@ -62,21 +65,21 @@ server.on('error', (err) => {
 });
 novi.attachWebSocket(server); // after the handler above: the WebSocket server re-emits listen errors
 server.listen(config.port, '0.0.0.0', () => {
-  console.log(`\nNovi is running`);
+  console.log(testCopy ? `\nTEST COPY of Novi is running (your real Novi stays on 3001; data: ${config.dataDir})` : `\nNovi is running`);
   console.log(`  Laptop: https://localhost:${config.port}`);
   for (const url of lanUrls) console.log(`  Phone:  ${url}${ts && url.includes(ts.name) ? '  (from anywhere, via Tailscale)' : ''}`);
   console.log(`  Coding agent: ${config.coder === 'claude' ? 'Claude Code (uses your Claude plan)' : 'Novi Coder (free Groq/Gemini)'}`);
   console.log(`  Providers: ${config.providers.map((p) => `${p.name} (${p.keys.length} key${p.keys.length === 1 ? '' : 's'})`).join(', ') || 'none'}`);
   console.log(`  Plugins: ${novi.plugins.plugins.map((p) => p.id).join(', ')}`);
   console.log(`  Pairing code: ${novi.pairing.currentCode().code} (also shown in the app)`);
-  // Always-on "Hey Novi" on the laptop microphone (works with the browser closed).
-  startWakeWordService({ novi })
+  // Always-on "Hey Novi" on the laptop microphone (works with the browser closed). The test copy leaves the mic to the real Novi.
+  if (!testCopy) startWakeWordService({ novi })
     .then((service) => { wake = service; console.log(''); })
     .catch((err) => console.warn(`⚠  Wake word unavailable: ${err.message}\n`));
 });
 let wake = null;
 // Always reachable from the phone: Windows won't idle-sleep while Novi runs.
-const keepAwake = process.platform === 'win32' ? startKeepAwake() : null;
+const keepAwake = process.platform === 'win32' && !testCopy ? startKeepAwake() : null;
 
 if (config.coder === 'claude') checkClaude(config.claudeCommand).then((warning) => warning && console.warn(`⚠  ${warning}`));
 

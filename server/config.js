@@ -70,6 +70,7 @@ export function loadConfig(env = process.env) {
   return {
     port: Number(env.NOVI_PORT || 3001),
     dataDir: path.resolve(env.NOVI_DATA_DIR || 'data'),
+    distDir: path.resolve(env.NOVI_DIST_DIR || 'dist'), // the built screen; the test copy has its own
     providers,
     order: { fast: order(env.NOVI_FAST_ORDER, DEFAULT_FAST), long: order(env.NOVI_LONG_ORDER, DEFAULT_LONG), quick: order(env.NOVI_FAST_ORDER, DEFAULT_FAST) },
     // "make a new project" puts folders here (Documents\Projects by default).

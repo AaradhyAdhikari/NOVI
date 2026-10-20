@@ -104,9 +104,9 @@ export function createSupervisor({ spawnChild, now = () => Date.now(), logger = 
 // Daily log files in data/logs, newest 7 kept.
 // The screen (dist/) is older than its source after a git pull: a restart from Settings or the
 // logon task skips `npm start`'s build, so the phone would keep running old page code.
-export function uiIsStale(root) {
+export function uiIsStale(root, distDir = 'dist') {
   let built;
-  try { built = fs.statSync(path.join(root, 'dist', 'index.html')).mtimeMs; } catch { return true; }
+  try { built = fs.statSync(path.join(root, distDir, 'index.html')).mtimeMs; } catch { return true; }
   const newest = (p) => {
     let st;
     try { st = fs.statSync(p); } catch { return 0; }

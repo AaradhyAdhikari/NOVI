@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import path from 'node:path';
 import { loadConfig, splitList } from '../../server/config.js';
 
 describe('splitList', () => {
@@ -102,5 +103,12 @@ describe('loadConfig', () => {
     expect(by.githubmodels).toMatchObject({ baseURL: 'https://models.github.ai/inference' });
     expect(config.order.fast).toEqual(expect.arrayContaining(['cerebras', 'mistral', 'githubmodels']));
     expect(config.privateProviders).toEqual(['groq']);
+  });
+});
+
+describe('screen build folder', () => {
+  it('is dist unless NOVI_DIST_DIR says otherwise (the test copy uses dist-test)', () => {
+    expect(path.basename(loadConfig({ USERPROFILE: 'C:\\nowhere' }).distDir)).toBe('dist');
+    expect(path.basename(loadConfig({ USERPROFILE: 'C:\\nowhere', NOVI_DIST_DIR: 'dist-test' }).distDir)).toBe('dist-test');
   });
 });
