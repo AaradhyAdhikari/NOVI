@@ -108,6 +108,7 @@ export function buildGraph(vault) {
     nodes.push({ id: 'ChatGPT', title: 'ChatGPT', folder: 'ChatGPT', updated: null, excerpt: `On ChatGPT: ${and(parts)}. Claude builds them.`.slice(0, EXCERPT) });
     add('ChatGPT', hub);
     add('ChatGPT', 'Claude'); // they work together (user, 2026-10-20: "make a direct relationship")
+    if (plan) add(plan.id, 'Claude'); // the plan is what Claude builds (user, 2026-10-20)
     for (const n of [...pinned, ...briefs, ...(plan ? [plan] : [])]) add(n.id, 'ChatGPT');
   }
   for (const p of projects) {

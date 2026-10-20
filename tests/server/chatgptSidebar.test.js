@@ -203,5 +203,8 @@ describe('graph: the ChatGPT dot', () => {
     expect(g.nodes.find((n) => n.id === 'Claude')).toMatchObject({ title: 'Claude', excerpt: 'Claude builds what ChatGPT plans.' });
     expect(has('ChatGPT', 'Claude')).toBe(true);
     expect(has('Claude', 'Novi Memory.md')).toBe(true);
+    // The plan is what Claude builds (user, 2026-10-20): it touches both dots.
+    expect(has('Notes/ChatGPT plan.md', 'ChatGPT')).toBe(true);
+    expect(has('Notes/ChatGPT plan.md', 'Claude')).toBe(true);
   });
 });
