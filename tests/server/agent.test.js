@@ -1472,3 +1472,13 @@ describe('learning loop in the agent', () => {
     expect(await agent.handle('what did you get wrong this week')).toBe('This week I got 1 thing wrong and learned from 1 of them.');
   });
 });
+
+describe('project progress route', () => {
+  it('"tell me till date progress of that flexr project on claude" runs project_status without the AI', async () => {
+    const ran = [];
+    const tools = new ToolRegistry().add({ name: 'project_status', description: 's', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 's', run: async (a) => { ran.push(a); return { note: 'Checking FLEXR…' }; } });
+    const agent = new Agent({ router: scriptedRouter([reply('should not run')]), tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }), stop: async () => true } });
+    expect(await agent.handle('Tell me till date progress of that flexr project on claude')).toBe('Checking FLEXR…');
+    expect(ran).toEqual([{ project: 'flexr' }]);
+  });
+});

@@ -58,8 +58,15 @@ export function buildGraph(vault) {
   // other note named "X …", plus the project's README, logo and pictures, hang off "X project".
   const hub = nodes.find((n) => n.id === 'Novi Memory.md')?.id;
   const projects = notes.filter((n) => / project$/i.test(n.title));
+  // Projects on claude.ai hang off one "Claude" dot (user, 2026-10-20: "easy for Novi to find them").
+  const onClaude = projects.filter((p) => /^On claude\.ai: /m.test(stripFront(p.text)));
+  if (onClaude.length) {
+    const names = onClaude.map((p) => p.title.replace(/ project$/i, ''));
+    nodes.push({ id: 'Claude', title: 'Claude', folder: 'Claude', updated: null, excerpt: `Your ${names.length} project${names.length === 1 ? '' : 's'} on claude.ai: ${names.join(', ')}`.slice(0, EXCERPT) });
+    add('Claude', hub);
+  }
   for (const p of projects) {
-    add(p.id, hub);
+    add(p.id, onClaude.includes(p) ? 'Claude' : hub);
     const name = p.title.replace(/ project$/i, '');
     for (const n of notes) if (n.id !== p.id && n.title.toLowerCase().startsWith(`${name.toLowerCase()} `)) add(n.id, p.id);
     // The newest `Folder:` line (a folder linked later wins), plus any `Context:` folders.

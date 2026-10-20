@@ -57,3 +57,19 @@ export function linkFolderCommand(text) {
   if (!project || !target || /^claude/i.test(project)) return null;
   return { project, ...target };
 }
+
+// "Tell me till date progress of that FlexR project (on Claude)", "status of portfolio", "what's next for
+// FLEXR", "where did I leave off on X", "X ka progress kya hai" → project_status (no AI to route it).
+// Without a project ("what's the progress") it stays the running coding task's quick answer.
+const NOT_A_PROJECT = /^(?:it|this|that|the task|the coding|claude|my order|the order|the weather|weather|order)$/i;
+export function projectStatusCommand(text) {
+  const t = String(text || '').trim().replace(LEAD, '').replace(/[.!?]+$/, '');
+  const m = /^(?:(?:tell me|give me|show me)\s+)?(?:what(?:'s| is)\s+)?(?:the\s+)?(?:till date\s+|overall\s+|current\s+|latest\s+)?(?:progress|status|updates?)\s+(?:of|on|for|in|with)\s+(.+)$/i.exec(t)
+    || /^what(?:'s| is)\s+next\s+(?:for|on|in|with)\s+(.+)$/i.exec(t)
+    || /^where\s+(?:did\s+i\s+leave\s+off|are\s+we|am\s+i)\s+(?:on|with|in)\s+(.+)$/i.exec(t)
+    || /^(.+?)\s+(?:ka|ki|ke)\s+(?:progress|status|update)\s+(?:kya\s+hai|batao|bata do)$/i.exec(t);
+  if (!m) return null;
+  const project = m[1].replace(/\s+(?:on|in)\s+claude(?:\.ai)?$/i, '').replace(/^(?:that|my|the|this)\s+/i, '').replace(/\s+project$/i, '').trim();
+  if (!project || NOT_A_PROJECT.test(project) || project.split(/\s+/).length > 4) return null;
+  return { tool: 'project_status', args: { project } };
+}

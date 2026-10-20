@@ -12,7 +12,7 @@ import { previewCommand, openCommand } from './previewCommand.js';
 import { replyFrom } from './shortcuts.js';
 import { briefCommand, changeCommand } from './briefCommand.js';
 import { dictationCommand } from './dictationCommand.js';
-import { claudeLinkCommand, linkFolderCommand } from './claudeLinkCommand.js';
+import { claudeLinkCommand, linkFolderCommand, projectStatusCommand } from './claudeLinkCommand.js';
 import { describeTurn } from '../activity.js';
 import { learningCommand } from './learning.js';
 import { quietCommand } from '../quiet.js';
@@ -392,6 +392,12 @@ export class Agent {
     // "Put portfolio on Claude" / "sync my Claude projects" (plugins/claude-link), no AI.
     const linked = await this._linkFolder(text);
     if (linked) return this._remember(text, linked);
+    // "Progress of my FlexR project" / "what's next for X" (plugins/claude-link project_status), no AI.
+    const st = projectStatusCommand(text);
+    if (st && this.tools.get(st.tool)) {
+      const { output } = await this._runTool({ id: `status-${Date.now()}`, function: { name: st.tool, arguments: JSON.stringify(st.args) } }, { direct: true });
+      return this._remember(text, output?.error || output?.note || 'Checking…');
+    }
     const linkSaid = claudeLinkCommand(text);
     // "Open X in Claude": a folder project opens in Claude Code (below), only a claude.ai-only one here.
     const link = linkSaid?.soft && this.memory?.findProject?.(linkSaid.args.project) ? null : linkSaid;
@@ -579,6 +585,8 @@ export class Agent {
     if (ctl && this.tools.get(ctl.tool)) return { quick: null, calls: [{ name: ctl.tool, args: ctl.args }], reply: null, provider: 'direct' };
     const link = claudeLinkCommand(text);
     if (link && this.tools.get(link.tool)) return { quick: null, calls: [{ name: link.tool, args: link.args }], reply: null, provider: 'direct' };
+    const st = projectStatusCommand(text);
+    if (st && this.tools.get(st.tool)) return { quick: null, calls: [{ name: st.tool, args: st.args }], reply: null, provider: 'direct' };
     const pv = this._previewKnown(previewCommand(text));
     if (pv) return { quick: null, calls: [{ name: pv.tool, args: pv.args }], reply: null, provider: 'direct' };
     const op = this._openKnown(text);

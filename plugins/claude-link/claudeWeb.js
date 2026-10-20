@@ -50,6 +50,14 @@ export function createClaudeWeb({ request, site = CLAUDE, sleep = (ms) => new Pr
     return { names: projects.map((p) => p.name), projects };
   }
 
+  // A project's page: the titles of its chats, newest first as claude.ai lists them (≤ 10).
+  async function info(url) {
+    await open(url);
+    if (!(await waitFor(site.chats, 12_000))) return (await loginNeeded()) ? notReady() : { chats: [] };
+    const { texts = [] } = (await request('query', { selector: site.chats, tabId, firstLine: true })) || {};
+    return { chats: [...new Set(texts.map((t) => String(t).split('\n')[0].trim()).filter(Boolean))].slice(0, 10) };
+  }
+
   async function make({ name, description = '', instructions = '' }) {
     await open(site.create);
     if (!(await waitFor(site.nameInput))) return notReady();
@@ -72,5 +80,5 @@ export function createClaudeWeb({ request, site = CLAUDE, sleep = (ms) => new Pr
   }
 
   const guard = (fn) => async (...args) => { try { return await fn(...args); } catch (err) { return { error: String(err?.message || err) }; } };
-  return { list: guard(list), make: guard(make) };
+  return { list: guard(list), make: guard(make), info: guard(info) };
 }
