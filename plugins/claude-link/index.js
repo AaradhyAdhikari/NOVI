@@ -111,7 +111,7 @@ export function createClaudeLinkPlugin({ driver = null, listCode = () => listCla
       }
 
       // Names Novi should expect to hear (the speech-to-text hint).
-      if (api.runtime) api.runtime.claudeProjectNames = () => (state.webProjects || []).map((p) => p.name);
+      if (api.runtime) api.runtime.claudeProjectNames = () => webList().map((p) => p.name);
 
       api.registerService({
         id: 'claude-link-sync',
@@ -150,9 +150,18 @@ export function createClaudeLinkPlugin({ driver = null, listCode = () => listCla
 
       // "Open TraceBite on Claude": the project's claude.ai page on the device that asked (a tap-to-open
       // link on a phone). Any spelling that names one project ("medikiosk" = "MediKiosk AI").
+      // The claude.ai projects Novi knows: the last sync's list, else her "X project" notes ("On claude.ai: …"),
+      // so FLEXR is found with Chrome off or before any sync worked.
+      function webList() {
+        if (state.webProjects?.length) return state.webProjects;
+        return (rt.wikiNotes?.() || []).flatMap((n) => {
+          const url = /^On claude\.ai: (https:\/\/claude\.ai\/project\/\S+)/m.exec(String(n.text || ''))?.[1];
+          return / project$/i.test(n.title) && url ? [{ name: n.title.replace(/ project$/i, ''), url }] : [];
+        });
+      }
       function findWeb(name) {
         const q = squash(name);
-        const all = state.webProjects || [];
+        const all = webList();
         const exact = all.filter((p) => squash(p.name) === q);
         const near = exact.length ? exact : all.filter((p) => q && (squash(p.name).startsWith(q) || q.startsWith(squash(p.name))));
         if (near.length === 1) return near[0];
@@ -222,6 +231,46 @@ export function createClaudeLinkPlugin({ driver = null, listCode = () => listCla
           if (pending.has(k)) return reply({ note: `I'm already making ${display} on claude.ai.` });
           track(make({ project: at.name, description, display }).catch((err) => { log(`[claude-link] ${err.message}`); rt.say?.(`Making ${display} on claude.ai failed: ${err.message}`, { kind: null }); }));
           return reply({ note: `Making the ${display} project on claude.ai in Chrome…` });
+        },
+      });
+
+      // "Progress of my FlexR project": what Novi knows about it — the claude.ai project's chats, the folder's
+      // latest work (project_next), the brief and the note — summed up by the private AI (Groq), else the facts.
+      async function status({ name, web, at }) {
+        const facts = [];
+        if (web?.url && connected()) {
+          const page = await getWeb().info(web.url);
+          if (page.chats?.length) facts.push(`On claude.ai, recent chats: ${page.chats.join(', ')}.`);
+          else if (page.error) facts.push(`(claude.ai: ${page.error})`);
+        } else if (web?.url) facts.push(`On claude.ai: ${web.url} (Chrome isn't connected, so I couldn't read its chats).`);
+        if (at?.path) {
+          try { const next = await rt.callTool?.('project_next', { project: at.name }); if (next?.text) facts.push(next.text); } catch (err) { log(`[claude-link] project_next: ${err.message}`); }
+        } else facts.push('No folder on the laptop yet.');
+        const brief = rt.wikiRead?.(`${name} brief`);
+        if (brief) facts.push(`Latest brief: ${brief.slice(0, 900)}`);
+        const note = rt.wikiRead?.(`${name} project`);
+        if (note) facts.push(`Novi's note: ${note.slice(0, 500)}`);
+        const said = facts.filter((f) => !f.startsWith('Novi')).join(' ');
+        const plain = `${name}: ${said.charAt(0).toLowerCase()}${said.slice(1)}`.slice(0, 600);
+        try {
+          const said = String(await rt.privateComplete?.(`Say in 2-3 short spoken sentences how far the user's project "${name}" has got and what is next. Use ONLY these facts; if they are thin, say what is known and offer to open it on claude.ai.\n\n${facts.join('\n')}`) || '').trim();
+          return said || plain;
+        } catch { return plain; }
+      }
+      api.registerTool({
+        name: 'project_status',
+        description: 'How far one of the user\'s projects has got and what is next ("progress of my FlexR project", "status of portfolio", "what\'s next for X"): its claude.ai chats, the folder\'s latest work, its brief and notes. Read-only; answers in the background.',
+        parameters: obj({ project: str('Project name') }, ['project']),
+        async execute(_id, { project } = {}) {
+          const at = rt.codingProject?.(project);
+          const web = findWeb(project);
+          if (!at && !web) {
+            const names = [...new Set([...webList().map((p) => p.name), ...(rt.projects?.list?.() || []).map((p) => (p.path ? path.basename(p.path) : p.name))])].slice(0, 12);
+            return reply({ error: `I don't know a project called ${project}.${names.length ? ` Your projects: ${names.join(', ')}.` : ''} If it's new on claude.ai, say "sync my Claude projects".` });
+          }
+          const name = web?.name || displayOf(at, project);
+          track(status({ name, web, at }).then((text) => rt.say?.(text, { kind: null })).catch((err) => { log(`[claude-link] status: ${err.message}`); rt.say?.(`I couldn't check ${name}: ${err.message}`, { kind: null }); }));
+          return reply({ note: `Checking ${name}…` });
         },
       });
 

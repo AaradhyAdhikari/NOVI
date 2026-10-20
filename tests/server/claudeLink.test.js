@@ -148,6 +148,7 @@ function setup({ known = [], web = {}, connected = true, codeProjects = [], data
     callTool: async (name, args) => { opened.push([name, args]); return { opened: true }; },
   };
   const driver = {
+    info: async () => web.info || { chats: [] },
     list: async () => web.list || { names: [] },
     make: async (a) => { made.push(a); return web.make || { url: 'https://claude.ai/project/1' }; },
   };
@@ -324,5 +325,81 @@ describe('a linked folder reaches the project note', () => {
     expect(folderNotes[0]).toMatchObject({ title: 'FLEXR project', text: expect.stringMatching(/^Folder: \/p\/FLEXR context$/m) });
     await s.run('claude_projects_sync');
     expect(s.notes.filter((n) => /^Folder: /m.test(n.text))).toHaveLength(1);
+  });
+});
+
+// Live 2026-10-20 (phone): "tell me till date progress of that flexr project on claude" → the AI asked
+// "which project?". Now one tool gathers what Novi knows and answers.
+describe('project progress', () => {
+  it.each([
+    ['tell me till date progress of that flexr project on claude', 'flexr'],
+    ['what is the progress of my TraceBites project', 'TraceBites'],
+    ['status of portfolio', 'portfolio'],
+    ["what's next for FLEXR", 'FLEXR'],
+    ['where did I leave off on medikiiosk', 'medikiiosk'],
+    ['flexr ka progress kya hai', 'flexr'],
+  ])('%s', async (text, project) => {
+    const { projectStatusCommand } = await import('../../server/brain/claudeLinkCommand.js');
+    expect(projectStatusCommand(text)).toEqual({ tool: 'project_status', args: { project } });
+  });
+  it.each(["what's the progress", 'progress kya hai', 'status of my order', 'what is the progress of it', 'tell me the weather update'])('not this: %s', async (text) => {
+    const { projectStatusCommand } = await import('../../server/brain/claudeLinkCommand.js');
+    expect(projectStatusCommand(text)).toBeNull();
+  });
+
+  function withStatus({ known = [], webProjects = [], chats = ['Workout API', 'Login screen'], next = 'Last commit: added login. Next: payments.' } = {}) {
+    const s = setup({ known, web: { list: { names: webProjects.map((p) => p.name), projects: webProjects }, info: { chats } } });
+    s.runtime.callTool = async (name, args) => (name === 'project_next' ? { text: `${args.project}: ${next}` } : { opened: true });
+    s.runtime.wikiRead = (t) => (/brief/i.test(t) ? 'Goal: a fitness app with workout plans.' : null);
+    const asked = [];
+    s.runtime.privateComplete = async (p) => { asked.push(p); return 'FLEXR: login is done, payments are next.'; };
+    const said = [];
+    s.runtime.say = (t) => said.push(t);
+    return { ...s, asked, said };
+  }
+
+  it('a claude.ai-only project: its chats and brief go to the private AI, the answer is said', async () => {
+    const s = withStatus({ webProjects: [{ name: 'FLEXR', url: 'https://claude.ai/project/f' }] });
+    await s.run('claude_projects_sync');
+    const out = await s.run('project_status', { project: 'flexr' });
+    expect(out.note).toBe('Checking FLEXR…');
+    await s.jobs.at(-1);
+    expect(s.asked[0]).toMatch(/Workout API/);
+    expect(s.asked[0]).toMatch(/Goal: a fitness app/);
+    expect(s.asked[0]).toMatch(/No folder on the laptop/);
+    expect(s.said.at(-1)).toBe('FLEXR: login is done, payments are next.');
+  });
+
+  it('a project with a folder also gets its latest work from project_next', async () => {
+    const s = withStatus({ known: [{ name: 'portfolio', path: '/p/Portfolio' }] });
+    await s.run('project_status', { project: 'portfolio' });
+    await s.jobs.at(-1);
+    expect(s.asked[0]).toMatch(/Last commit: added login/);
+  });
+
+  it('the private AI busy → the facts themselves, never silence', async () => {
+    const s = withStatus({ webProjects: [{ name: 'FLEXR', url: 'https://claude.ai/project/f' }] });
+    s.runtime.privateComplete = async () => { throw new Error('busy'); };
+    await s.run('claude_projects_sync');
+    await s.run('project_status', { project: 'FLEXR' });
+    await s.jobs.at(-1);
+    expect(s.said.at(-1)).toMatch(/^FLEXR: on claude\.ai, recent chats: Workout API, Login screen\./);
+  });
+
+  it('an unknown project says so and names the close ones', async () => {
+    const s = withStatus({ webProjects: [{ name: 'FLEXR', url: 'https://claude.ai/project/f' }] });
+    await s.run('claude_projects_sync');
+    expect((await s.run('project_status', { project: 'lexa' })).error).toBe(`I don't know a project called lexa. Your projects: FLEXR. If it's new on claude.ai, say "sync my Claude projects".`);
+  });
+});
+
+describe('claude.ai projects without Chrome', () => {
+  it('a project known only from its Novi Memory note is still found (no sync, no Chrome)', async () => {
+    const s = setup({ connected: false });
+    s.runtime.wikiNotes = () => [{ title: 'FLEXR project', text: 'On claude.ai: https://claude.ai/project/f\nNo folder on the laptop yet.' }];
+    s.runtime.say = () => {};
+    s.runtime.privateComplete = async () => 'ok';
+    expect((await s.run('project_status', { project: 'flexr' })).note).toBe('Checking FLEXR…');
+    expect((await s.run('claude_project_open', { project: 'flexr' })).note).toBe('Opened FLEXR on claude.ai.');
   });
 });

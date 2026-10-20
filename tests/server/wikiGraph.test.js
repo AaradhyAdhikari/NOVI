@@ -82,7 +82,9 @@ describe('buildGraph: project groups', () => {
   const has = (a, b) => g.links.some((l) => (l.source === a && l.target === b) || (l.source === b && l.target === a));
   it('brief → project → Novi Memory; lonely notes → Novi Memory', () => {
     expect(has('Notes/portfolio brief.md', 'Notes/Portfolio project.md')).toBe(true);
-    expect(has('Notes/Portfolio project.md', 'Novi Memory.md')).toBe(true);
+    // It is on claude.ai, so it hangs off the Claude dot, which hangs off Novi Memory.
+    expect(has('Notes/Portfolio project.md', 'Claude')).toBe(true);
+    expect(has('Claude', 'Novi Memory.md')).toBe(true);
     expect(has('Notes/portfolio brief.md', 'Novi Memory.md')).toBe(false);
     expect(has('Notes/Groceries.md', 'Novi Memory.md')).toBe(true);
   });
@@ -115,5 +117,22 @@ describe('buildGraph: a project whose folder came later', () => {
     expect(dots).toContain('Context: FLEXR Fitness app.');
     expect(dots).toContain(`Files: 1 file in ${a}`);
     expect(dots).toContain(`Files: 1 file in ${b}`);
+  });
+});
+
+describe('buildGraph: a Claude dot', () => {
+  it('every project on claude.ai hangs off one "Claude" dot, which hangs off Novi Memory', () => {
+    const vault = vaultWith({
+      'Notes/FLEXR project.md': '# FLEXR project\n\nOn claude.ai: https://claude.ai/project/f\nNo folder on the laptop yet.',
+      'Notes/TraceBites project.md': '# TraceBites project\n\nOn claude.ai: https://claude.ai/project/t',
+      'Notes/Calc project.md': '# Calc project\n\nFolder: /nope',
+    });
+    const g = buildGraph(vault);
+    const has = (a, b) => g.links.some((l) => (l.source === a && l.target === b) || (l.source === b && l.target === a));
+    expect(g.nodes.find((n) => n.id === 'Claude')).toMatchObject({ title: 'Claude', folder: 'Claude', excerpt: 'Your 2 projects on claude.ai: FLEXR, TraceBites' });
+    expect(has('Notes/FLEXR project.md', 'Claude')).toBe(true);
+    expect(has('Claude', 'Novi Memory.md')).toBe(true);
+    expect(has('Notes/FLEXR project.md', 'Novi Memory.md')).toBe(false);
+    expect(has('Notes/Calc project.md', 'Novi Memory.md')).toBe(true);
   });
 });
