@@ -57,6 +57,7 @@ import { createTailscaleIdentity } from './tailscaleIdentity.js';
 import { PairRequests } from './pairRequests.js';
 import { enrollVoice, readClips, createVoiceprintStore } from './voice/speaker/enroll.js';
 import { createVocabulary } from './voice/vocabulary.js';
+import { judgeHeard } from './voice/heardFilter.js';
 import { createVoiceLog } from './voice/voiceLog.js';
 import { createWatchWindows } from './claude/watchWindow.js';
 import { createLagMeter } from './lag.js';
@@ -306,19 +307,24 @@ export function createNovi(config, overrides = {}) {
     const result = await speech.transcribe({ audio, mimeType });
     if (result.fallbackFrom.length) console.warn(`[voice] ${result.fallbackFrom.join(', ')} failed; used ${result.provider}`);
     if (result.refinedFrom) console.log(`[voice] Hindi/Marathi: used ${result.provider} instead of ${result.refinedFrom}`);
-    return result.text;
+    return typeof result.confidence === 'number' ? { text: result.text, confidence: result.confidence } : result.text;
   });
   // Speech → text with your fixes applied; logged (with the recording) for Settings → Words.
   async function hear(audio, mimeType, source) {
     working += 1;
     let heard;
-    try { heard = String(await stt(audio, mimeType)).trim(); } finally { working -= 1; }
+    let confidence;
+    try {
+      const out = await stt(audio, mimeType);
+      heard = String(out && typeof out === 'object' ? out.text : out).trim();
+      confidence = out && typeof out === 'object' ? out.confidence : undefined;
+    } finally { working -= 1; }
     const text = vocabulary.apply(heard);
     let id = null;
     if (heard && heard !== '.') {
       try { id = voiceLog.add({ heard, text, audio, mimeType, source }); } catch (err) { console.warn(`[voice] log failed: ${err.message}`); }
     }
-    return { text, id };
+    return { text, id, confidence };
   }
   const lanUrls = overrides.lanUrls || [];
   // Browsers attach Origin to WebSocket and cross-site requests. Because localhost is
@@ -950,9 +956,17 @@ export function createNovi(config, overrides = {}) {
   }
 
   // A command heard by the always-on laptop microphone (16 kHz WAV).
-  async function runVoiceCommand(wav) {
-    const { text, id } = await hear(wav, 'audio/wav', 'wake');
+  // followUp: heard while Novi kept listening after a reply (no "Hey Novi") — noise there is dropped,
+  // which also ends the listening (live 2026-10-20: "Aung!" ran a sync and answers chained).
+  async function runVoiceCommand(wav, { followUp = false } = {}) {
+    const { text, id, confidence } = await hear(wav, 'audio/wav', 'wake');
     if (!text || text === '.') return null;
+    const drop = judgeHeard({ text, confidence, followUp });
+    if (drop) {
+      console.log(`[wake] ignored ${followUp ? 'follow-up' : 'command'} (${drop}, ${text.split(/s+/).length} words)`);
+      if (id) voiceLog.setReply(id, `(ignored: ${drop})`);
+      return null;
+    }
     // What was heard and Novi's reply: the wake-word service uses them for conversation mode.
     const reply = (await handleMessage({ type: 'user_message', text })) || '';
     if (id) voiceLog.setReply(id, reply);

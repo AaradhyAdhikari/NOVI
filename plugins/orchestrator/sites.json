@@ -14,7 +14,7 @@
     "input": "rich-textarea .ql-editor, div[contenteditable=\"true\"][role=\"textbox\"]",
     "send": "button.send-button, button[aria-label*=\"Send message\"]",
     "busy": "button[aria-label*=\"Stop response\"], button.stop",
-    "answer": "model-response message-content, model-response .markdown",
+    "answer": "model-response",
     "login": "a[href*=\"accounts.google.com/ServiceLogin\"], a[aria-label=\"Sign in\"]"
   }
 }

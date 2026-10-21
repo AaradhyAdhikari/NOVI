@@ -20,7 +20,13 @@ export function sections(text, headings) {
   return Object.keys(done).length ? done : { [headings[0]]: String(text || '').trim() };
 }
 
-const items = (s) => String(s || '').split('\n').filter((l) => /^\s*(?:\d+[.)]|[-*•])\s+/.test(l)).length;
+// Numbered or bulleted lines; a page's own list ("1." drawn by the page, live 2026-10-20) arrives
+// without markers, so then every non-empty line is one item.
+const items = (s) => {
+  const lines = String(s || '').split('\n').filter((l) => l.trim());
+  const marked = lines.filter((l) => /^\s*(?:\d+[.)]|[-*•])\s+/.test(l)).length;
+  return marked || lines.length;
+};
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
 // plan / ideas: { text, source, why? } (why = what failed before a backup answered) or { error }.

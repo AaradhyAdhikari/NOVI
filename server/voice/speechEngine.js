@@ -7,7 +7,7 @@
 // Anything Whisper didn't hear as English: Hindi, Marathi, or a wrong guess (Whisper often calls
 // Marathi "Icelandic" or "Hindi"), so Sarvam detects the language itself.
 const ENGLISH = new Set(['english', 'en']);
-const asResult = (out) => (typeof out === 'string' ? { text: out } : { text: String(out?.text || ''), language: out?.language });
+const asResult = (out) => (typeof out === 'string' ? { text: out } : { text: String(out?.text || ''), language: out?.language, confidence: out?.confidence });
 
 export function createSpeechEngine({ stt = [], indic = null } = {}) {
   return {
@@ -30,7 +30,8 @@ export function createSpeechEngine({ stt = [], indic = null } = {}) {
             if (better) return { text: better, provider: indic.id, fallbackFrom: failures.map((f) => f.id), refinedFrom: p.id };
           } catch { /* keep what the first provider heard */ }
         }
-        return { text: heard.text, provider: p.id, fallbackFrom: failures.map((f) => f.id) };
+        // How sure the service was, when it says (Groq Whisper): the laptop mic drops noise with it (heardFilter.js).
+        return { text: heard.text, provider: p.id, fallbackFrom: failures.map((f) => f.id), ...(typeof heard.confidence === 'number' ? { confidence: heard.confidence } : {}) };
       }
       throw new Error(`Speech-to-text failed: ${failures.map((f) => `${f.id}: ${f.message}`).join('; ')}`);
     },

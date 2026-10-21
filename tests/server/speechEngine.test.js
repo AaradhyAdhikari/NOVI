@@ -116,5 +116,10 @@ describe('Groq Whisper provider', () => {
     const fetchImpl = async () => new Response(JSON.stringify({ text: ' नमस्ते ', language: 'hindi' }));
     expect(await createGroqWhisperStt({ keys: ['k'], fetchImpl }).transcribe({ audio: Buffer.from('a'), mimeType: 'audio/wav' })).toEqual({ text: 'नमस्ते', language: 'hindi' });
   });
+
+  it("passes the speech service's confidence on", async () => {
+    const engine = createSpeechEngine({ stt: [provider('groq-whisper', { text: 'All right.', language: 'english', confidence: -0.9 })] });
+    expect((await engine.transcribe({ audio: Buffer.from('a'), mimeType: 'audio/wav' })).confidence).toBe(-0.9);
+  });
 });
 

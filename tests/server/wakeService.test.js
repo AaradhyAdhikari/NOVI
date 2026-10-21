@@ -17,6 +17,13 @@ describe('conversationNext', () => {
     for (const text of ['stop', 'Bye', 'thank you', 'Thanks Novi', "that's all", 'nothing']) expect(conversationNext({ text, reply: 'Okay.' })).toBeNull();
     expect(conversationNext({ text: '', reply: '' })).toBeNull();
   });
+  // Live 2026-10-20: noise got "Could you clarify…?", which opened the mic again, and again.
+  it('stops listening when Novi had to ask what was meant (it was probably not for Novi)', () => {
+    for (const reply of ['Could you clarify what you’d like help with?', "I'm not sure I understand—could you clarify?", 'Got it! Let’s dive in—what would you like to tackle first?', "Sorry, I didn't catch that."]) {
+      expect(conversationNext({ text: 'in the locked alo detox', reply }), reply).toBeNull();
+    }
+    expect(conversationNext({ text: 'weather', reply: 'It is 28 degrees. Want tomorrow too?' })).not.toBeNull();
+  });
 });
 
 describe('keepRestarting', () => {

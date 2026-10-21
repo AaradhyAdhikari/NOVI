@@ -1,9 +1,10 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { definePluginEntry } from '#plugin-sdk';
 import { createSiteDriver } from './siteDriver.js';
 import { gatherFacts } from './context.js';
-import { planPrompt, ideasPrompt, changePrompt } from './prompts.js';
-import { buildBrief } from './brief.js';
+import { planPrompt, ideasPrompt, changePrompt, projectNameFrom, PLAN_HEADINGS, IDEAS_HEADINGS } from './prompts.js';
+import { buildBrief, sections } from './brief.js';
 
 // Novi thinks before Claude codes (user, 2026-10-17/18): for a big job the ChatGPT website writes the
 // plan and the Gemini website finds examples + security rules, in background Chrome tabs. A site that
@@ -32,8 +33,17 @@ export function createOrchestratorPlugin({ driver = null, track = () => {}, now 
 
       // One part of the brief: the website first, else the free API (prefer = that API's provider).
       async function part(key, prompt, source, prefer, connected) {
-        const site = connected && getSites() ? await getSites().ask(key, prompt) : { error: "Chrome isn't connected" };
-        if (site.text) return { text: site.text, source, site: true };
+        const site = connected && getSites() ? await getSites().ask(key, prompt, { want: key === 'gemini' ? IDEAS_HEADINGS : PLAN_HEADINGS }) : { error: "Chrome isn't connected" };
+        if (site.text) {
+          // Headings the brief can't find (third live run: Gemini's parts came out empty): the start goes to the log.
+          const want = key === 'gemini' ? IDEAS_HEADINGS : PLAN_HEADINGS;
+          const got = sections(site.text, want);
+          const missing = want.filter((h) => !got[h]);
+          // The last raw answer per site, to fix the reading when a site changes its page (local only).
+          try { if (rt.dataDir) { fs.mkdirSync(path.join(rt.dataDir, 'orchestrator'), { recursive: true }); fs.writeFileSync(path.join(rt.dataDir, 'orchestrator', `last-${key}.txt`), site.text); } } catch { /* never stop a brief over this */ }
+          if (missing.length) log(`[orchestrator] ${source}: no ${missing.join(' / ')} heading in its answer; it starts: "${site.text.slice(0, 200).replace(/\s+/g, ' ')}"`);
+          return { text: site.text, source, site: true };
+        }
         try {
           const text = await rt.complete?.(prompt, { prefer });
           if (text) return { text, source: 'the backup AI', why: sentence(site.error) };
@@ -44,7 +54,7 @@ export function createOrchestratorPlugin({ driver = null, track = () => {}, now 
       async function job({ project, name, request, isNew }) {
         const known = !isNew && project ? rt.codingProject?.(project) : null;
         // The folder's own capitals ("Portfolio brief"), so the brief sits next to "Portfolio project".
-        const title = (known?.path && path.basename(known.path)) || known?.name || name || project || 'New project';
+        const title = (known?.path && path.basename(known.path)) || known?.name || name || project || projectNameFrom(request) || 'New project';
         const facts = gatherFacts(known?.path, { note: rt.wikiRead?.(`${title} brief`) });
         const work = { project: known?.name || title, request, facts };
         const connected = Boolean(rt.browserStatus?.().connected);
@@ -70,7 +80,7 @@ export function createOrchestratorPlugin({ driver = null, track = () => {}, now 
           if (!d.change) { rt.say?.("Okay, I won't send the brief.", { kind: null }); return; }
           // "Change X": the same ChatGPT chat, else the backup AI with the plan so far.
           const changed = plan.site
-            ? await getSites().followUp('chatgpt', changePrompt(d.change))
+            ? await getSites().followUp('chatgpt', changePrompt(d.change), { want: PLAN_HEADINGS })
             : { text: await rt.complete?.(`${planP}\n\nThe plan so far:\n${plan.text || '(none)'}\n\n${changePrompt(d.change)}`, { prefer: 'githubmodels' }).catch(() => null) };
           if (changed?.text) plan = { ...plan, text: changed.text };
           else rt.say?.(`I couldn't change it (${changed?.error || 'no answer'}), so here's the brief as it was.`, { kind: null });

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { gatherFacts } from '../../plugins/orchestrator/context.js';
-import { planPrompt, ideasPrompt, changePrompt } from '../../plugins/orchestrator/prompts.js';
+import { planPrompt, ideasPrompt, changePrompt, projectNameFrom } from '../../plugins/orchestrator/prompts.js';
 import { sections, buildBrief } from '../../plugins/orchestrator/brief.js';
 
 describe('project facts (no AI)', () => {
@@ -37,6 +37,17 @@ describe('prompts', () => {
     const ideas = ideasPrompt({ project: 'portfolio', request: "let's add a blog", facts: 'FACTS' });
     for (const h of ['## Examples', '## Security rules']) expect(ideas).toContain(h);
     expect(changePrompt('use a blue theme')).toMatch(/use a blue theme[\s\S]*Goal, Steps, Look & feel, Done when/);
+    // First live run: the backup AI made up links (an App Store id 123456789, com.example.tipcalculator).
+    expect(ideas).toMatch(/never make up a link/i);
+  });
+
+  // First live run: a new project without a name was briefed as "New project".
+  it('a new project without a name is named from the words', () => {
+    expect(projectNameFrom("let's build a tiny tip calculator app")).toBe('Tip calculator');
+    expect(projectNameFrom('build me a website for my bakery')).toBe('Bakery website');
+    expect(projectNameFrom('make a simple to-do list web app')).toBe('To-do list');
+    expect(projectNameFrom('let us create an expense tracker')).toBe('Expense tracker');
+    expect(projectNameFrom('do it')).toBe(null);
   });
 });
 
@@ -58,6 +69,14 @@ describe('the brief (no AI)', () => {
     expect(b.text.indexOf('## Examples (Gemini)')).toBeLessThan(b.text.indexOf('## Done when (ChatGPT)'));
     expect(b.text).toMatch(/## Security rules \(Gemini\)\n1\. Escape post HTML/);
     expect(b.spoken).toBe('ChatGPT planned 3 steps and Gemini found 2 examples and 3 security rules. Send it to Claude?');
+  });
+
+  // Third live run: ChatGPT's numbered list arrives without "1." (the page draws the numbers), so the
+  // card said "ChatGPT planned 0 steps". Lines without markers are counted as they are.
+  it('counts steps whose numbers the page drew itself', () => {
+    const page = '## Goal\nA tip calculator.\n## Steps\nSet up the app.\n\nBuild the form.\nAdd the maths.\n## Look & feel\nGreen accent.\n## Done when\nIt works.';
+    expect(buildBrief({ project: 'tip', request: 'x', plan: { text: page, source: 'ChatGPT' }, ideas: { text: '## Examples\nCalculator.net — simple\nSplitwise — splitting\n## Security rules\nValidate input.', source: 'Gemini' } }).spoken)
+      .toBe('ChatGPT planned 3 steps and Gemini found 2 examples and 1 security rule. Send it to Claude?');
   });
 
   it('a missing part says why; backups are named', () => {

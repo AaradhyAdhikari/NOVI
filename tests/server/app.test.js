@@ -187,6 +187,16 @@ describe('Novi server', () => {
     expect(spoken).toEqual(['echo: heard 4 bytes of audio/wav']);
   });
 
+  // Live 2026-10-20: the follow-up listening acted on noise ("Aung!" ran a sync) and chained replies.
+  it('ignores unsure or made-up words heard while it keeps listening after a reply', async () => {
+    const { novi } = await start({ transcribe: async () => ({ text: 'Thank you.', confidence: -0.86 }) });
+    expect(await novi.runVoiceCommand(Buffer.from('RIFF'), { followUp: true })).toBe(null);
+    expect(novi.snapshot().transcript).toEqual([]);
+    // Right after "Hey Novi" the same sure-enough words still count.
+    const sure = await start({ transcribe: async () => ({ text: 'open youtube', confidence: -0.9 }) });
+    expect(await sure.novi.runVoiceCommand(Buffer.from('RIFF'))).toMatchObject({ text: 'open youtube' });
+  });
+
   // Live 2026-10-20 ("there is a delay"): the second brain pauses while a request runs; Settings shows lag.
   it('tells plugins Novi is busy while a request runs, and reports how long Novi was blocked', async () => {
     let seen = null;

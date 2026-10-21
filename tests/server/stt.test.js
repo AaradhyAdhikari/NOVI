@@ -76,5 +76,11 @@ describe('transcribe', () => {
     const fetchImpl = async () => new Response(JSON.stringify(++n === 1 ? { text: 'Uda Punaat', language: 'icelandic' } : { text: 'Uda Punaat Haman', language: 'english' }));
     expect(await transcribe({ audio: Buffer.from('a'), keys: ['k'], fetchImpl, detailed: true })).toEqual({ text: 'Uda Punaat Haman', language: 'icelandic' });
   });
+
+  // Live 2026-10-20: Whisper's confidence separates noise (−0.86…−1.23) from real commands (−0.19…−0.55).
+  it("detailed: the average confidence of Whisper's segments", async () => {
+    const fetchImpl = async () => new Response(JSON.stringify({ text: 'All right.', language: 'english', segments: [{ avg_logprob: -0.8 }, { avg_logprob: -1.0 }] }));
+    expect(await transcribe({ audio: Buffer.from('a'), keys: ['k'], fetchImpl, detailed: true })).toEqual({ text: 'All right.', language: 'english', confidence: -0.9 });
+  });
 });
 

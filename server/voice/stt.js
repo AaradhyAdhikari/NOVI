@@ -38,7 +38,10 @@ async function request({ audio, mimeType, language, keys, fetchImpl, model, prom
     }
     if (res.ok) {
       const data = await res.json();
-      return { text: String(data.text || '').trim(), language: data.language };
+      // How sure Whisper was (average avg_logprob): noise scores ≈ −0.9 or lower (heardFilter.js).
+      const segs = (data.segments || []).filter((s) => typeof s.avg_logprob === 'number');
+      const confidence = segs.length ? Math.round((segs.reduce((a, s) => a + s.avg_logprob, 0) / segs.length) * 100) / 100 : undefined;
+      return { text: String(data.text || '').trim(), language: data.language, ...(confidence !== undefined ? { confidence } : {}) };
     }
     lastError = new Error(`Groq speech-to-text failed (${res.status})`);
     if (![401, 403, 429].includes(res.status) && res.status < 500) break;

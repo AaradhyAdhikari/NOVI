@@ -102,7 +102,7 @@ export async function startWakeWordService({ novi, env = process.env, logger = c
       onCommand: async (audio, { followUp } = {}) => {
         logger.log(`[wake] ${followUp ? 'follow-up' : 'command'} recorded (${(audio.length / 16000).toFixed(1)} s)`);
         try {
-          const result = await novi.runVoiceCommand(Buffer.from(encodeWav(Float32Array.from(normalizeVolume(audio), (s) => s / 32768), 16000)));
+          const result = await novi.runVoiceCommand(Buffer.from(encodeWav(Float32Array.from(normalizeVolume(audio), (s) => s / 32768), 16000)), { followUp: Boolean(followUp) });
           // Conversation mode: keep listening for the next sentence, no "Hey Novi" needed.
           const next = result && conversationNext(result);
           if (next && current?.listener === listener) {
@@ -196,8 +196,13 @@ const ENDS = /^(stop|bye|goodbye|good night|thanks|thank you|that's all|that is 
 const SPEECH_START_MS = 1500; // making the voice + starting to play
 const MS_PER_CHAR = 70; // ~14 characters a second
 
+// Novi had to ask what was meant: the words were probably not for Novi (live 2026-10-20: noise got
+// "Could you clarify…?", which opened the mic again and again).
+const UNCLEAR = /\b(?:clarify|not sure (?:i|what)|didn['’]?t (?:catch|understand|get)|what would you like|what do you mean|could you (?:repeat|rephrase|say that again)|say that again)\b/i;
+
 export function conversationNext({ text = '', reply = '' } = {}) {
   if (!String(text).trim() || !String(reply).trim() || ENDS.test(String(text).trim())) return null;
+  if (UNCLEAR.test(String(reply))) return null;
   return { deafMs: SPEECH_START_MS + spokenText(reply).length * MS_PER_CHAR, waitMs: 8000 };
 }
 
