@@ -58,6 +58,7 @@ import { PairRequests } from './pairRequests.js';
 import { enrollVoice, readClips, createVoiceprintStore } from './voice/speaker/enroll.js';
 import { createVocabulary } from './voice/vocabulary.js';
 import { judgeHeard } from './voice/heardFilter.js';
+import { hintNames, fixNames } from './voice/techWords.js';
 import { createVoiceLog } from './voice/voiceLog.js';
 import { createWatchWindows } from './claude/watchWindow.js';
 import { createLagMeter } from './lag.js';
@@ -298,8 +299,13 @@ export function createNovi(config, overrides = {}) {
   const aiKeys = () => PROVIDER_NAMES.map((name) => ({ name, keys: (config.providers || []).find((p) => p.name === name)?.keys?.length || 0 }));
   const vocabulary = createVocabulary({ file: path.join(config.dataDir, 'vocabulary.json') });
   // Project names ("TraceBite", "MediKiosk AI") heard right: the folders' own spelling + claude.ai's.
+  // Project names + claude.ai names + the projects' tech words (FastAPI, WebSocket…), for the speech
+  // hint; project files are re-read at most every 10 minutes.
+  let hint = { at: 0, words: [] };
   const projectWords = () => {
-    try { return [...memory.listProjects().map((p) => (p.path ? path.basename(p.path) : p.name)), ...(plugins.runtime.claudeProjectNames?.() || [])]; } catch { return []; }
+    if (Date.now() - hint.at < 10 * 60_000) return hint.words;
+    try { hint = { at: Date.now(), words: hintNames(memory.listProjects(), plugins.runtime.claudeProjectNames?.() || []) }; } catch { hint = { at: Date.now(), words: [] }; }
+    return hint.words;
   };
   const voiceLog = createVoiceLog({ dir: path.join(config.dataDir, 'voice-log'), realDir: path.join(config.dataDir, 'voice-samples', 'real') });
   const speech = createSpeechEngine({ stt: [createGroqWhisperStt({ keys: providerKeys('groq'), prompt: (base) => vocabulary.prompt(answerHint(base, approvals.pending().some((a) => a.tier !== 'high')), projectWords()) }), sarvam, createGeminiStt({ keys: providerKeys('gemini') })], indic: sarvam });
@@ -319,7 +325,8 @@ export function createNovi(config, overrides = {}) {
       heard = String(out && typeof out === 'object' ? out.text : out).trim();
       confidence = out && typeof out === 'object' ? out.confidence : undefined;
     } finally { working -= 1; }
-    const text = vocabulary.apply(heard);
+    // Your word fixes, then near-misses of your project / tech names ("tracebytes" → TraceBites).
+    const text = fixNames(vocabulary.apply(heard), projectWords());
     let id = null;
     if (heard && heard !== '.') {
       try { id = voiceLog.add({ heard, text, audio, mimeType, source }); } catch (err) { console.warn(`[voice] log failed: ${err.message}`); }

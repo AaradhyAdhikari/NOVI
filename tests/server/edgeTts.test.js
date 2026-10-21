@@ -39,3 +39,18 @@ describe('Edge TTS synthesis', () => {
     await expect(tts('hi')).rejects.toThrow(/timed out/);
   });
 });
+
+// Live 2026-10-21: inside the running Novi every Edge request got 403, while the same code worked in a
+// script, a child process and a worker thread — so the voice is made in a worker thread.
+describe('Edge TTS in a worker thread', () => {
+  it('sends voice + words to the worker and gets the audio back; errors come back as errors', async () => {
+    const { createWorkerSynthesize } = await import('../../server/voice/edgeTts.js');
+    const synth = createWorkerSynthesize({ workerUrl: new URL('../fixtures/fake-tts-worker.mjs', import.meta.url) });
+    try {
+      expect(Buffer.from(await synth('en-IN-NeerjaNeural', 'hello')).toString()).toBe('en-IN-NeerjaNeural:hello');
+      const [a, b] = await Promise.all([synth('v', 'one'), synth('v', 'two')]);
+      expect([Buffer.from(a).toString(), Buffer.from(b).toString()]).toEqual(['v:one', 'v:two']);
+      await expect(synth('v', 'fail')).rejects.toThrow(/403/);
+    } finally { synth.close(); }
+  });
+});

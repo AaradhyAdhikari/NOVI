@@ -1,5 +1,6 @@
 // Natural voices for Novi's replies: Microsoft Edge's online neural voices (free, no key), via msedge-tts.
 // It is an unofficial service that could stop working, so every caller falls back to a local voice.
+import { Worker } from 'node:worker_threads';
 import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts';
 
 export const DEFAULT_VOICES = { en: 'en-IN-NeerjaNeural', hi: 'hi-IN-SwaraNeural', mr: 'mr-IN-AarohiNeural' };
@@ -17,7 +18,8 @@ export function pickVoice(text, voices = DEFAULT_VOICES) {
   return mr > hi ? voices.mr : voices.hi;
 }
 
-async function edgeSynthesize(voice, text) {
+// Used inside the worker thread (edgeTtsWorker.mjs); Novi itself calls createWorkerSynthesize.
+export async function edgeSynthesize(voice, text) {
   const tts = new MsEdgeTTS();
   try {
     // The third argument works around a msedge-tts bug when the voice changes.
@@ -35,7 +37,38 @@ async function edgeSynthesize(voice, text) {
 
 // Returns (text) => Promise<Buffer> of MP3 audio. Voices can be changed in .env:
 // NOVI_TTS_VOICE_EN / NOVI_TTS_VOICE_HI / NOVI_TTS_VOICE_MR.
-export function createEdgeTts({ voices = DEFAULT_VOICES, synthesize = edgeSynthesize, timeoutMs = 10_000 } = {}) {
+// The voice made in a worker thread (live 2026-10-21: in Novi's main thread every Edge request got 403,
+// while the same code in a worker worked). One worker, started on first use and again after a crash.
+export function createWorkerSynthesize({ workerUrl = new URL('./edgeTtsWorker.mjs', import.meta.url) } = {}) {
+  let worker = null;
+  let next = 0;
+  const pending = new Map();
+  const failAll = (err) => { for (const { reject } of pending.values()) reject(err); pending.clear(); };
+  const start = () => {
+    worker = new Worker(workerUrl);
+    worker.unref();
+    worker.on('message', ({ id, audio, error }) => {
+      const p = pending.get(id);
+      if (!p) return;
+      pending.delete(id);
+      if (error) p.reject(new Error(error)); else p.resolve(Buffer.from(audio));
+    });
+    worker.on('error', (err) => { failAll(err); worker = null; });
+    worker.on('exit', () => { failAll(new Error('Edge TTS worker stopped')); worker = null; });
+  };
+  const synthesize = (voice, text) => new Promise((resolve, reject) => {
+    if (!worker) start();
+    const id = (next += 1);
+    pending.set(id, { resolve, reject });
+    worker.postMessage({ id, voice, text });
+  });
+  synthesize.close = () => { worker?.terminate(); worker = null; };
+  return synthesize;
+}
+let shared = null;
+const workerSynthesize = (voice, text) => (shared ||= createWorkerSynthesize())(voice, text);
+
+export function createEdgeTts({ voices = DEFAULT_VOICES, synthesize = workerSynthesize, timeoutMs = 10_000 } = {}) {
   return async (text) => {
     const clean = String(text || '').replace(/\s+/g, ' ').trim().slice(0, MAX_CHARS);
     if (!clean) throw new Error('Nothing to say');

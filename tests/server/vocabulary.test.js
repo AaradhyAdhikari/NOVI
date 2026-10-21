@@ -65,6 +65,11 @@ describe('built-in fix: "cloud" heard for "Claude"', () => {
     expect(v.apply('upload it to the cloud')).toBe('upload it to the cloud');
     expect(v.apply('cloud storage is full')).toBe('cloud storage is full');
     expect(v.apply('the clouds look dark')).toBe('the clouds look dark');
+    // Word-accuracy run 2026-10-21: "Ask CLAW to add a WebSocket…"; a cat's claw stays a claw.
+    expect(v.apply('Ask CLAW to add a WebSocket server to Novi.')).toBe('Ask Claude to add a WebSocket server to Novi.');
+    expect(v.apply('open my project in claw')).toBe('open my project in Claude');
+    expect(v.apply('the cat has a sharp claw')).toBe('the cat has a sharp claw');
+    expect(v.apply('open claw on the laptop')).toBe('open claw on the laptop'); // OpenClaw, not Claude
   });
 });
 

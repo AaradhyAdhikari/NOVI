@@ -1,0 +1,18 @@
+[
+  { "say": "Ask Claude to add a WebSocket server to Novi", "terms": ["WebSocket", "Claude", "Novi"] },
+  { "say": "Open my TraceBites project in VS Code", "terms": ["TraceBites", "VS Code"] },
+  { "say": "Tell me the progress of my FLEXR project on Claude", "terms": ["FLEXR", "Claude"] },
+  { "say": "Make a FastAPI backend for MediKiosk", "terms": ["FastAPI", "MediKiosk"] },
+  { "say": "Show me the React code of the portfolio", "terms": ["React", "portfolio"] },
+  { "say": "Add Firebase login to Signsync", "terms": ["Firebase", "Signsync"] },
+  { "say": "Deploy the portfolio on Vercel", "terms": ["portfolio", "Vercel"] },
+  { "say": "Use PostgreSQL instead of SQLite for TraceBites", "terms": ["PostgreSQL", "SQLite", "TraceBites"] },
+  { "say": "Run the Vitest tests in Novi", "terms": ["Vitest", "Novi"] },
+  { "say": "Set up Tailscale so I can reach Novi from my phone", "terms": ["Tailscale", "Novi"] },
+  { "say": "Switch the build to Vite and Three.js", "terms": ["Vite", "Three.js"] },
+  { "say": "Write an Express API with Node.js for FLEXR", "terms": ["Express", "Node.js", "FLEXR"] },
+  { "say": "Signsync mein Firebase login add karo", "terms": ["Signsync", "Firebase"] },
+  { "say": "FLEXR ka progress kya hai", "terms": ["FLEXR"] },
+  { "say": "Use Groq Whisper for speech in Novi", "terms": ["Groq", "Whisper", "Novi"] },
+  { "say": "Open MediKiosk on Claude", "terms": ["MediKiosk", "Claude"] }
+]

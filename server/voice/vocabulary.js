@@ -10,7 +10,9 @@ const MAX_LEN = 40;
 // Speech-to-text often hears "Claude" as "cloud" ("open cloud" opened Google Cloud). Fixed unless it
 // clearly means the cloud: Google/Azure/AWS cloud, "the cloud", cloud storage/console/…
 const CLAUDE_HEARD = /(?<!\p{L})(?<!(?:google|azure|aws|microsoft|oracle|ibm|the|sound|word|point|tag)\s+)(?:cloud|clod|clawed|claud|clowd|klaud)(?!\p{L})(?!\s+(?:storage|console|platform|run|functions?|drive|servers?|services?|computing|gaming|backup|sync|account|billing))/giu;
-export const fixClaude = (text) => String(text).replace(CLAUDE_HEARD, 'Claude');
+// "Claude" heard as "claw" (word-accuracy run 2026-10-21: "Ask CLAW to…") — only right after a command word.
+const CLAW_HEARD = /(?<=(?<!\p{L})(?:ask|tell|use|in|on|to|with)\s+)claw(?!\p{L})/giu; // never after "open": "open claw" = OpenClaw
+export const fixClaude = (text) => String(text).replace(CLAUDE_HEARD, 'Claude').replace(CLAW_HEARD, 'Claude');
 // "C language" heard as "sea / see / si language"; C++ and C# the same way.
 const C_HEARD = /(?<!\p{L})(?:sea|see|si|cee|c)\s+(?:plus\s+plus|\+\+)(?!\p{L})/giu;
 const CSHARP_HEARD = /(?<!\p{L})(?:sea|see|si|cee|c)\s+sharp(?!\p{L})/giu;
