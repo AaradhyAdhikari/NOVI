@@ -39,9 +39,33 @@ const msg = (to, text, via) => {
 const LAPTOP = /\b(?:on|in) (?:my |the )?(?:laptop|computer|pc)\b|\blaptop (?:pe|par|mein|me)\b/i;
 const OPEN = /^\s*(?:(?:ok(?:ay)?|hey novi|novi|please)[, ]+)*open\b|\b(?:kholo|khol do|open karo)\b/i;
 
+// "Copy the link of the current website and send it to Isha", "send this video to Rahul", "share this page
+// with mom", "ye video Isha ko bhej do", "send this page to my phone", "copy this link" (2026-10-22, user:
+// "copy the link of the current website or video and send it to X person"). The agent reads the page open
+// in the laptop's front browser (laptop_current_link) and fills in the link.
+const PAGE = '(?:link|url|page|website|site|video|tab|stream|song)';
+const THE_PAGE = `(?:(?:the|this|that|current)\\s+)*(?:current\\s+)?${PAGE}(?:\\s+(?:of|from|on)\\s+(?:the\\s+|this\\s+)?(?:current\\s+|open\\s+)?${PAGE})?`;
+const TO_PHONE = /^(?:my phone|phone|my mobile|mobile|me on (?:my )?phone)$/i;
+export function linkCommand(text) {
+  const t = String(text || '').trim().replace(/[.!?]+$/, '').replace(WA_TAIL, '');
+  let m = new RegExp(`^copy\\s+${THE_PAGE}\\s+and\\s+(?:send|share)\\s+it\\s+(?:to|with)\\s+(.+)$`, 'i').exec(t)
+    || new RegExp(`^(?:send|share|forward)\\s+${THE_PAGE}\\s+(?:to|with)\\s+(.+)$`, 'i').exec(t)
+    || /^(?:ye|yeh|is|iss)\s+(?:link|video|page|website|gaana|song)\s+(?:ko\s+)?(.+?)\s+ko\s+(?:bhej(?:o| do| de)?|share kar(?:o| do))$/i.exec(t);
+  if (m) {
+    const to = m[1].replace(/\s+(?:please|now|right now)$/i, '').trim();
+    if (!to) return null;
+    if (TO_PHONE.test(to)) return { link: true, phone: true };
+    return { ...T('whatsapp_prepare', { to }), link: true };
+  }
+  if (new RegExp(`^copy\\s+${THE_PAGE}$`, 'i').test(t)) return { link: true, copy: true };
+  return null;
+}
+
 export function browserCommand(text, { lastTo = null } = {}) {
   const t = clean(text).replace(/[.!?]+$/, '');
   if (!t) return null;
+  const link = linkCommand(t);
+  if (link) return link;
   // Any LeetCode phrasing about today's problem or the user's progress — never left to the AI, which
   // once played a YouTube video for "show me today's leetcode problem". Login / sign-in / "in
   // chrome" stay with the AI (browser tools).

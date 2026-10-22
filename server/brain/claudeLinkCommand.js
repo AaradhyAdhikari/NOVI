@@ -62,6 +62,25 @@ export function linkFolderCommand(text) {
 // FLEXR", "where did I leave off on X", "X ka progress kya hai" → project_status (no AI to route it).
 // Without a project ("what's the progress") it stays the running coding task's quick answer.
 const NOT_A_PROJECT = /^(?:it|this|that|the task|the coding|claude|my order|the order|the weather|weather|order)$/i;
+// "What does my TraceBites app do" / "what is FLEXR about" / "tell me about my X project" / "X kya karta
+// hai" → project_about (the project's own README, GitHub repo, claude.ai project and notes — never the
+// web; live 2026-10-22 a Google search described someone else's app). The agent uses it only when the
+// tool knows the project (else the AI answers as before).
+const KIND = '(?:app|application|project|website|site|repo|repository)';
+export function projectAboutCommand(text) {
+  const t = String(text || '').trim().replace(LEAD, '').replace(/[.!?]+$/, '')
+    .replace(/^(?:(?:can you\s+)?tell me|explain(?: to me)?)(?:\s+(?:in short|briefly|quickly))?[,:]?\s+(?=what\b)/i, '');
+  const m = new RegExp(`^what\\s+(?:does|do)\\s+(?:my|our|the)\\s+(.+?)(?:\\s+${KIND})?\\s+do$`, 'i').exec(t)
+    || new RegExp(`^what(?:'s| is)\\s+(?:my\\s+|our\\s+|the\\s+)?(.+?)(?:\\s+${KIND})?\\s+(?:about|for)$`, 'i').exec(t)
+    || new RegExp(`^what(?:'s| is)\\s+(?:my|our)\\s+(.+?)\\s+${KIND}$`, 'i').exec(t)
+    || new RegExp(`^(?:tell me about|explain)\\s+(?:my|our)\\s+(.+?)(?:\\s+${KIND})?$`, 'i').exec(t)
+    || new RegExp(`^(?:my\\s+)?(.+?)(?:\\s+${KIND})?\\s+(?:kya\\s+kar(?:ta|ti|te)\\s+hai|kis\\s+baare\\s+mein\\s+hai|ke\\s+baare\\s+mein\\s+batao)$`, 'i').exec(t);
+  if (!m) return null;
+  const project = m[1].trim();
+  if (!project || NOT_A_PROJECT.test(project) || /^(?:this|that|it)\b/i.test(project) || project.split(/\s+/).length > 4) return null;
+  return { tool: 'project_about', args: { project } };
+}
+
 export function projectStatusCommand(text) {
   const t = String(text || '').trim().replace(LEAD, '').replace(/[.!?]+$/, '');
   const m = /^(?:(?:tell me|give me|show me)\s+)?(?:what(?:'s| is)\s+)?(?:the\s+)?(?:till date\s+|overall\s+|current\s+|latest\s+)?(?:progress|status|updates?)\s+(?:of|on|for|in|with)\s+(.+)$/i.exec(t)

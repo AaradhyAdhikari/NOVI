@@ -123,3 +123,17 @@ describe('the Chrome link for other plugins', () => {
     expect(calls.at(-1)).toEqual(['textOf', { selector: '.a' }]);
   });
 });
+
+// Live 2026-10-22: Novi's minimized work windows still showed in the taskbar. After a job opens a tab,
+// the work window ("Novi work - …") is hidden from the taskbar through laptop control.
+describe("Novi's work window stays out of the taskbar", () => {
+  it('a job tab (slot) opening hides the window; other commands do not', async () => {
+    const { host } = setup();
+    const hidden = [];
+    host.runtime.hideWindows = async (prefix) => { hidden.push(prefix); return { hidden: 1 }; };
+    await host.runtime.browserRequest('open', { url: 'https://chatgpt.com/', slot: 'chatgpt-plan', background: true });
+    await host.runtime.browserRequest('textOf', { selector: '.a' });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(hidden).toEqual(['Novi work - ']);
+  });
+});

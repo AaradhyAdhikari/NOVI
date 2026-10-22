@@ -27,8 +27,9 @@ export class Router {
     return (p.cooldowns.get(`auth#${keyIndex}`) || 0) > t || (p.cooldowns.get(`${model}#${keyIndex}`) || 0) > t;
   }
 
-  async chat({ messages, tools, purpose = 'fast', only }) {
-    const names = only ? [only] : this.order[purpose] || this.order.fast;
+  // exclude: providers not to try (a turn moving off a busy provider).
+  async chat({ messages, tools, purpose = 'fast', only, exclude = [] }) {
+    const names = (only ? [only] : this.order[purpose] || this.order.fast).filter((n) => !exclude.includes(n));
     let lastError = null;
     for (const name of names) {
       const p = this.providers.get(name);

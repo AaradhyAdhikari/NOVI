@@ -44,6 +44,7 @@ export const windowsDriver = {
     }
   },
   window: () => ps(['window']),
+  items: async () => { const out = JSON.parse(await ps(['items'])); return { title: out.title || '', items: [].concat(out.items || []) }; },
   click: (x, y) => ps(['click', String(x), String(y)]),
   type: (text) => ps(['type'], { NOVI_SCREEN_TEXT: String(text) }),
   key: (name) => ps(['key', KEY_CODES[name]]),
@@ -54,6 +55,31 @@ export const windowsDriver = {
 
 const reply = (text, details = {}) => ({ content: [{ type: 'text', text }], details: { ...details, sensitive: true } });
 const refuse = (what) => reply(`I won't ${what} here: it looks like a password, payment, CAPTCHA or system security screen. Please do that part yourself.`);
+
+// The front window's links, buttons, tiles… from Windows' accessibility tree (UI Automation): names and
+// positions without any AI (live 2026-10-22: Gemini vision was overloaded and screen control was blind).
+const KIND = { Hyperlink: 'link', Button: 'button', ListItem: 'item', Edit: 'box', TabItem: 'tab', MenuItem: 'menu', CheckBox: 'checkbox', RadioButton: 'option', ComboBox: 'list', Image: 'picture', TreeItem: 'item', DataItem: 'item' };
+const PREFER = ['Hyperlink', 'Button', 'MenuItem', 'TabItem', 'CheckBox', 'RadioButton', 'Edit', 'ComboBox', 'Image', 'ListItem', 'TreeItem', 'DataItem'];
+const SECRET_FIELD = /password|passcode|card number|cvv|\botp\b|one[\s-]?time|pin\b/i;
+export function screenList(items = []) {
+  const out = [];
+  for (const it of items) {
+    const name = String(it.name || '').replace(/\s+/g, ' ').trim().slice(0, 90);
+    if (!name || SECRET_FIELD.test(name)) continue;
+    const same = out.find((o) => o.name === name && Math.abs(o.x - it.x) < 12 && Math.abs(o.y - it.y) < 12);
+    if (same) { if (PREFER.indexOf(it.type) >= 0 && PREFER.indexOf(it.type) < PREFER.indexOf(same.type)) same.type = it.type; continue; }
+    out.push({ type: it.type, name, x: Math.round(it.x), y: Math.round(it.y) });
+  }
+  return out.slice(0, 200);
+}
+const FILLER = new Set('the a an on in at of to button link click tap press icon please my this that'.split(' '));
+// The item whose name holds every word of the description (shortest name first).
+export function findItem(list, target) {
+  const words = String(target || '').toLowerCase().match(/[\p{L}\p{N}]+/gu)?.filter((w) => !FILLER.has(w)) || [];
+  if (!words.length) return null;
+  const hits = list.filter((it) => { const n = it.name.toLowerCase(); return words.every((w) => n.includes(w)); });
+  return hits.sort((a, b) => a.name.length - b.name.length)[0] || null;
+}
 
 function parseJson(text) {
   const m = /\{[\s\S]*\}/.exec(String(text));
@@ -134,12 +160,56 @@ export function createScreenPlugin({ driver = windowsDriver } = {}) {
         },
       });
 
+      // The last list shown (screen_items), so "click 3" means what the user and the AI just saw.
+      let lastList = null;
+      const listed = (n) => (lastList && Date.now() - lastList.at < 5 * 60_000 ? lastList.items[Number(n) - 1] || null : null);
+      api.registerTool({
+        name: 'screen_items',
+        description: 'List what is on the laptop screen in the front window — every link, button, video tile, tab and box with a number (any app or browser, e.g. Brave, Chrome, WhatsApp). Use this first to click, play or open anything visible, then screen_click with its number. Read-only.',
+        parameters: obj({ app: { type: 'string', description: 'Optional: the app it should be (e.g. "Brave"); by default the front app that is not Novi' } }),
+        async execute(_id, { app }) {
+          if (!driver.items) {
+            const stop = await checkApp(app, 'look at');
+            return stop || reply("I can't list what's on this screen; I'll look at it instead.", { fallback: 'screen_look' });
+          }
+          const { title, items } = await driver.items();
+          if (SENSITIVE.test(title)) return refuse('look at that');
+          if (app && !title.toLowerCase().includes(String(app).trim().toLowerCase())) return reply(`The app in front is "${title}", not ${app}. Bring ${app} to the front and ask again.`);
+          const list = screenList(items);
+          lastList = { title, items: list, at: Date.now() };
+          if (!list.length) return reply(`I can't read the items in "${title}". I'll look at it instead.`, { fallback: 'screen_look' });
+          return reply(`On "${title}":\n${list.map((it, i) => `${i + 1}. ${KIND[it.type] || String(it.type).toLowerCase()}: ${it.name}`).join('\n')}`, { count: list.length });
+        },
+      });
+
       api.registerTool({
         name: 'screen_click',
-        description: 'Click an element on the laptop screen described in words, e.g. "the Send button in WhatsApp" or "the New chat button". Use screen_look first if unsure what is on screen.',
-        parameters: obj({ target: str('What to click, described so it can be found on screen'), app: APP }, ['target', 'app']),
-        async execute(_id, { target, app }) {
+        description: 'Click something on the laptop screen: n = its number from screen_items (best), or target = what it says / looks like, e.g. "the Send button". Works in any app or browser.',
+        parameters: obj({ n: { type: 'number', description: 'Number from the last screen_items list' }, target: str('What to click, in words (when there is no number)'), app: { type: 'string', description: 'Optional: the app (needed only when clicking by a description the list does not have)' } }),
+        async execute(_id, { target, n, app }) {
+          // The listed app may sit behind Novi's own page: bring it forward, then click.
+          const front = async (title) => ((await driver.window()) === title || (await driver.focus(title)));
+          const clickIt = async (it, title) => {
+            if (SENSITIVE.test(it.name) || SENSITIVE.test(title)) return refuse('click that');
+            if (!(await front(title))) return reply(`"${title}" isn't open any more, so I didn't click anything.`);
+            await driver.click(it.x, it.y);
+            return reply(`Clicked “${it.name}”.`, { x: it.x, y: it.y });
+          };
+          if (n !== undefined && n !== null) {
+            const it = listed(n);
+            if (!it) return reply("I need to list what's on the screen first (screen_items), then click by number.");
+            return clickIt(it, lastList.title);
+          }
+          if (!String(target || '').trim()) return reply('Tell me what to click (or list the screen first and give its number).');
           if (SENSITIVE.test(target)) return refuse('click that');
+          // Its name in the front app's accessibility list first: no AI, exact position.
+          if (driver.items) {
+            try {
+              const { title, items } = await driver.items();
+              const it = (!app || title.toLowerCase().includes(String(app).trim().toLowerCase())) && findItem(screenList(items), target);
+              if (it) return clickIt(it, title);
+            } catch { /* look at the screen instead */ }
+          }
           const stop = await checkApp(app, 'click');
           if (stop) return stop;
           const { png, width, height } = await driver.screenshot();
@@ -186,9 +256,10 @@ export function createScreenPlugin({ driver = windowsDriver } = {}) {
       const textApp = (app) => /notepad|word|code|cursor|antigravity|kiro|chrome|edge|firefox|brave|whatsapp|telegram|discord|slack|excel|powerpoint|docs|terminal|obsidian|notion/i.test(String(app || ''));
       api.on('before_tool_call', ({ toolName, params }) => {
         if (toolName === 'screen_key' && /^(?:shift\+)?(?:ctrl\+)?(?:delete|del)$|^ctrl\+d$/i.test(normKey(params.key)) && !textApp(params.app)) return NO_DELETE;
-        if (toolName === 'screen_click' && /\b(?:delete|remove|recycle bin|trash|move to bin|permanently)\b/i.test(String(params.target || ''))) return NO_DELETE;
+        const clickWhat = toolName === 'screen_click' ? String(params.target || listed(params.n)?.name || (params.n ? `item ${params.n}` : '')) : '';
+        if (toolName === 'screen_click' && /\b(?:delete|remove|recycle bin|trash|move to bin|permanently)\b/i.test(clickWhat)) return NO_DELETE;
         const approve = (title, description = '') => ({ requireApproval: { title, description, severity: 'warning', category: 'screen', grantable: true } });
-        if (toolName === 'screen_click') return approve(`Click “${params.target}”`, params.app ? `in ${params.app}` : '');
+        if (toolName === 'screen_click') return approve(`Click “${clickWhat}”`, params.app ? `in ${params.app}` : '');
         if (toolName === 'screen_type') return approve('Type text on screen', String(params.text || '').slice(0, 300));
         if (toolName === 'screen_key') return approve(`Press ${normKey(params.key)}`);
         return undefined;

@@ -308,6 +308,47 @@ export function createClaudeLinkPlugin({ driver = null, listCode = () => listCla
         },
       });
 
+      // "What does my TraceBites app do": what the project IS, from its own sources — the README in its
+      // folder, its GitHub repo, its brief and Novi's note. Never the web (live 2026-10-22: a Google search
+      // described someone else's food app).
+      const readmeOf = (folder) => {
+        for (const n of ['README.md', 'readme.md', 'Readme.md', 'README.txt', 'README']) {
+          try { return fs.readFileSync(path.join(folder, n), 'utf8').slice(0, 4000); } catch { /* next name */ }
+        }
+        return '';
+      };
+      async function about({ name, at }) {
+        const facts = [];
+        if (at?.path) { const r = readmeOf(at.path); if (r) facts.push(`README in the project folder:\n${r}`); }
+        try {
+          const repo = await rt.callTool?.('github_repo', { name });
+          if (repo?.name && !repo.error) facts.push(`GitHub repo ${repo.name}${repo.language ? ` (${repo.language})` : ''}: ${repo.description || ''}${repo.readme ? `\nIts README:\n${repo.readme.slice(0, 3000)}` : ''}`);
+        } catch (err) { log(`[claude-link] github_repo: ${err.message}`); }
+        const brief = rt.wikiRead?.(`${name} brief`);
+        if (brief) facts.push(`Its latest brief: ${brief.slice(0, 900)}`);
+        const note = rt.wikiRead?.(`${name} project`);
+        if (note) facts.push(`Novi's note: ${note.slice(0, 500)}`);
+        if (!facts.length) return null;
+        const plain = facts[0].replace(/^[^:]*:\s*/, '').split('\n').find((l) => l.trim() && !l.startsWith('#'))?.trim().slice(0, 300) || '';
+        try {
+          const said = String(await rt.privateComplete?.(`In 2-3 short spoken sentences, say what the user's project "${name}" is and what it does. Use ONLY these facts; never guess or add features that aren't there.\n\n${facts.join('\n\n')}`) || '').trim();
+          return said || `${name}: ${plain}`;
+        } catch { return `${name}: ${plain}`; }
+      }
+      api.registerTool({
+        name: 'project_about',
+        description: 'What one of the user\'s own projects/apps is and does ("what does my TraceBites app do", "what is FLEXR about"): from its README, its GitHub repo, its brief and notes. Use this — never web search — for the user\'s own projects. Read-only.',
+        parameters: obj({ project: str('Project name') }, ['project']),
+        async execute(_id, { project } = {}) {
+          const at = rt.codingProject?.(project);
+          const web = findWeb(project);
+          const name = web?.name || (at ? displayOf(at, project) : project);
+          const text = await about({ name, at });
+          if (!text) return reply({ unknown: true, error: `I don't have anything about ${project} yet — no folder, GitHub repo or notes.` });
+          return reply({ note: text });
+        },
+      });
+
       api.on('before_tool_call', ({ toolName, params = {} }) => {
         if (toolName !== 'claude_project_make') return undefined;
         const title = `Make a claude.ai project for ${params.project}`;

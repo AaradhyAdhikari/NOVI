@@ -82,3 +82,28 @@ describe('WhatsApp: the app name never ends up in the message (live 2026-10-17)'
     expect(browserCommand('message Mom that I left whatsapp group')).toEqual({ tool: 'whatsapp_prepare', args: { to: 'Mom', text: 'I left whatsapp group' } });
   });
 });
+
+// 2026-10-22, user: "copy the link of the current website or video and send it to X person" — the page
+// open on the laptop goes to someone on WhatsApp (or to the user's phone), without the AI.
+describe('send the page open on the laptop', () => {
+  it('to a person (WhatsApp), in the ways it is said', () => {
+    const to = (t) => { const c = browserCommand(t); return c?.link ? c.args.to : c; };
+    expect(to('copy the link of the current website and send it to Isha')).toBe('Isha');
+    expect(to('send this video to Rahul on WhatsApp')).toBe('Rahul');
+    expect(to('share this page with Isha')).toBe('Isha');
+    expect(to('send the link of this website to Rahul Sharma')).toBe('Rahul Sharma');
+    expect(to('send the current tab to mom')).toBe('mom');
+    expect(to('ye video Isha ko bhej do')).toBe('Isha');
+    expect(browserCommand('send this video to Rahul on WhatsApp')).toEqual({ tool: 'whatsapp_prepare', args: { to: 'Rahul' }, link: true });
+  });
+  it('to my phone, or just copied', () => {
+    expect(browserCommand('send the link of this website to my phone')).toEqual({ link: true, phone: true });
+    expect(browserCommand('send this page to my phone')).toEqual({ link: true, phone: true });
+    expect(browserCommand('copy the link of the current page')).toEqual({ link: true, copy: true });
+    expect(browserCommand('copy this link')).toEqual({ link: true, copy: true });
+  });
+  it('messages and files are unchanged', () => {
+    expect(browserCommand('Send a message to Isha saying that you are short.')).toEqual({ tool: 'whatsapp_prepare', args: { to: 'Isha', text: 'you are short' } });
+    expect(browserCommand('send my DBMS notes folder to Rahul on WhatsApp').find).toBe('DBMS notes');
+  });
+});

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { PluginHost } from '../../server/plugins/host.js';
 import { createScreenPlugin, toPixels, KEYS } from '../../plugins/screen/index.js';
 
-function setup({ window = 'WhatsApp', found = { found: true, point: [500, 250], sensitive: false }, look = 'A chat app with a Send button.' } = {}) {
+function setup({ window = 'WhatsApp', found = { found: true, point: [500, 250], sensitive: false }, look = 'A chat app with a Send button.', items = null, focusAll = false } = {}) {
   const actions = [];
   const prompts = [];
   const driver = {
@@ -11,8 +11,9 @@ function setup({ window = 'WhatsApp', found = { found: true, point: [500, 250], 
     click: async (x, y) => actions.push(['click', x, y]),
     type: async (text) => actions.push(['type', text]),
     key: async (name) => actions.push(['key', name]),
-    focus: async (app) => { actions.push(['focus', app]); return /whatsapp/i.test(app); },
+    focus: async (app) => { actions.push(['focus', app]); return focusAll || /whatsapp/i.test(app); },
     pageShot: async (url) => { actions.push(['pageShot', url]); return { png: Buffer.from('PAGE') }; },
+    ...(items ? { items: async () => items } : {}),
   };
   const shown = [];
   const vision = async (png, prompt) => {
@@ -159,5 +160,73 @@ describe('screen control never deletes', () => {
       expect(gate.blockReason).toMatch(/file_delete|PIN/);
     }
     expect((await s.gate('screen_key', { key: 'delete', app: 'Notepad' })).approval).toBeTruthy(); // deleting text is fine
+  });
+});
+
+// Live 2026-10-22: "Play the first video on screen" (Kick in Brave) failed — screen control saw the screen
+// only through Gemini vision, which was overloaded (503). Windows' accessibility tree (UI Automation) lists
+// every link, button and video tile of the front window with its name and position — no AI needed.
+describe('what is on the screen, as a list (no AI)', () => {
+  const KICK = { title: 'snaxgaming Live Stream - Watch Live on KICK - Brave', items: [
+    { type: 'Button', name: 'Back', x: 22, y: 76, w: 30, h: 30 },
+    { type: 'ListItem', name: 'snaxgaming snaxgaming PUBG Mobile 3.2K', x: 160, y: 575, w: 280, h: 60 },
+    { type: 'Hyperlink', name: 'snaxgaming snaxgaming PUBG Mobile 3.2K', x: 160, y: 575, w: 280, h: 60 },
+    { type: 'Hyperlink', name: 'Binks69 DUKH BEGIN... 5 hours ago', x: 485, y: 760, w: 260, h: 200 },
+    { type: 'Edit', name: 'Password', x: 900, y: 500, w: 200, h: 30 },
+  ] };
+  const withItems = (opts = {}) => {
+    const s = setup({ window: KICK.title, items: KICK, ...opts });
+    s.host.runtime.vision = async (png, prompt) => { s.prompts.push(prompt); return JSON.stringify({ found: true, point: [500, 500], sensitive: false }); };
+    return s;
+  };
+
+  it('screen_items: numbered things on screen, one per place, never password fields; read-only', async () => {
+    const s = withItems();
+    expect(await s.gate('screen_items', { app: 'Brave' })).toEqual({});
+    const out = await s.run('screen_items', { app: 'Brave' });
+    expect(out.text).toMatch(/^On "snaxgaming Live Stream - Watch Live on KICK - Brave":/);
+    expect(out.text).toMatch(/1\. button: Back/);
+    expect(out.text).toMatch(/2\. link: snaxgaming snaxgaming PUBG Mobile 3\.2K/);
+    expect(out.text).toMatch(/3\. link: Binks69 DUKH BEGIN\.\.\. 5 hours ago/);
+    expect(out.text).not.toMatch(/Password/);
+    expect(out.sensitive).toBe(true);
+  });
+
+  it('screen_click by number (from the last list) or by its words — no vision', async () => {
+    const s = withItems();
+    await s.run('screen_items', { app: 'Brave' });
+    expect((await s.gate('screen_click', { n: 3, app: 'Brave' })).approval.title).toBe('Click “Binks69 DUKH BEGIN... 5 hours ago”');
+    expect((await s.run('screen_click', { n: 3, app: 'Brave' })).text).toBe('Clicked “Binks69 DUKH BEGIN... 5 hours ago”.');
+    expect(s.actions.at(-1)).toEqual(['click', 485, 760]);
+    await s.run('screen_click', { target: 'snaxgaming', app: 'Brave' });
+    expect(s.actions.at(-1)).toEqual(['click', 160, 575]);
+    expect(s.prompts).toEqual([]); // vision never asked
+  });
+
+  it('words not in the list → vision as before; a number with no list → asks to look first', async () => {
+    const s = withItems();
+    await s.run('screen_click', { target: 'the play button on the big video', app: 'Brave' });
+    expect(s.prompts).toHaveLength(1);
+    const fresh = withItems();
+    expect((await fresh.run('screen_click', { n: 2, app: 'Brave' })).text).toMatch(/list what's on the screen first/i);
+  });
+});
+
+// Talking to Novi on the laptop puts Novi's own page in front: "the screen" means the app behind it.
+describe("the screen behind Novi's own page", () => {
+  const KICK = { title: 'snaxgaming Live Stream - Watch Live on KICK - Brave', items: [{ type: 'Hyperlink', name: 'Binks69 DUKH BEGIN... 5 hours ago', x: 485, y: 760 }] };
+  it('no app named: the list is of the app behind; clicking brings it forward first', async () => {
+    const s = setup({ window: 'NOVI — Personal AI Companion - Google Chrome', items: KICK, focusAll: true });
+    expect((await s.run('screen_items', {})).text).toMatch(/^On "snaxgaming Live Stream/);
+    expect((await s.run('screen_click', { n: 1 })).text).toBe('Clicked “Binks69 DUKH BEGIN... 5 hours ago”.');
+    expect(s.actions.slice(-2)).toEqual([['focus', KICK.title], ['click', 485, 760]]);
+    await s.run('screen_click', { target: 'binks69' });
+    expect(s.actions.slice(-2)).toEqual([['focus', KICK.title], ['click', 485, 760]]);
+  });
+  it('the app behind closed meanwhile → said plainly, nothing clicked', async () => {
+    const s = setup({ window: 'NOVI — Personal AI Companion - Google Chrome', items: KICK, focusAll: false });
+    await s.run('screen_items', {});
+    expect((await s.run('screen_click', { n: 1 })).text).toMatch(/isn't open any more/);
+    expect(s.actions.some(([k]) => k === 'click')).toBe(false);
   });
 });

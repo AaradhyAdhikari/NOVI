@@ -18,7 +18,7 @@ import { WebSocketServer } from 'ws';
 import { Memory } from './memory.js';
 import { ApprovalQueue } from './permissions.js';
 import { PermissionGrants } from './grants.js';
-import { createGeminiVision } from './brain/vision.js';
+import { createVision } from './brain/vision.js';
 import { createGoogleApi } from './google/api.js';
 import { createEdgeTts, DEFAULT_VOICES } from './voice/edgeTts.js';
 import { Router } from './brain/router.js';
@@ -124,7 +124,7 @@ export function createNovi(config, overrides = {}) {
       },
       // Signed-in Google API calls for plugins (Calendar, Tasks) on the account connected for Gmail.
       google: overrides.google || createGoogleApi({ auth, accounts }),
-      vision: overrides.vision || createGeminiVision({ keys: config.providers.find((p) => p.name === 'gemini')?.keys || [] }),
+      vision: overrides.vision || createVision({ geminiKeys: config.providers.find((p) => p.name === 'gemini')?.keys || [], groqKeys: config.providers.find((p) => p.name === 'groq')?.keys || [] }),
       // Chat entry + spoken (e.g. a reminder going off), and a folder for plugin data files.
       // kind: what the phone notification says if Novi isn't open there ('reminder', 'briefing');
       // null = no notification. local: on the laptop only (e.g. "last time on NOVI…" when an editor opens).

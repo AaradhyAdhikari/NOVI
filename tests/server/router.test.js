@@ -100,3 +100,11 @@ describe('quick lane', () => {
     expect(seen.map((r) => [r.model, r.reasoningEffort])).toEqual([['openai/gpt-oss-20b', 'low'], ['openai/gpt-oss-120b', undefined]]);
   });
 });
+
+describe('skipping providers', () => {
+  it('exclude: the named providers are not tried', async () => {
+    const { router, calls } = setup(ok);
+    expect(await router.chat({ messages: [], exclude: ['groq'] })).toMatchObject({ provider: 'gemini' });
+    expect(calls).toEqual(['m:ma:m1']);
+  });
+});

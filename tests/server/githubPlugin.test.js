@@ -258,6 +258,25 @@ describe('contribution graph (public, no sign-in)', () => {
     expect(calls[0].url).toBe('https://github.com/users/AaradhyAdhikari/contributions');
   });
 
+  // Live 2026-10-22: "what does my TraceBites app do" searched Google and described someone else's
+  // food app. Your own repo says what it is: public data, no sign-in.
+  it('github_repo: one of your public repos — description, language, README (any spelling of its name)', async () => {
+    const { host, calls } = await setup({ logins: [], username: 'AaradhyAdhikari', routes: [
+      { match: /api\.github\.com\/users\/AaradhyAdhikari\/repos/, reply: { body: [
+        { name: 'FLEXR-', full_name: 'AaradhyAdhikari/FLEXR-', description: 'Fitness app', language: 'Kotlin', html_url: 'https://github.com/AaradhyAdhikari/FLEXR-', private: false, topics: [] },
+        { name: 'TraceBites', full_name: 'AaradhyAdhikari/TraceBites', description: 'Multi-role QR-based farm-to-consumer traceability platform.', language: 'TypeScript', html_url: 'https://github.com/AaradhyAdhikari/TraceBites', private: false, topics: ['qr'] },
+      ] } },
+      { match: /repos\/AaradhyAdhikari\/TraceBites\/readme$/, reply: { html: '# TraceBites\nFarm to consumer product journeys with digital passports.' } },
+    ] });
+    expect(await host.get('github_repo').gate({ name: 'x' })).toEqual({});
+    const out = await host.get('github_repo').run({ name: 'tracebite' });
+    expect(out).toMatchObject({ name: 'TraceBites', description: 'Multi-role QR-based farm-to-consumer traceability platform.', language: 'TypeScript', url: 'https://github.com/AaradhyAdhikari/TraceBites' });
+    expect(out.readme).toMatch(/digital passports/);
+    expect(calls.find((c) => /readme$/.test(c.url)).headers.Accept).toBe('application/vnd.github.raw');
+    expect((await host.get('github_repo').run({ name: 'flexr' })).name).toBe('FLEXR-');
+    expect((await host.get('github_repo').run({ name: 'weather station' })).error).toMatch(/no repo called weather station/i);
+  });
+
   it('uses the connected account, or asks for the username', async () => {
     const one = await setup({ routes: [{ match: /users\/octo\/contributions$/, reply: { html: CONTRIB_HTML } }] });
     expect((await one.host.get('github_graph').run({})).login).toBe('octo');

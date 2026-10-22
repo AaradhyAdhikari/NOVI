@@ -99,7 +99,7 @@ describe('page.js numbering (fake page)', () => {
     expect(novi.textsOf({ selector: 'x', attrs: ['data-message-author-role', 'data-user-message-bubble'] }).items[0].attrs)
       .toEqual({ 'data-message-author-role': 'user', 'data-user-message-bubble': null });
     expect(read('background.js')).toMatch(/'textsOf'/);
-    expect(JSON.parse(read('manifest.json')).version).toBe('1.8.3');
+    expect(JSON.parse(read('manifest.json')).version).toBe('1.9.0');
   });
   // claude.ai's project list (2026-10-18): each card's name is its first line, its link the href.
   it('query: first line only and an attribute when asked; plain query as before', () => {
@@ -132,7 +132,7 @@ describe('background.js connection (fake Chrome)', () => {
     }
     const store = { ...stored };
     const chrome = {
-      runtime: { getManifest: () => ({ version: '1.0.0' }), onStartup: { addListener() {} }, onInstalled: { addListener() {} }, onMessage: { addListener: (f) => listeners.message.push(f) }, reload() {} },
+      runtime: { getManifest: () => ({ version: '1.0.0' }), getURL: (p) => `chrome-extension://novi/${p}`, onStartup: { addListener() {} }, onInstalled: { addListener() {} }, onMessage: { addListener: (f) => listeners.message.push(f) }, reload() {} },
       storage: {
         local: { get: async () => ({ ...store }), set: async (o) => { Object.assign(store, o); for (const f of listeners.changed) f(Object.fromEntries(Object.keys(o).map((k) => [k, { newValue: o[k] }])), 'local'); } },
         onChanged: { addListener: (f) => listeners.changed.push(f) },
@@ -215,6 +215,7 @@ describe("background.js: Novi's own window (fake Chrome)", () => {
     const injected = [];
     const created = [];
     const focused = [];
+    const moved = [];
     let clock = 1_000_000;
     class FakeSocket {
       constructor() { this.readyState = 0; this.sent = []; sockets.push(this); }
@@ -223,7 +224,7 @@ describe("background.js: Novi's own window (fake Chrome)", () => {
     }
     const complete = [];
     const chrome = {
-      runtime: { getManifest: () => ({ version: '1.8.0' }), onStartup: { addListener() {} }, onInstalled: { addListener() {} }, onMessage: { addListener() {} }, reload() {} },
+      runtime: { getManifest: () => ({ version: '1.9.0' }), getURL: (p) => `chrome-extension://novi/${p}`, onStartup: { addListener() {} }, onInstalled: { addListener() {} }, onMessage: { addListener() {} }, reload() {} },
       storage: {
         local: { get: async () => JSON.parse(JSON.stringify(local)), set: async (o) => { Object.assign(local, JSON.parse(JSON.stringify(o))); } },
         session: { get: async () => JSON.parse(JSON.stringify(session)), set: async (o) => { Object.assign(session, JSON.parse(JSON.stringify(o))); } },
@@ -247,7 +248,9 @@ describe("background.js: Novi's own window (fake Chrome)", () => {
         create: async (o) => { created.push(['tab', o]); const t = { id: nextTab++, windowId: o.windowId ?? 1, url: o.url, active: o.active !== false }; tabs.set(t.id, t); if (/#novi-work/.test(o.url)) marked.add(t.id); return t; },
         update: async (id, o) => { const t = tabs.get(id); if (!t) throw new Error(`No tab with id: ${id}.`); Object.assign(t, o); return t; },
         get: async (id) => { const t = tabs.get(id); if (!t) throw new Error(`No tab with id: ${id}.`); return t; },
-        query: async () => [...tabs.values()],
+        query: async (q = {}) => [...tabs.values()].filter((t) => (!q.url || t.url === q.url) && (q.windowId === undefined || t.windowId === q.windowId)),
+        move: async (id, o) => { const t = tabs.get(id); t.windowId = o.windowId; moved.push([id, o.windowId]); return t; },
+        onActivated: { addListener() {} },
         remove: async (id) => { const t = tabs.get(id); tabs.delete(id); if (t && ![...tabs.values()].some((x) => x.windowId === t.windowId)) windows.delete(t.windowId); },
         onUpdated: { addListener: (f) => { complete.push(f); setTimeout(() => { for (const id of tabs.keys()) f(id, { status: 'complete' }); }, 0); }, removeListener() {} },
       },
@@ -277,7 +280,7 @@ describe("background.js: Novi's own window (fake Chrome)", () => {
       throw new Error(`no answer to ${cmd}`);
     };
     const start = async () => { await new Promise((r) => setTimeout(r, 0)); sockets[0].readyState = 1; sockets[0].onopen?.(); sockets[0].onmessage({ data: JSON.stringify({ type: 'welcome' }) }); };
-    return { ask, start, tabs, windows, created, focused, injected, session, local, alarm: () => Promise.all(alarms.map((f) => f({ name: 'novi' }))), tick: (ms) => { clock += ms; } };
+    return { ask, start, tabs, windows, created, focused, injected, session, local, moved, alarm: () => Promise.all(alarms.map((f) => f({ name: 'novi' }))), tick: (ms) => { clock += ms; } };
   }
 
   it('a job opens in one minimized Novi window, never in your window and never in front', async () => {
@@ -285,7 +288,9 @@ describe("background.js: Novi's own window (fake Chrome)", () => {
     await c.start();
     const r = await c.ask('open', { url: 'https://chatgpt.com/', slot: 'orchestrator-chatgpt', background: true });
     expect(r.ok).toBe(true);
-    expect(c.created[0]).toEqual(['window', { url: 'https://chatgpt.com/#novi-work', state: 'minimized', focused: false }]);
+    // The window opens on Novi's own page (fixed title "Novi work", so Novi can hide it from the taskbar); jobs are tabs in it.
+    expect(c.created[0]).toEqual(['window', { url: 'chrome-extension://novi/work.html', state: 'minimized', focused: false }]);
+    expect(c.created[1]).toEqual(['tab', { windowId: c.tabs.get(r.tabId).windowId, url: 'https://chatgpt.com/#novi-work', active: false }]);
     expect(c.tabs.get(r.tabId).windowId).not.toBe(1);
     expect(c.windows.get(c.tabs.get(r.tabId).windowId).state).toBe('minimized');
     expect(c.focused).toEqual([]);
@@ -308,8 +313,9 @@ describe("background.js: Novi's own window (fake Chrome)", () => {
     const c = workChrome();
     await c.start();
     const a = await c.ask('open', { url: 'https://claude.ai/projects', slot: 'claude-link', background: true });
-    c.windows.delete(c.tabs.get(a.tabId).windowId);
-    c.tabs.delete(a.tabId);
+    const gone = c.tabs.get(a.tabId).windowId;
+    c.windows.delete(gone);
+    for (const [id, t] of [...c.tabs]) if (t.windowId === gone) c.tabs.delete(id); // closing a window closes its tabs
     const b = await c.ask('open', { url: 'https://claude.ai/projects', slot: 'claude-link', background: true });
     expect(b.ok).toBe(true);
     expect(c.created.filter(([k]) => k === 'window')).toHaveLength(2);
@@ -363,6 +369,28 @@ describe("background.js: Novi's own window (fake Chrome)", () => {
     expect(c.tabs.has(51)).toBe(true); // yours (no mark)
     const a = await c.ask('open', { url: 'https://chatgpt.com/', slot: 'chatgpt-plan', background: true });
     expect(c.local.noviWork.slots['chatgpt-plan']).toBe(a.tabId);
+  });
+
+  // Live 2026-10-22: two Novi windows showed in the taskbar ("ChatGPT" and "Projects - Claude").
+  it('on start, Novi tabs in older windows move into the one work window at once (no job needed)', async () => {
+    const c = workChrome({ before: [{ id: 60, windowId: 7, url: 'https://claude.ai/projects', marked: true }, { id: 61, windowId: 8, url: 'https://chatgpt.com/c/1', marked: true }], saved: { slots: { 'claude-link': 60, 'chatgpt-plan': 61 }, used: { 60: 1_000_000, 61: 1_000_000 } } });
+    await c.start();
+    await new Promise((r) => setTimeout(r, 30));
+    expect(c.created.filter(([k]) => k === 'window')).toHaveLength(1);
+    expect(c.tabs.get(60).windowId).toBe(c.tabs.get(61).windowId);
+    expect(c.tabs.get(60).windowId).not.toBe(7);
+  });
+
+  it('always one work window: a job tab left in another window is moved into it', async () => {
+    const c = workChrome({ before: [{ id: 60, windowId: 7, url: 'https://claude.ai/projects', marked: true }], saved: { slots: { 'claude-link': 60 }, used: { 60: 1_000_000 } } });
+    c.windows.set(7, { id: 7 });
+    await c.start();
+    const a = await c.ask('open', { url: 'https://chatgpt.com/', slot: 'chatgpt-plan', background: true });
+    const b = await c.ask('open', { url: 'https://claude.ai/projects', slot: 'claude-link', background: true });
+    expect(b.tabId).toBe(60);
+    expect(c.tabs.get(60).windowId).toBe(c.tabs.get(a.tabId).windowId);
+    expect(c.moved).toEqual([[60, c.tabs.get(a.tabId).windowId]]);
+    expect(c.created.filter(([k]) => k === 'window')).toHaveLength(1);
   });
 
   it('stayAwake: the page believes it is shown, and its drawing callbacks still run while hidden', async () => {

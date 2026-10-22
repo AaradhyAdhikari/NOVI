@@ -47,9 +47,25 @@ export function createBrowserPlugin({ bridge = null, showImage = null, webDriver
           api.runtime.browserNewCode = () => { const c = newCode(file); link.setCode(c); return c; };
         }
         api.registerService({ id: 'browser-bridge', start: () => link.start().catch((err) => api.logger?.warn?.(`[browser] link not started: ${err.message}`)), stop: () => link.stop() });
+        // Novi's work window back in the taskbar (Chrome restored it, a session came back…): hidden again.
+        let keepHidden = null;
+        api.registerService({
+          id: 'browser-hide-work',
+          start() { keepHidden = setInterval(() => { if (link.connected()) hideWork(); }, 30_000); keepHidden.unref?.(); },
+          stop() { clearInterval(keepHidden); },
+        });
       }
-      // Other plugins (the orchestrator driving ChatGPT / Gemini) use the same Chrome link.
-      if (api.runtime) api.runtime.browserRequest = (cmd, args = {}, opts) => link.request(cmd, args, opts);
+      // Novi's one Chrome work window ("Novi work - Google Chrome", extension 1.9.0) out of the taskbar and
+      // Alt+Tab (live 2026-10-22: minimized work windows still showed there). Done by laptop control.
+      function hideWork() { Promise.resolve(api.runtime?.hideWindows?.('Novi work - ')).catch(() => {}); }
+      // Other plugins (the orchestrator driving ChatGPT / Gemini) use the same Chrome link. A job tab
+      // opening may bring the work window up: hide it now and once more when the page has settled.
+      if (api.runtime) {
+        api.runtime.browserRequest = (cmd, args = {}, opts) => link.request(cmd, args, opts).then((out) => {
+          if (cmd === 'open' && args.slot) { hideWork(); setTimeout(hideWork, 1500).unref?.(); }
+          return out;
+        });
+      }
       const show = (img) => (showImage || api.runtime?.showImage)?.(img);
       let page = null;
       let lastFrom = 'local';

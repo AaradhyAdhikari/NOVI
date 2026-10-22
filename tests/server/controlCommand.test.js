@@ -99,3 +99,47 @@ describe('diskCommand (free space without the AI, 2026-10-17)', () => {
     expect(diskCommand('what is the weather')).toBeNull();
   });
 });
+
+describe('skip forward / back / jump by voice (no AI)', () => {
+  const seek = (t) => { const c = controlCommand(t); return c?.tool === 'laptop_seek' ? c.args : c; };
+  it('forward and back, minutes and seconds, words and numbers, English and Hinglish', () => {
+    expect(seek('Skip 10 minutes from the video.')).toEqual({ by: 600 });
+    expect(seek('skip ahead 30 seconds')).toEqual({ by: 30 });
+    expect(seek('forward 2 minutes')).toEqual({ by: 120 });
+    expect(seek('fast forward the song by a minute')).toEqual({ by: 60 });
+    expect(seek('go back 10 seconds')).toEqual({ by: -10 });
+    expect(seek('rewind five minutes')).toEqual({ by: -300 });
+    expect(seek('skip back 1 minute 30 seconds')).toEqual({ by: -90 });
+    expect(seek('10 minute aage karo')).toEqual({ by: 600 });
+    expect(seek('video 30 second peeche karo')).toEqual({ by: -30 });
+    expect(seek('jump to 5:30')).toEqual({ to: 330 });
+    expect(seek('go to minute 12 in the video')).toEqual({ to: 720 });
+    expect(seek('skip to 1:02:03')).toEqual({ to: 3723 });
+  });
+  it('plain skip / next still means the next song', () => {
+    expect(controlCommand('skip')).toEqual({ tool: 'laptop_media', args: { key: 'next' } });
+    expect(controlCommand('skip this song')).toEqual({ tool: 'laptop_media', args: { key: 'next' } });
+  });
+});
+
+describe('skip words inside other requests are not a skip', () => {
+  it('reminders, timers and "in N minutes" stay what they are', () => {
+    for (const t of ['remind me to go back home in 10 minutes', 'set a timer for 10 minutes', 'forward this email to Isha in 5 minutes', 'skip the gym after 20 minutes']) {
+      expect(controlCommand(t)?.tool).not.toBe('laptop_seek');
+    }
+  });
+});
+
+// Live 2026-10-22: "Show me the screenshot of my screen on laptop." → "Here's a screenshot of your laptop
+// screen." with no screenshot taken (the AI only said it). Now it goes straight to screen_show.
+describe('a screenshot of the laptop screen, without the AI', () => {
+  it('the ways it is said', () => {
+    for (const t of ['Show me the screenshot of my screen on laptop.', 'take a screenshot', 'send me a screenshot of my laptop screen', 'ss of my screen', 'show me my laptop screen', 'screen ka ss bhejo', "what's on my screen right now"]) {
+      expect(controlCommand(t), t).toEqual({ tool: 'screen_show', args: {} });
+    }
+  });
+  it('a project page / homepage picture stays with the preview', () => {
+    expect(controlCommand('send me a screenshot of the homepage')).toBeNull();
+    expect(controlCommand('screenshot of the work you are doing')).toBeNull();
+  });
+});

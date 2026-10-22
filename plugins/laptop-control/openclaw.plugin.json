@@ -3,7 +3,7 @@
   "name": "Laptop control",
   "description": "Volume, brightness, media keys, battery, Wi-Fi/Bluetooth, lock/sleep/shut down, windows and clipboard on the Windows laptop (no admin rights).",
   "categories": ["other"],
-  "contracts": { "tools": ["laptop_volume", "laptop_brightness", "laptop_media", "laptop_battery", "laptop_radio", "laptop_power", "laptop_window", "laptop_clipboard"] },
+  "contracts": { "tools": ["laptop_volume", "laptop_brightness", "laptop_media", "laptop_seek", "laptop_current_link", "laptop_battery", "laptop_radio", "laptop_power", "laptop_window", "laptop_clipboard"] },
   "activation": { "onStartup": true },
   "configSchema": { "type": "object", "additionalProperties": false, "properties": {} }
 }

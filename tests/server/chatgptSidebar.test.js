@@ -44,7 +44,7 @@ describe('extension groups: links under the sidebar heading above them', () => {
       { heading: 'Recents', items: [{ text: 'Diet', href: '/c/bbb' }] },
     ] });
     expect(readExt('background.js')).toMatch(/'groups'/);
-    expect(JSON.parse(readExt('manifest.json')).version).toBe('1.8.3');
+    expect(JSON.parse(readExt('manifest.json')).version).toBe('1.9.0');
   });
 });
 

@@ -504,3 +504,54 @@ describe('claude.ai project for every build — never forgotten', () => {
     } finally { vi.useRealTimers(); }
   });
 });
+
+// Live 2026-10-22: "Tell me in short what does my TraceBites app do?" → a Google search, and an answer
+// about someone else's food app. What a project IS comes from its own sources, never the web.
+describe('what one of your projects does — from its own sources', () => {
+  const said = (s) => { const prompts = []; s.runtime.privateComplete = async (p) => { prompts.push(p); return 'TraceBites is your farm-to-consumer traceability app.'; }; return prompts; };
+
+  it('a folder project: its README', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'about-'));
+    fs.writeFileSync(path.join(dir, 'README.md'), '# Tip calculator\nSplits a bill and works out the tip.');
+    const s = setup({ known: [{ name: 'tip calculator', path: dir }] });
+    s.runtime.callTool = async (name) => (name === 'github_repo' ? { error: 'no repo' } : {});
+    const prompts = said(s);
+    const out = await s.run('project_about', { project: 'tip calculator' });
+    expect(out.note).toBe('TraceBites is your farm-to-consumer traceability app.');
+    expect(prompts[0]).toMatch(/Splits a bill/);
+    expect(prompts[0]).toMatch(/ONLY these facts/);
+  });
+
+  it('a claude.ai-only project (TraceBites): its GitHub repo, any spelling', async () => {
+    const s = setup({ web: { list: { names: ['TraceBites'], projects: [{ name: 'TraceBites', url: 'https://claude.ai/project/tb' }] } } });
+    await s.run('claude_projects_sync', {});
+    const asked = [];
+    s.runtime.callTool = async (name, args) => { asked.push([name, args]); return name === 'github_repo' ? { name: 'TraceBites', description: 'Multi-role QR-based farm-to-consumer traceability platform.', language: 'TypeScript', readme: 'Digital passports.' } : {}; };
+    const prompts = said(s);
+    const out = await s.run('project_about', { project: 'tracebite' });
+    expect(out.note).toMatch(/traceability/);
+    expect(prompts[0]).toMatch(/farm-to-consumer/);
+    expect(asked.map(([n]) => n)).toEqual(['github_repo']); // no web search, no website opened
+  });
+
+  it('nothing known about it → unknown (left to the AI), never a made-up answer', async () => {
+    const s = setup();
+    s.runtime.callTool = async () => ({ error: 'no repo called phone' });
+    expect(await s.run('project_about', { project: 'phone' })).toMatchObject({ unknown: true });
+  });
+
+  it('the words: "what does my X app do", "what is X about", "tell me about my X project", "X kya karta hai"', async () => {
+    const { projectAboutCommand } = await import('../../server/brain/claudeLinkCommand.js');
+    const p = (t) => projectAboutCommand(t)?.args.project;
+    expect(p('Tell me in short what does my TraceBites app do?')).toBe('TraceBites');
+    expect(p('what does my tracebite app do')).toBe('tracebite');
+    expect(p('what is FLEXR about')).toBe('FLEXR');
+    expect(p('what is my medikiosk project')).toBe('medikiosk');
+    expect(p('tell me about my SignSync project')).toBe('SignSync');
+    expect(p('Okay, explain my portfolio website')).toBe('portfolio');
+    expect(p('TraceBites app kya karta hai')).toBe('TraceBites');
+    expect(projectAboutCommand('what does this button do')).toBeNull();
+    expect(projectAboutCommand('what is the weather about')).toBeNull();
+    expect(projectAboutCommand('what is the progress of FLEXR')).toBeNull();
+  });
+});

@@ -11,6 +11,9 @@ const radioKind = (w) => (/blue/i.test(w) ? 'bluetooth' : 'wifi');
 const re = (src) => new RegExp(`^(?:${src})$`, 'i');
 
 const RULES = [
+  // A screenshot of the laptop screen (live 2026-10-22: the AI said "Here's a screenshot" and took none).
+  // A project's page ("screenshot of the homepage") stays with the preview.
+  [re("(?:(?:show|send|give)(?: me)? (?:a |the |my )?(?:screenshot|screen ?shot|ss|picture|photo|pic) of (?:my |the )?(?:laptop |computer |pc )?screen|take (?:a )?(?:screenshot|screen ?shot|ss)(?: of (?:my |the )?(?:laptop |computer )?screen)?|(?:ss|screenshot) of (?:my |the )?(?:laptop |computer )?screen|show me (?:my |the )?(?:laptop |computer )?screen|screen ka (?:ss|screenshot) (?:bhejo|bhej do|dikhao)|what(?:'s| is) on (?:my |the )?(?:laptop )?screen)"), () => T('screen_show', {})],
   // volume
   [re('(?:set )?(?:the )?volume (?:to |at )?(\\d{1,3})(?: ?%| percent)?'), (m) => T('laptop_volume', { level: Number(m[1]) })],
   [re('(?:volume up|turn (?:the )?volume up|turn up (?:the )?volume|increase (?:the )?volume|louder|awaaz (?:badhao|badha do|tez karo|tez kar do)|volume badhao)'), () => T('laptop_volume', { change: 'up' })],
@@ -63,9 +66,40 @@ function app(name, make) {
   return a && !NOT_AN_APP.test(a) && a.split(/\s+/).length <= 4 ? make(a) : null;
 }
 
+// "Skip 10 minutes", "go back 30 seconds", "rewind five minutes", "10 minute aage karo", "jump to 5:30"
+// → laptop_seek (live 2026-10-22: "skip 10 minutes from the video" went to the AI, which couldn't).
+// An amount is needed: a bare "skip" stays "next song".
+const NUMBER = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, fifteen: 15, twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, ek: 1, do: 2, teen: 3, char: 4, paanch: 5, das: 10, bees: 20, tees: 30 };
+const AMOUNT = new RegExp(`\\b(\\d+(?:\\.\\d+)?|${Object.keys(NUMBER).join('|')})\\s*(hours?|hrs?|minutes?|mins?|minute|seconds?|secs?|second)\\b`, 'gi');
+const AHEAD = /\b(?:skip|skip ahead|forward|fast[- ]?forward|ahead|aage|agey)\b/i;
+const BACK = /\b(?:go back|skip back|jump back|move back|back by|rewind|backwards?|peeche|piche|pichhe|peechhe)\b/i;
+const MEDIA_WORDS = /\b(?:the |this |my )?(?:video|song|music|track|movie|youtube video|youtube)\b/gi;
+function seekCommand(t) {
+  const s = t.toLowerCase();
+  const clockTo = /^(?:jump|skip|go|seek|move)\s+to\s+(?:(?:the\s+)?(?:minute\s+(\d+)|(\d{1,2}):(\d{2})(?::(\d{2}))?|(\d+)\s*(?:minutes?|mins?)(?:\s+(\d+)\s*(?:seconds?|secs?))?))\b/i.exec(s);
+  if (clockTo) {
+    const [, minute, a, b, c, mins, secs] = clockTo;
+    const to = minute ? Number(minute) * 60 : a ? (c ? Number(a) * 3600 + Number(b) * 60 + Number(c) : Number(a) * 60 + Number(b)) : Number(mins) * 60 + Number(secs || 0);
+    return T('laptop_seek', { to });
+  }
+  // "remind me to go back home in 10 minutes", "timer for 10 minutes": time words, not a skip.
+  if (/\b(?:remind|reminder|timer|alarm|email|mail|message|after|later|in\s+(?:\d+|a|an|one|two|five|ten)\s)/i.test(s)) return null;
+  const back = BACK.test(s);
+  if (!back && !AHEAD.test(s)) return null;
+  let total = 0;
+  for (const [, n, unit] of s.replace(MEDIA_WORDS, ' ').matchAll(AMOUNT)) {
+    const v = NUMBER[n] ?? Number(n);
+    total += /^h/.test(unit) ? v * 3600 : /^m/.test(unit) ? v * 60 : v;
+  }
+  if (!total) return null;
+  return T('laptop_seek', { by: back ? -total : total });
+}
+
 export function controlCommand(text) {
   const t = clean(text);
   if (!t) return null;
+  const seek = seekCommand(t);
+  if (seek) return seek;
   for (const [pattern, make] of RULES) {
     const m = pattern.exec(t);
     if (m) return make(m);

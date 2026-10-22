@@ -33,6 +33,24 @@ function failure(err, what) {
   return `That didn't work on the laptop (${m.slice(0, 80)}).`;
 }
 
+// 852 → "14:12", 6272 → "1:44:32"; 600 → "10 min", 90 → "1 min 30 s".
+const clock = (s) => {
+  const t = Math.max(0, Math.round(s));
+  const h = Math.floor(t / 3600);
+  const m = Math.floor((t % 3600) / 60);
+  const sec = String(t % 60).padStart(2, '0');
+  return h ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`;
+};
+const span = (s) => {
+  const t = Math.abs(Math.round(s));
+  const m = Math.floor(t / 60);
+  const sec = t % 60;
+  return m && sec ? `${m} min ${sec} s` : m ? `${m} min` : `${sec} s`;
+};
+const BROWSER = { brave: 'Brave', chrome: 'Chrome', msedge: 'Edge', firefox: 'Firefox', opera: 'Opera', vivaldi: 'Vivaldi', arc: 'Arc' };
+const appName = (id) => (/spotify/i.test(id) ? 'Spotify' : /chrome/i.test(id) ? 'Chrome' : /msedge|edge/i.test(id) ? 'Edge' : /firefox/i.test(id) ? 'Firefox' : /vlc/i.test(id) ? 'VLC'
+  : String(id || 'That player').split(/[!\\]/).pop().replace(/\.exe$/i, ''));
+
 export function createLaptopControlPlugin({
   worker = null,
   platform = process.platform,
@@ -62,6 +80,9 @@ export function createLaptopControlPlugin({
     name: 'Laptop control',
     description: 'Sound, brightness, media, battery, Wi-Fi/Bluetooth, power, windows and clipboard on the laptop.',
     register(api) {
+      // Other plugins: hide windows by title prefix (the browser plugin hides Novi's Chrome work window
+      // from the taskbar, 2026-10-22). A short or empty prefix hides nothing.
+      if (api.runtime) api.runtime.hideWindows = async (prefix) => (String(prefix || '').trim().length < 4 ? { hidden: 0 } : run('hide', { prefix }));
       tool(api, 'laptop_volume', 'Set the laptop volume (0-100), turn it up/down a step, or mute/unmute.',
         obj({ level: { type: 'number' }, change: { type: 'string', enum: ['up', 'down'] }, mute: { type: 'boolean' } }),
         async (p) => {
@@ -79,6 +100,38 @@ export function createLaptopControlPlugin({
           if (!MEDIA_NOTE[key]) throw new Error('bad-key');
           await run('media', { key: key === 'pause' ? 'play' : key });
           return { note: MEDIA_NOTE[key] };
+        });
+
+      // Skip forward / back or jump to a time in what's playing (live 2026-10-22: "skip 10 minutes" — media
+      // keys can't). Windows' media controls do it for YouTube in Chrome, Spotify and most players.
+      tool(api, 'laptop_seek', 'Skip forward or back in the video or song playing on the laptop (by: seconds, negative = back, e.g. 600 = 10 minutes ahead) or jump to a time (to: seconds from the start).',
+        obj({ by: { type: 'number', description: 'Seconds to move; negative goes back' }, to: { type: 'number', description: 'Jump to this many seconds from the start' } }),
+        async ({ by, to }) => {
+          if (!Number.isFinite(Number(by)) && !Number.isFinite(Number(to))) return { error: 'Tell me how far to skip (like "10 minutes forward") or where to jump (like "5:30").' };
+          const args = Number.isFinite(Number(to)) && to !== undefined && to !== null ? { to: Math.max(0, Number(to)) } : { by: Number(by) };
+          const r = await run('seek', args);
+          const app = appName(r.app);
+          if (r.none) return { error: 'Nothing is playing on the laptop.' };
+          if (r.cantSeek) return { error: `${app} doesn't let me jump in what's playing.` };
+          if (!r.moved) return { error: `${app} didn't move. Try again in a moment.` };
+          const of = r.end ? ` of ${clock(r.end)}` : '';
+          const what = r.title ? ` (${r.title})` : '';
+          if ('to' in args) return { ...r, note: `Jumped to ${clock(r.to)}${of}${what}.` };
+          return { ...r, note: `${args.by >= 0 ? 'Skipped ahead' : 'Went back'} ${span(args.by)} — now at ${clock(r.to)}${of}${what}.` };
+        });
+
+      // The page open in the front browser (any browser, e.g. Brave — the Novi extension is only in Chrome):
+      // to send it to someone or to the phone (2026-10-22). Read-only.
+      tool(api, 'laptop_current_link', 'The address (link) and title of the page open in the front-most browser window on the laptop (Chrome, Brave, Edge, Firefox). Use it to share or copy "this page / this video / the current website".',
+        obj({}),
+        async () => {
+          const r = await run('link', {});
+          if (r.none) return { error: 'No browser window is open on the laptop.' };
+          const browser = BROWSER[r.browser] || r.browser;
+          const raw = String(r.url || '').trim();
+          if (!raw) return { error: `I couldn't read the address in ${browser}.` };
+          const url = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`;
+          return { url, title: r.title, browser, note: `The page open in ${browser}: ${url}` };
         });
 
       tool(api, 'laptop_battery', 'Battery level, charging or time left. Read-only.', obj({}), async () => {

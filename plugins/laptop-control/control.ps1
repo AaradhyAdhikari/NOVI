@@ -142,6 +142,62 @@ $handlers = @{
     [NoviWin]::Media([byte]$vk)
     @{}
   }
+  # The page open in the front-most browser window (Chrome, Brave, Edge, Firefox…): its address bar's text
+  # through UI Automation. Novi's own page ("NOVI …") and work window ("Novi work …") are skipped.
+  link = { param($a)
+    Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+    $browsers = 'chrome', 'brave', 'msedge', 'firefox', 'opera', 'vivaldi', 'arc'
+    foreach ($w in [NoviWin]::List()) {
+      $title = [string]$w[1]
+      if ($title -match '^(NOVI|Novi work)\b') { continue }
+      $p = Get-Process -Id ([int]$w[2]) -ErrorAction SilentlyContinue
+      if (-not $p -or $browsers -notcontains $p.ProcessName.ToLower()) { continue }
+      $A = [System.Windows.Automation.AutomationElement]
+      $root = $A::FromHandle([IntPtr][long]$w[0])
+      $cond = New-Object System.Windows.Automation.PropertyCondition($A::ControlTypeProperty, [System.Windows.Automation.ControlType]::Edit)
+      foreach ($e in $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $cond)) {
+        if ($e.Current.Name -notmatch 'address|search bar|enter address|url') { continue }
+        $vp = $null
+        if ($e.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$vp)) {
+          return @{ url = [string]$vp.Current.Value; title = $title; browser = $p.ProcessName.ToLower() }
+        }
+      }
+      return @{ url = ''; title = $title; browser = $p.ProcessName.ToLower() }
+    }
+    @{ none = $true }
+  }
+  # Hide windows whose title starts with the prefix (Novi's Chrome work window "Novi work - …"): out of
+  # the taskbar and Alt+Tab, still running. Only exact-prefix matches, never a short or empty prefix.
+  hide = { param($a)
+    $p = [string]$a.prefix
+    if ($p.Length -lt 4) { return @{ hidden = 0 } }
+    $n = 0
+    foreach ($w in [NoviWin]::List()) { if (([string]$w[1]).StartsWith($p)) { [NoviWin]::Show([long]$w[0], 0); $n++ } }
+    @{ hidden = $n }
+  }
+  # Skip / jump in what's playing through Windows' media controls (YouTube in Chrome, Spotify, most
+  # players). by = seconds to move (negative = back), to = seconds from the start. A playing session wins.
+  seek = { param($a)
+    [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager, Windows.Media.Control, ContentType = WindowsRuntime] | Out-Null
+    $mgr = Await ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]::RequestAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager])
+    $s = @($mgr.GetSessions()) | Where-Object { [string]$_.GetPlaybackInfo().PlaybackStatus -eq 'Playing' } | Select-Object -First 1
+    if (-not $s) { $s = $mgr.GetCurrentSession() }
+    if (-not $s) { return @{ none = $true } }
+    $app = [string]$s.SourceAppUserModelId
+    $pb = $s.GetPlaybackInfo()
+    if (-not $pb.Controls.IsPlaybackPositionEnabled) { return @{ cantSeek = $true; app = $app } }
+    $tl = $s.GetTimelineProperties()
+    $pos = $tl.Position.TotalSeconds
+    # The position is from the last update: add the time since then while it plays.
+    if ([string]$pb.PlaybackStatus -eq 'Playing') { $pos += ([DateTimeOffset]::Now - $tl.LastUpdatedTime).TotalSeconds }
+    $end = $tl.EndTime.TotalSeconds
+    $target = if ($null -ne $a.to) { [double]$a.to } else { $pos + [double]$a.by }
+    if ($target -lt 0) { $target = 0 }
+    if ($end -gt 1 -and $target -gt $end - 1) { $target = $end - 1 }
+    $ok = Await ($s.TryChangePlaybackPositionAsync([long]($target * 10000000))) ([bool])
+    $props = Await ($s.TryGetMediaPropertiesAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaProperties])
+    @{ moved = [bool]$ok; from = [int]$pos; to = [int]$target; end = [int]$end; title = [string]$props.Title; app = $app }
+  }
   battery = { param($a)
     $b = Get-CimInstance Win32_Battery -ErrorAction SilentlyContinue | Select-Object -First 1
     if (-not $b) { return @{ none = $true } }

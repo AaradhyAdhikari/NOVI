@@ -15,7 +15,7 @@ import { sameCommand } from './sameCommand.js';
 import { replyFrom } from './shortcuts.js';
 import { briefCommand, changeCommand } from './briefCommand.js';
 import { dictationCommand } from './dictationCommand.js';
-import { claudeLinkCommand, linkFolderCommand, projectStatusCommand } from './claudeLinkCommand.js';
+import { claudeLinkCommand, linkFolderCommand, projectStatusCommand, projectAboutCommand } from './claudeLinkCommand.js';
 import { describeTurn } from '../activity.js';
 import { learningCommand } from './learning.js';
 import { quietCommand } from '../quiet.js';
@@ -38,8 +38,9 @@ export function systemPrompt({ projects, task, accounts = [] }) {
     'You are Novi, a voice-first personal AI companion. Your replies are spoken aloud: answer in 1-2 short, natural sentences (about 25 words), with no markdown, lists, code or links; never offer more help at the end. Details and links only when asked.',
     "You control a coding agent on the user's laptop through tools. For coding work on a project, call code_start_task with the project name and a clear, complete instruction for the coding agent. For follow-ups and changes to the current or most recent task, even while it is running ('make the button blue', 'add dark mode'), call code_send_message. To show code ('show me the HTML'), call code_show. To start a brand-new project, call code_new_project. Use code_status for progress questions and code_stop to stop.",
     'If the user mentions a project you do not know, ask for its folder path, then call remember_project.',
-    'You can also act directly: open_website (use a full https URL when you know the site) and play_youtube open things right away on the device the user is using; open_app opens installed apps on the laptop. To watch or play anything ("show me valorant", "play X"), call play_youtube (top result by default; position for "the 5th one"); use youtube_search only when the user asks to see the options. Never read out a list of videos; after playing, just say the title. To log in, fill a form, click or read a page on a website, use browser_open and the other browser_* tools (Chrome on the laptop), not open_website. LeetCode problems and stats come from the leetcode tools; never play a video for LeetCode.',
-    'To do something inside an app on the laptop that has no tool of its own (e.g. "open Claude and make a project named X"), do it yourself step by step: open_app, then screen_look, screen_click, screen_type and screen_key until it is done. Do not stop after opening the app or tell the user to do it.',
+    'You can also act directly: open_website (use a full https URL when you know the site) and play_youtube open things right away on the device the user is using; open_app opens installed apps on the laptop. To watch or play anything ("show me valorant", "play X"), call play_youtube (top result by default; position for "the 5th one"); use youtube_search only when the user asks to see the options. Never read out a list of videos; after playing, just say the title. To log in, fill a form, click or read a page on a website, use browser_open and the other browser_* tools (Chrome on the laptop), not open_website. LeetCode problems and stats come from the leetcode tools; never play a video for LeetCode. The user\'s own projects and apps ("my X app", their GitHub repos, claude.ai projects) are never searched on the web or opened as a Google search: use project_about (what it is), project_status (progress) or github_repo. To skip forward/back or jump to a time in a video or song, use laptop_seek.',
+    'To do something inside an app on the laptop that has no tool of its own (e.g. "open Claude and make a project named X"), do it yourself step by step: open_app, then screen_items, screen_click, screen_type and screen_key until it is done. Do not stop after opening the app or tell the user to do it.',
+    'For anything visible on the laptop screen in any app or browser (e.g. Brave, Kick, YouTube, WhatsApp): "play the first video", "click X", "open that stream" — call screen_items (a numbered list of the links, buttons and video tiles, no app name needed), then screen_click with the number. Use screen_look only to describe the screen. To send or copy "this page / this video / the current website", use laptop_current_link.',
     'Deleting a file or folder: only file_delete (it asks for the PIN). Never delete with screen control (keys, clicks) or laptop_run. "Open X" without the word file or folder is never file_open: a coding project → preview_open (its website), "open X in VS Code / Antigravity / Cursor…" → open_project with that editor, anything else → open_app. Files: file_find / file_open find and open files and folders on the laptop by name when the user says file, folder or a document type; file_summary reads a file or Google Sheet in the background, so say you are reading it and keep helping with whatever the user asks next; file_gather moves files about a topic into a new folder.',
     'Never say you played, opened, sent or did something unless a tool result in this turn says it happened; if you did not call the tool, call it. Never say a task is finished unless a tool result says so. If a tool returns an error, explain it briefly.',
     `Known projects: ${projects.length ? projects.map((p) => `${p.name} (${p.path})`).join('; ') : 'none yet'}.`,
@@ -173,7 +174,10 @@ const QUESTION = /^(?:what|whats|what's|how|why|who|when|where|which|is|are|can|
 
 // The AI saying it did something ("Opened the folder", "Playing it now") — only true if a tool ran.
 export function claimsAction(text) {
-  return /^(?:(?:ok(?:ay)?|sure|done|alright)[,.!]?\s*)?(?:i(?:'ve| have| just)?\s+)?(?:opened|opening|launched|launching|started|starting|playing|played|renamed|moved|created|closed|sent|deleted|showing|here it is|it'?s open|done[,.!])/i.test(String(text).trim());
+  const t = String(text).trim();
+  // "Here's a screenshot of your laptop screen." with none taken (live 2026-10-22).
+  if (/^(?:(?:ok(?:ay)?|sure)[,.!]?\s*)?here(?:'s| is) (?:a |the |your )?(?:screenshot|screen ?shot|picture|photo|pic|ss)\b/i.test(t)) return true;
+  return /^(?:(?:ok(?:ay)?|sure|done|alright)[,.!]?\s*)?(?:i(?:'ve| have| just)?\s+)?(?:opened|opening|launched|launching|started|starting|playing|played|renamed|moved|created|closed|sent|deleted|showing|here it is|it'?s open|done[,.!])/i.test(t);
 }
 
 // Web search by voice, without the AI: "search the web/online/internet for X", "google X",
@@ -401,6 +405,13 @@ export class Agent {
       const { output } = await this._runTool({ id: `status-${Date.now()}`, function: { name: st.tool, arguments: JSON.stringify(st.args) } }, { direct: true });
       return this._remember(text, output?.error || output?.note || 'Checking…');
     }
+    // "What does my TraceBites app do": its README / GitHub repo / notes, never the web (2026-10-22).
+    // A name Novi knows nothing about goes on to the AI.
+    const ab = projectAboutCommand(text);
+    if (ab && this.tools.get(ab.tool)) {
+      const { output } = await this._runTool({ id: `about-${Date.now()}`, function: { name: ab.tool, arguments: JSON.stringify(ab.args) } }, { direct: true });
+      if (!output?.unknown) return this._remember(text, output?.error || output?.note || '');
+    }
     // "Sync my pinned chats" / "check my ChatGPT plan" and "X and Y are the same / different": no AI.
     const said = (this.tools.get('chatgpt_plan_sync') && chatgptCommand(text)) || (this.tools.get('same_set') && sameCommand(text)) || null;
     if (said) {
@@ -504,10 +515,13 @@ export class Agent {
     let ranTool = false;
     let toolFailed = false;
     let pushedBack = false;
+    let lastText = ''; // a tool's own answer (screen_items' list…), shown if the AI is busy afterwards
+    let exclude = []; // providers this turn moved off (busy mid-turn)
+    let switched = false;
     for (let round = 0; round < MAX_ROUNDS; round++) {
       let res;
       try {
-        res = await this.router.chat({ messages, tools: offered, purpose, only: provider });
+        res = await this.router.chat({ messages, tools: offered, purpose, only: provider, ...(exclude.length ? { exclude } : {}) });
         this.activity?.ai(this._rec, res?.provider);
       } catch (err) {
         if (!(err instanceof AllProvidersUnavailableError)) throw err;
@@ -519,8 +533,20 @@ export class Agent {
           round -= 1;
           continue;
         }
+        // The provider this turn is on ran out mid-turn (live 2026-10-22: Groq's per-minute limit after a
+        // tool round, while Gemini and OpenRouter were free): another one finishes it — never for a private
+        // turn. Gemini isn't used for a turn another provider started (it rejects tool steps without its own
+        // thought signatures); a turn Gemini started loses those markers before moving on.
+        if (provider && !extra.sensitive && !switched) {
+          switched = true;
+          exclude = provider === 'gemini' ? ['gemini'] : [provider, 'gemini'];
+          if (provider === 'gemini') for (const m of messages) for (const c of m.tool_calls || []) delete c.extra_content;
+          provider = undefined;
+          round -= 1;
+          continue;
+        }
         // A tool already did the job (the graph is on screen): no "busy" line under it, just nothing more.
-        const fallback = notes.length ? notes.join(' ') : ranTool && !toolFailed ? '' : `My AI providers are busy right now. Try again in about ${Math.ceil(err.retryInMs / 1000)} seconds.`;
+        const fallback = notes.length ? notes.join(' ') : lastText || (ranTool && !toolFailed ? '' : `My AI providers are busy right now. Try again in about ${Math.ceil(err.retryInMs / 1000)} seconds.`);
         return this._remember(text, fallback);
       }
       provider = res.provider; // a turn's tool rounds stay on one provider (Gemini thought signatures)
@@ -547,6 +573,7 @@ export class Agent {
         runs.push({ tool: call.function?.name, args: callArgs, output: result.output, asked: result.asked });
         if (result.output?.error) toolFailed = true;
         if (result.note) notes.push(result.note);
+        else if (typeof result.output?.text === 'string' && result.output.text.trim() && !result.output.error) lastText = result.output.text.trim();
         if (result.output?.sensitive) sensitive = true;
         messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(result.output) });
       }
@@ -599,6 +626,8 @@ export class Agent {
     if (link && this.tools.get(link.tool)) return { quick: null, calls: [{ name: link.tool, args: link.args }], reply: null, provider: 'direct' };
     const st = projectStatusCommand(text);
     if (st && this.tools.get(st.tool)) return { quick: null, calls: [{ name: st.tool, args: st.args }], reply: null, provider: 'direct' };
+    const ab = projectAboutCommand(text);
+    if (ab && this.tools.get(ab.tool)) return { quick: null, calls: [{ name: ab.tool, args: ab.args }], reply: null, provider: 'direct' };
     const pv = this._previewKnown(previewCommand(text));
     if (pv) return { quick: null, calls: [{ name: pv.tool, args: pv.args }], reply: null, provider: 'direct' };
     const op = this._openKnown(text);
@@ -885,9 +914,23 @@ export class Agent {
     let cmd = browserCommand(text, { lastTo: this._waLastTo });
     if (!cmd && this._browserPause && isDoneWord(text)) cmd = this._browserPause;
     this._browserPause = null;
-    if (!cmd || !this.tools.get(cmd.tool)) return null;
     const run = async (name, args) => (await this._runTool({ id: `br-${Date.now()}`, function: { name, arguments: JSON.stringify(args) } }, { direct: true })).output || {};
-    const args = { ...cmd.args };
+    const args = { ...cmd?.args };
+    // "Send this video to Isha" / "… to my phone" / "copy this link": the page open in the laptop's front
+    // browser first (2026-10-22).
+    if (cmd?.link) {
+      if (!this.tools.get('laptop_current_link')) return null;
+      const page = await run('laptop_current_link', {});
+      if (!page.url) return page.error || "I couldn't read the page open on the laptop.";
+      const where = page.browser ? ` in ${page.browser}` : '';
+      if (cmd.phone) return `Here is the page open${where}: ${page.url}`;
+      if (cmd.copy) {
+        const out = await run('laptop_clipboard', { do: 'set', text: page.url });
+        return out.error || `Copied the link of the page open${where}: ${page.url}`;
+      }
+      args.text = page.url;
+    }
+    if (!cmd || !this.tools.get(cmd.tool)) return null;
     if (cmd.find) {
       if (!this.tools.get('file_find')) return "I can't look for files right now.";
       const hit = (await run('file_find', { query: `${cmd.find}${cmd.kind && cmd.kind !== 'file' ? ` ${cmd.kind}` : ''}` })).files?.[0];

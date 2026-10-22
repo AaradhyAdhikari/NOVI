@@ -10,6 +10,7 @@
       "github_connect",
       "github_activity",
       "github_graph",
+      "github_repo",
       "github_notifications",
       "github_repos",
       "github_issues",

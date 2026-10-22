@@ -107,8 +107,20 @@ describe('Agent', () => {
 
   // Live (2026-10-17): the GitHub graph was shown, then "My AI providers are busy…" was added below it.
   it('after a tool already did the job, busy providers add nothing (no "busy" line)', async () => {
-    const { agent } = setup([{ message: { role: 'assistant', content: '', tool_calls: [toolCall('code_status', {})] }, provider: 'groq', model: 'm' }, new AllProvidersUnavailableError(21_000)]);
+    const { agent } = setup([{ message: { role: 'assistant', content: '', tool_calls: [toolCall('code_status', {})] }, provider: 'groq', model: 'm' }, new AllProvidersUnavailableError(21_000), new AllProvidersUnavailableError(21_000)]); // the others busy too
     expect(await agent.handle('show me my github graph')).toBe('');
+  });
+
+  // Live (2026-10-22): "list what's on my screen" → screen_items listed it, the AI was busy after it, and
+  // the user got nothing at all. A tool's own answer text is shown then.
+  it('after a tool that answered with text, busy providers → that answer is shown', async () => {
+    const { agent, tools } = (() => {
+      const s = setup([{ message: { role: 'assistant', content: '', tool_calls: [toolCall('screen_items', {})] }, provider: 'groq', model: 'm' }, new AllProvidersUnavailableError(21_000), new AllProvidersUnavailableError(21_000)]);
+      s.agent.tools.add({ name: 'screen_items', description: 'i', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'i', run: async () => ({ text: 'On "Kick":\n1. link: snaxgaming' }) });
+      return { agent: s.agent, tools: s.agent.tools };
+    })();
+    expect(tools.get('screen_items')).toBeTruthy();
+    expect(await agent.handle("list what's on my screen")).toBe('On "Kick":\n1. link: snaxgaming');
   });
 
   it('says when providers are busy', async () => {
@@ -1536,5 +1548,74 @@ describe('ChatGPT sync and "same thing" by voice, without the AI (2026-10-20)', 
     expect(await agent.handle('NOVI CONTEXT and NOVI are the same')).toBe('Okay, NOVI CONTEXT and NOVI are one thing now.');
     expect(ran).toEqual([['same_set', { a: 'NOVI CONTEXT', b: 'NOVI', same: true }]]);
     expect(router.calls).toHaveLength(0);
+  });
+});
+
+describe('the page open on the laptop → someone on WhatsApp (2026-10-22)', () => {
+  const mk = (link = { url: 'https://kick.com/snaxgaming', title: 'snaxgaming Live Stream', browser: 'Brave' }) => {
+    const ran = [];
+    const tools = new ToolRegistry()
+      .add({ name: 'laptop_current_link', description: 'l', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'l', run: async () => { ran.push(['link']); return link; } })
+      .add({ name: 'laptop_clipboard', description: 'c', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'c', run: async (a) => { ran.push(['clip', a]); return { note: 'Copied.' }; } })
+      .add({ name: 'whatsapp_prepare', description: 'p', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'p', run: async (a) => { ran.push(['wa', a]); return { ready: { name: 'Ishaa', what: `"${a.text}"`, via: 'app' } }; } })
+      .add({ name: 'whatsapp_send', description: 's', parameters: { type: 'object', properties: {} }, tier: 'medium', describe: () => 'Send?', run: async () => ({ note: 'Sent to Ishaa.' }) });
+    const agent = new Agent({ router: { chat: async () => { throw new Error('no AI'); } }, tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
+    return { agent, ran };
+  };
+  it('reads the link, sends it, no AI', async () => {
+    const { agent, ran } = mk();
+    expect(await agent.handle('copy the link of the current website and send it to Isha')).toBe('Sent to Ishaa.');
+    expect(ran).toEqual([['link'], ['wa', { to: 'Isha', text: 'https://kick.com/snaxgaming' }]]);
+  });
+  it('to my phone: the link in the reply; copy: on the laptop clipboard', async () => {
+    const { agent, ran } = mk();
+    expect(await agent.handle('send this page to my phone')).toBe('Here is the page open in Brave: https://kick.com/snaxgaming');
+    expect(await agent.handle('copy this link')).toBe('Copied the link of the page open in Brave: https://kick.com/snaxgaming');
+    expect(ran.at(-1)).toEqual(['clip', { do: 'set', text: 'https://kick.com/snaxgaming' }]);
+  });
+  it('no browser page open → said plainly, nothing sent', async () => {
+    const { agent, ran } = mk({ error: 'No browser window is open on the laptop.' });
+    expect(await agent.handle('send this video to Isha')).toBe('No browser window is open on the laptop.');
+    expect(ran.filter(([k]) => k === 'wa')).toEqual([]);
+  });
+});
+
+describe('a picture promised but never taken counts as a claimed action (2026-10-22)', () => {
+  it('"Here\'s a screenshot of your laptop screen." with no tool run is caught', async () => {
+    const { claimsAction } = await import('../../server/brain/agent.js');
+    expect(claimsAction("Here's a screenshot of your laptop screen.")).toBe(true);
+    expect(claimsAction('Here is the picture you asked for.')).toBe(true);
+    expect(claimsAction('Here is what I found about Rust.')).toBe(false);
+  });
+});
+
+// 2026-10-22, user: "why does it say AI providers are busy if we have tons of them?" Every "busy" came
+// after a tool had run: a turn stayed on the provider it started on (for Gemini's thought signatures),
+// and when Groq's per-minute limit ran out mid-turn, nothing else was tried.
+describe('a busy provider mid-turn: another one finishes it', () => {
+  const tools = () => new ToolRegistry().add({ name: 'weather_get', description: 'w', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'w', run: async () => ({ temp: 30 }) });
+  const routerFor = (seen) => ({
+    order: { fast: ['groq', 'gemini', 'openrouter'] },
+    async chat({ messages, only, exclude = [] }) {
+      seen.push({ only, exclude, messages: JSON.parse(JSON.stringify(messages)) });
+      if (seen.length === 1) return { message: { role: 'assistant', content: '', tool_calls: [toolCall('weather_get', {})] }, provider: 'groq', model: 'm' };
+      if (only === 'groq') throw new AllProvidersUnavailableError(40_000);
+      return { message: { role: 'assistant', content: 'It is 30 degrees.' }, provider: 'openrouter', model: 'o' };
+    },
+  });
+  it('Groq out mid-turn → finished by another provider (not Gemini, which rejects tool steps it did not start)', async () => {
+    const seen = [];
+    const agent = new Agent({ router: routerFor(seen), tools: tools(), approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
+    expect(await agent.handle("what's the weather in pune")).toBe('It is 30 degrees.');
+    expect(seen.at(-1)).toMatchObject({ only: undefined });
+    expect(seen.at(-1).exclude).toEqual(expect.arrayContaining(['groq', 'gemini']));
+  });
+  it('a private turn stays on the trusted provider (no switch)', async () => {
+    const seen = [];
+    const agent = new Agent({ router: routerFor(seen), tools: tools(), approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) }, privateProviders: ['groq'], sleep: async () => {} });
+    agent._prepare = async () => ({ extra: { sensitive: true }, messages: [{ role: 'user', content: 'x' }], offered: [], purpose: 'fast' });
+    const out = await agent.handle('what is in my notes about weather');
+    expect(seen.every((s) => s.only === 'groq')).toBe(true);
+    expect(out).not.toBe('It is 30 degrees.');
   });
 });

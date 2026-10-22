@@ -158,3 +158,45 @@ describe('laptop control: clipboard', () => {
     expect((await tool('laptop_clipboard').run({ do: 'paste', app: 'zoom' })).error).toBe("I don't see a window for zoom.");
   });
 });
+
+// Live 2026-10-22 from the phone: "Skip 10 minutes from the video." → "I'm not able to jump forward…".
+// Media keys can't seek; Windows' media controls can (YouTube in Chrome, Spotify, most players).
+describe('skip forward / back / jump in a video or song', () => {
+  it('moves what is playing and says where it is now', async () => {
+    const { tool, calls } = setup({ answers: { seek: (a) => ({ moved: true, from: 252, to: 252 + (a.by ?? 0), end: 6272, title: 'PARTY ANIMALS WITH S8UL', app: 'Chrome' }) } });
+    expect((await tool('laptop_seek').run({ by: 600 })).note).toBe('Skipped ahead 10 min — now at 14:12 of 1:44:32 (PARTY ANIMALS WITH S8UL).');
+    expect(calls.at(-1)).toEqual(['seek', { by: 600 }]);
+    expect((await tool('laptop_seek').run({ by: -30 })).note).toMatch(/^Went back 30 s — now at 3:42 of 1:44:32/);
+    const to = setup({ answers: { seek: () => ({ moved: true, from: 10, to: 330, end: 400, title: 'Song', app: 'Spotify.exe' }) } });
+    expect((await to.tool('laptop_seek').run({ to: 330 })).note).toBe('Jumped to 5:30 of 6:40 (Song).');
+  });
+
+  it('nothing playing, a player that cannot seek, a player that ignored it — said plainly', async () => {
+    expect((await setup({ answers: { seek: () => ({ none: true }) } }).tool('laptop_seek').run({ by: 60 })).error).toBe('Nothing is playing on the laptop.');
+    expect((await setup({ answers: { seek: () => ({ cantSeek: true, app: 'Spotify.exe' }) } }).tool('laptop_seek').run({ by: 60 })).error).toBe("Spotify doesn't let me jump in what's playing.");
+    expect((await setup({ answers: { seek: () => ({ moved: false, app: 'Chrome' }) } }).tool('laptop_seek').run({ by: 60 })).error).toBe("Chrome didn't move. Try again in a moment.");
+    expect((await setup().tool('laptop_seek').run({})).error).toMatch(/how far/i);
+  });
+});
+
+describe('hiding Novi\'s work window', () => {
+  it('runtime.hideWindows asks the helper to hide windows whose title starts with the prefix', async () => {
+    const host = new PluginHost({ runtime: {}, logger: { warn() {} } });
+    const calls = [];
+    host.register(createLaptopControlPlugin({ platform: 'win32', worker: { run: async (cmd, args) => { calls.push([cmd, args]); return { hidden: 1 }; } } }));
+    expect(await host.runtime.hideWindows('Novi work - ')).toEqual({ hidden: 1 });
+    expect(calls).toEqual([['hide', { prefix: 'Novi work - ' }]]);
+    await expect(host.runtime.hideWindows('')).resolves.toEqual({ hidden: 0 }); // never "everything"
+  });
+});
+
+describe('the page open in the front browser', () => {
+  it('laptop_current_link: its address (https added), read-only', async () => {
+    const { tool } = setup({ answers: { link: () => ({ url: 'kick.com/snaxgaming', title: 'snaxgaming Live Stream - Watch Live on KICK', browser: 'brave' }) } });
+    expect(await tool('laptop_current_link').gate({})).toEqual({});
+    const out = await tool('laptop_current_link').run({});
+    expect(out).toMatchObject({ url: 'https://kick.com/snaxgaming', browser: 'Brave' });
+    expect(out.note).toBe('The page open in Brave: https://kick.com/snaxgaming');
+    expect((await setup({ answers: { link: () => ({ none: true }) } }).tool('laptop_current_link').run({})).error).toBe('No browser window is open on the laptop.');
+  });
+});

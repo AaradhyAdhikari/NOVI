@@ -83,33 +83,43 @@ const exists = (p) => p.then(() => true, () => false);
 // only when its page carries Novi's mark — never one of your tabs, whatever its number.
 async function work() {
   const { noviWork: s = {} } = await chrome.storage.local.get(['noviWork']);
-  return { noviWin: s.noviWin ?? null, slots: s.slots || {}, used: s.used || {} };
+  return { slots: s.slots || {}, used: s.used || {} };
 }
 const save = (w) => chrome.storage.local.set({ noviWork: w });
 function isNoviTab() { try { return sessionStorage.getItem('__noviWork') === '1'; } catch { return false; } }
 async function ours(tabId) {
   try { const [r] = await chrome.scripting.executeScript({ target: { tabId }, func: isNoviTab }); return r?.result === true; } catch { return false; }
 }
+// Novi's one work window opens on its own page, work.html ("Novi work"), which stays its active tab: the
+// window's title never changes, so Novi can hide it from the taskbar (live 2026-10-22: two minimized Novi
+// windows, "ChatGPT" and "Projects - Claude", still showed in the taskbar). Jobs are tabs behind it.
+const WORK_PAGE = chrome.runtime.getURL('work.html');
+async function workWindow() {
+  const pages = await chrome.tabs.query({ url: WORK_PAGE });
+  for (const extra of pages.slice(1)) await chrome.tabs.remove(extra.id).catch(() => {});
+  if (pages.length) return pages[0].windowId;
+  const win = await chrome.windows.create({ url: WORK_PAGE, state: 'minimized', focused: false });
+  // Chrome on Windows opened it shown anyway (behind, but on screen).
+  await chrome.windows.update(win.id, { state: 'minimized' }).catch(() => {});
+  return win.id;
+}
+chrome.tabs.onActivated?.addListener(async ({ tabId, windowId }) => {
+  const [page] = await chrome.tabs.query({ url: WORK_PAGE, windowId }).catch(() => []);
+  if (page && page.id !== tabId) chrome.tabs.update(page.id, { active: true }).catch(() => {});
+});
 async function openJob(url, slot) {
   const w = await work();
+  const home = await workWindow();
   const known = w.slots[slot];
-  let tab = known != null && (await ours(known)) ? await chrome.tabs.update(known, { url }) : null;
+  let tab = null;
+  if (known != null && (await ours(known))) {
+    // A job tab left in another window (older versions) moves into the one work window.
+    if ((await chrome.tabs.get(known)).windowId !== home) await chrome.tabs.move(known, { windowId: home, index: -1 });
+    tab = await chrome.tabs.update(known, { url });
+  }
   if (!tab) {
     const marked = url.includes('#') ? url : `${url}#novi-work`; // awake.js keeps this tab running while hidden
-    // Novi's window = the one one of its own tabs is in (a window number alone could be yours after a restart).
-    let home = null;
-    for (const id of Object.values(w.slots)) {
-      const t = await chrome.tabs.get(id).catch(() => null);
-      if (t && t.windowId === w.noviWin && (await ours(id))) { home = t.windowId; break; }
-    }
-    if (home != null) tab = await chrome.tabs.create({ windowId: home, url: marked, active: false });
-    else {
-      const win = await chrome.windows.create({ url: marked, state: 'minimized', focused: false });
-      // Live 2026-10-22: Chrome on Windows opened it shown anyway (behind, but on screen).
-      await chrome.windows.update(win.id, { state: 'minimized' }).catch(() => {});
-      w.noviWin = win.id;
-      tab = win.tabs[0];
-    }
+    tab = await chrome.tabs.create({ windowId: home, url: marked, active: false });
   }
   w.slots[slot] = tab.id;
   w.used[tab.id] = Date.now();
@@ -145,7 +155,20 @@ async function closeOrphans() {
     if (!mine.has(t.id) && WORK_SITES.test(t.url || '') && (await ours(t.id))) await chrome.tabs.remove(t.id).catch(() => {});
   }
 }
-closeOrphans().catch(() => {});
+// On start: Novi tabs still on the list but in older windows (before 1.9.0 each job could make its own
+// window) move into the one work window; the emptied windows close by themselves.
+async function tidyWork() {
+  await closeOrphans();
+  const mine = [];
+  for (const id of Object.values((await work()).slots)) {
+    const t = await chrome.tabs.get(id).catch(() => null);
+    if (t && (await ours(id))) mine.push(t);
+  }
+  if (!mine.length) return;
+  const home = await workWindow();
+  for (const t of mine) if (t.windowId !== home) await chrome.tabs.move(t.id, { windowId: home, index: -1 }).catch(() => {});
+}
+tidyWork().catch(() => {});
 
 async function inPage(tabId, name, args) {
   await touch(tabId);

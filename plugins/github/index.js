@@ -150,6 +150,32 @@ export function createGithubPlugin({ fetchImpl = fetch, sleep } = {}) {
         },
       });
 
+      // One of the user's public repos: what it is, from GitHub itself (live 2026-10-22: "what does my
+      // TraceBites app do" searched the web and described someone else's app). Public data, no sign-in.
+      const squash = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const sameName = (a, b) => { const x = squash(a); const y = squash(b); return Boolean(x) && (x === y || `${x}s` === y || x === `${y}s`); };
+      api.registerTool({
+        name: 'github_repo',
+        description: "What one of the user's own GitHub repositories is: its description, main language, link and README. For questions about the user's own apps/projects — never search the web for those.",
+        parameters: obj({ name: str('Repository or project name, any spelling'), username: str('GitHub username, only if the user just said it') }, ['name']),
+        async execute(_id, { name, username } = {}) {
+          const fromAccount = () => { try { return resolve(undefined).account?.email; } catch { return undefined; } };
+          const login = String(username || api.pluginConfig.username || fromAccount() || '').trim();
+          if (!login) return { content: [], details: { error: "I don't know your GitHub username yet. Set NOVI_PLUGIN_GITHUB_USERNAME in .env." } };
+          const get = async (url, accept = 'application/vnd.github+json') => {
+            const res = await fetchImpl(url, { headers: { Accept: accept, 'User-Agent': 'Novi' } });
+            if (!res.ok) throw new Error(`GitHub answered ${res.status}`);
+            return res;
+          };
+          const repos = await (await get(`https://api.github.com/users/${encodeURIComponent(login)}/repos?per_page=100&sort=updated`)).json();
+          const repo = (Array.isArray(repos) ? repos : []).find((r) => sameName(r.name, name));
+          if (!repo) return { content: [], details: { error: `${login} has no repo called ${name} on GitHub.`, repos: (repos || []).map((r) => r.name) } };
+          let readme = '';
+          try { readme = (await (await get(`https://api.github.com/repos/${repo.full_name}/readme`, 'application/vnd.github.raw')).text()).slice(0, 4000); } catch { /* no README */ }
+          return { content: [], details: { name: repo.name, description: repo.description || '', language: repo.language || '', topics: repo.topics || [], url: repo.html_url, readme } };
+        },
+      });
+
       readTool({
         name: 'github_notifications',
         description: 'List GitHub notifications (unread by default).',
