@@ -7,6 +7,9 @@ import { createWebDriver, zipForSend } from './whatsapp.js';
 import { createAppDriver } from './whatsappApp.js';
 import { createControlWorker } from '../laptop-control/worker.js';
 import { findWindows } from '../laptop-control/windows.js';
+import fs from 'node:fs';
+// The extension version in Novi's folder (an older one in Chrome is told to reload itself).
+const extensionVersion = () => { try { return JSON.parse(fs.readFileSync(new URL('../../extension/manifest.json', import.meta.url), 'utf8')).version; } catch { return null; } };
 import { isSubmit, isPayment, isCardField, needsPassword, hasCaptcha, needsCode, summarizeForm, pageText, plainError } from './rules.js';
 
 // Novi in the user's everyday Chrome (through the Novi extension). User's rules (2026-10-15):
@@ -37,10 +40,10 @@ export function createBrowserPlugin({ bridge = null, showImage = null, webDriver
       let link = bridge;
       if (!link) {
         const file = path.join(api.runtime?.dataDir || 'data', 'browser.json');
-        link = createBridge({ port: Number(api.pluginConfig?.port) || 3003, code: loadCode(file), logger: api.logger });
+        link = createBridge({ port: Number(api.pluginConfig?.port) || 3003, code: loadCode(file), logger: api.logger, wantVersion: extensionVersion() });
         // Settings → Browser (laptop-only routes in app.js) read and rotate the pairing code here.
         if (api.runtime) {
-          api.runtime.browserStatus = () => ({ connected: link.connected(), code: loadCode(file) });
+          api.runtime.browserStatus = () => ({ connected: link.connected(), code: loadCode(file), version: link.version || null });
           api.runtime.browserNewCode = () => { const c = newCode(file); link.setCode(c); return c; };
         }
         api.registerService({ id: 'browser-bridge', start: () => link.start().catch((err) => api.logger?.warn?.(`[browser] link not started: ${err.message}`)), stop: () => link.stop() });

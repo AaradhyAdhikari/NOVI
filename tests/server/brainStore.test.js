@@ -87,3 +87,96 @@ describe('brain store: passages found through chunk_items', () => {
     expect(seen).toContain('g1');
   });
 });
+
+// Live 2026-10-22: Novi was blocked 10–40 s at a time. Every file was read and every passage had its
+// vector, yet the brain asked again every 1.5 s: "which files are unread" (230 ms) and "which passages
+// need a vector" (2.4 s with 350k passages). Once a search finds nothing, it waits for something new.
+describe('brain store: no repeated empty searches', () => {
+  const counting = (store) => {
+    const seen = { unread: 0, vectors: 0 };
+    const prepare = store.db.prepare.bind(store.db);
+    store.db.prepare = (sql) => {
+      if (/read_mtime IS NULL/.test(sql)) seen.unread += 1;
+      if (/LIMIT/.test(sql) && /vec_todo|LEFT JOIN vectors/.test(sql)) seen.vectors += 1;
+      return prepare(sql);
+    };
+    return seen;
+  };
+
+  it('nothing left to read → not searched again until a file is new or changed', () => {
+    const store = openStore(':memory:');
+    store.upsert({ id: 'f1', kind: 'file', title: 'a.txt', path: '/a.txt', mtime: 1 });
+    store.setText('f1', ['hello'], 1);
+    const seen = counting(store);
+    expect(store.unread(4)).toEqual([]);
+    expect(store.unread(4)).toEqual([]);
+    expect(seen.unread).toBe(1);
+    store.upsert({ id: 'f1', kind: 'file', title: 'a.txt', path: '/a.txt', mtime: 1 }); // same file, unchanged
+    expect(store.unread(4)).toEqual([]);
+    expect(seen.unread).toBe(1);
+    store.upsert({ id: 'f1', kind: 'file', title: 'a.txt', path: '/a.txt', mtime: 2 }); // changed on disk
+    expect(store.unread(4).map((r) => r.id)).toEqual(['f1']);
+    store.upsert({ id: 'f2', kind: 'file', title: 'b.txt', path: '/b.txt', mtime: 1 }); // new
+    expect(store.unread(4).map((r) => r.id)).toEqual(['f1', 'f2']);
+  });
+
+  it('every passage has its vector → not searched again until new text arrives', () => {
+    const store = openStore(':memory:');
+    store.upsert({ id: 'f1', kind: 'file', title: 'a.txt', path: '/a.txt', mtime: 1 });
+    store.setText('f1', ['hello'], 1);
+    const [row] = store.missingVectors(16);
+    store.addVectors([{ rowid: row.rowid, item_id: row.item_id, q: new Int8Array([1, 2]), scale: 1 }]);
+    const seen = counting(store);
+    expect(store.missingVectors(16)).toEqual([]);
+    expect(store.missingVectors(16)).toEqual([]);
+    expect(seen.vectors).toBeLessThanOrEqual(1); // the pick is prepared once, when the store opens
+    store.setText('f1', ['hello again'], 2);
+    expect(store.missingVectors(16).map((r) => r.text)).toEqual(['hello again']);
+  });
+});
+
+// Live 2026-10-22 (profile): each time new text came in, finding the passages without a vector scanned all
+// 350k passages — up to 32 s inside Novi. A small to-do list of waiting passages makes it one lookup.
+describe('brain store: passages waiting for a vector are a short list', () => {
+  const tmpDb = () => path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'brain-todo-')), 'brain.db');
+
+  it('the pick never scans every passage; notes first, then the newest files', () => {
+    const store = openStore(':memory:');
+    store.upsert({ id: 'old', kind: 'file', title: 'old.txt', path: '/old.txt', mtime: 1 });
+    store.upsert({ id: 'new', kind: 'file', title: 'new.txt', path: '/new.txt', mtime: 9 });
+    store.upsert({ id: 'n1', kind: 'note', title: 'My note', mtime: 0 });
+    store.setText('old', ['old words'], 1);
+    store.setText('new', ['new words'], 9);
+    store.setText('n1', ['note words']);
+    const scans = [];
+    const prepare = store.db.prepare.bind(store.db);
+    store.db.prepare = (sql) => { if (/LEFT JOIN vectors/.test(sql)) scans.push(sql); return prepare(sql); };
+    expect(store.missingVectors(3).map((r) => r.text)).toEqual(['note words', 'new words', 'old words']);
+    expect(scans).toEqual([]);
+  });
+
+  it('a vector made, or the text replaced, takes the passage off the list', () => {
+    const store = openStore(':memory:');
+    store.upsert({ id: 'f', kind: 'file', title: 'f.txt', path: '/f.txt', mtime: 1 });
+    store.setText('f', ['one'], 1);
+    const [row] = store.missingVectors(1);
+    store.addVectors([{ rowid: row.rowid, item_id: 'f', q: new Int8Array([1]), scale: 1 }]);
+    expect(store.stats().unvectored).toBe(0);
+    store.setText('f', ['two', 'three'], 2);
+    expect(store.stats().unvectored).toBe(2);
+    store.remove('f');
+    expect(store.stats().unvectored).toBe(0);
+  });
+
+  it('an older brain.db (no list yet) gets its list once, from what is missing', () => {
+    const file = tmpDb();
+    let store = openStore(file);
+    store.upsert({ id: 'f', kind: 'file', title: 'f.txt', path: '/f.txt', mtime: 1 });
+    store.setText('f', ['waiting text'], 1);
+    store.db.exec('DROP TABLE vec_todo');
+    store.close();
+    store = openStore(file);
+    expect(store.missingVectors(4).map((r) => r.text)).toEqual(['waiting text']);
+    store.close();
+  });
+});

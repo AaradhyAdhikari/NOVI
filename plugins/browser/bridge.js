@@ -11,7 +11,18 @@ const same = (a, b) => {
   return x.length === y.length && crypto.timingSafeEqual(x, y);
 };
 
-export function createBridge({ port = 3003, host = '127.0.0.1', code, timeoutMs = 15_000, helloMs = 5_000, logger = console } = {}) {
+// "1.10.0" > "1.8.0": compared part by part.
+const older = (a, b) => {
+  const x = String(a || '0').split('.').map(Number);
+  const y = String(b || '0').split('.').map(Number);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) < (y[i] || 0);
+  return false;
+};
+
+// wantVersion: the extension version in Novi's folder. An older one is told to reload itself (Chrome then
+// reads the new files) — once per old version, so a reload that didn't help can't go round and round.
+export function createBridge({ port = 3003, host = '127.0.0.1', code, timeoutMs = 15_000, helloMs = 5_000, logger = console, wantVersion = null } = {}) {
+  const reloadAsked = new Set();
   let server = null;
   let ext = null; // the paired extension socket
   let secret = code;
@@ -42,6 +53,11 @@ export function createBridge({ port = 3003, host = '127.0.0.1', code, timeoutMs 
             ext = ws;
             this.version = msg.version || null;
             ws.send(JSON.stringify({ type: 'welcome' })); // the extension says "connected" only now
+            if (wantVersion && older(this.version, wantVersion) && !reloadAsked.has(this.version)) {
+              reloadAsked.add(this.version);
+              logger.info?.(`[browser] the Novi extension is ${this.version}, Novi has ${wantVersion}: asking it to reload`);
+              ws.send(JSON.stringify({ type: 'reload' }));
+            }
             return;
           }
           const p = pending.get(msg.id);

@@ -7,6 +7,7 @@ import { createWakeListener, normalizeVolume } from './listener.js';
 import { encodeWav } from '../../../src/lib/utterance.js';
 import { spokenText } from '../../narrator.js';
 import { loadSpeakerVerifier } from '../speaker/verifier.js';
+import { createWorkerRecorder } from './micWorker.js';
 
 const DIR = path.resolve('models/wakeword');
 const KWS_DIR = path.resolve('models/kws');
@@ -89,7 +90,8 @@ export async function startWakeWordService({ novi, env = process.env, logger = c
   // A fresh mic each start: follows whichever mic Windows uses now (earbuds in or out).
   async function start({ onError }) {
     const mic = micToUse(PvRecorder.getAvailableDevices(), env.NOVI_WAKEWORD_MIC);
-    const recorder = new PvRecorder(1280, mic.index);
+    // Read in its own thread: a mic that stops sending audio froze all of Novi for 97 s (2026-10-22).
+    const recorder = createWorkerRecorder({ frameLength: 1280, deviceIndex: mic.index, name: mic.name });
     const listener = createWakeListener({
       recorder,
       detector,

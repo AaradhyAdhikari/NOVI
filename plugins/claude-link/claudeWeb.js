@@ -19,9 +19,10 @@ export function createClaudeWeb({ request, site = CLAUDE, sleep = (ms) => new Pr
     }
   };
 
+  // Its own tab in Novi's minimized Chrome window, kept by the extension ("slot": one tab, also after a
+  // restart), never brought forward (user, 2026-10-22: "it opens too many tabs… not by using my screen").
   async function open(url) {
-    const known = tabId && ((await request('tabs')).tabs || []).some((t) => t.id === tabId);
-    const out = await step('opening the page', 'open', known ? { url, tabId, background: true } : { url, newTab: true, background: true });
+    const out = await step('opening the page', 'open', { url, slot: 'claude-link', newTab: true, background: true });
     tabId = out?.tabId ?? tabId;
   }
   // A wait Chrome doesn't answer in time (a hidden tab it holds back) counts as "not there yet".
@@ -33,11 +34,10 @@ export function createClaudeWeb({ request, site = CLAUDE, sleep = (ms) => new Pr
   };
   const loginNeeded = async () => Boolean((await request('has', { selector: site.login, tabId }))?.found);
   // Live 2026-10-21: the new-project page never showed in a background tab ("claude.ai didn't load"),
-  // so the Tip calculator never reached claude.ai. Not there → the tab comes forward once.
+  // so the Tip calculator never reached claude.ai. Not there yet → waited once more (in the background).
   async function ready(selector, ms) {
     if (await waitFor(selector, ms)) return true;
     if (await loginNeeded()) return 'login';
-    await request('switch', { tabId });
     return waitFor(selector, ms);
   }
   const whereIs = async () => {

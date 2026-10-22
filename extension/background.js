@@ -1,6 +1,7 @@
 // Novi extension: connects to Novi on this laptop (ws://127.0.0.1, pairing code first) and runs
 // one command at a time on the active tab: open, read, click, type, select, key, scroll, back,
 // tabs, switch, screenshot, attach, waitFor. Novi decides what is allowed; this only does it.
+importScripts('awake.js'); // stayAwake, also put into Novi's tabs after they load
 const VERSION = chrome.runtime.getManifest().version;
 let ws = null;
 let status = 'not connected';
@@ -44,9 +45,17 @@ async function connect() {
 
 chrome.alarms.create('novi', { periodInMinutes: 0.5 }); // keeps the worker awake and reconnects
 chrome.alarms.onAlarm.addListener(connect);
+chrome.alarms.onAlarm.addListener(() => closeIdle().catch(() => {}));
+// awake.js runs first in every page (it acts only in Novi's work tabs).
+chrome.scripting.registerContentScripts?.([{ id: 'novi-awake', matches: ['<all_urls>'], js: ['awake.js'], runAt: 'document_start', world: 'MAIN', persistAcrossSessions: true }]).catch(() => { /* already there */ });
 chrome.runtime.onStartup.addListener(connect);
 chrome.runtime.onInstalled.addListener(connect);
-chrome.storage.onChanged.addListener(() => { const old = ws; ws = null; old?.close(); connect(); });
+// A new pairing code or port: connect again. Nothing else (live 2026-10-22: Novi's tab list in session
+// storage closed the connection in the middle of every job).
+chrome.storage.onChanged.addListener((changes = {}, area) => {
+  if (area !== 'local' || !('code' in changes || 'port' in changes)) return;
+  const old = ws; ws = null; old?.close(); connect();
+});
 chrome.runtime.onMessage.addListener((m, _s, send) => { if (m === 'status') send({ status, version: VERSION }); });
 connect();
 
@@ -63,7 +72,83 @@ function loaded(tabId, ms = 15000) {
     chrome.tabs.onUpdated.addListener(on);
   });
 }
+// Novi's own work (ChatGPT, Gemini, claude.ai) happens in one minimized Chrome window of its own, one tab
+// per job ("slot"), reused — also after Novi restarts — and closed after 45 minutes nobody used it (user,
+// 2026-10-22: "it opens too many tabs… do all this work in background and not by using my screen").
+const IDLE_MS = 45 * 60_000;
+const WORK_SITES = /^https:\/\/(chatgpt\.com|gemini\.google\.com|claude\.ai)\//;
+const exists = (p) => p.then(() => true, () => false);
+// The list lasts through extension updates (local storage: session storage was wiped on every reload and
+// Novi's old window was left behind). Chrome reuses tab numbers after a restart, so a tab counts as Novi's
+// only when its page carries Novi's mark — never one of your tabs, whatever its number.
+async function work() {
+  const { noviWork: s = {} } = await chrome.storage.local.get(['noviWork']);
+  return { noviWin: s.noviWin ?? null, slots: s.slots || {}, used: s.used || {} };
+}
+const save = (w) => chrome.storage.local.set({ noviWork: w });
+function isNoviTab() { try { return sessionStorage.getItem('__noviWork') === '1'; } catch { return false; } }
+async function ours(tabId) {
+  try { const [r] = await chrome.scripting.executeScript({ target: { tabId }, func: isNoviTab }); return r?.result === true; } catch { return false; }
+}
+async function openJob(url, slot) {
+  const w = await work();
+  const known = w.slots[slot];
+  let tab = known != null && (await ours(known)) ? await chrome.tabs.update(known, { url }) : null;
+  if (!tab) {
+    const marked = url.includes('#') ? url : `${url}#novi-work`; // awake.js keeps this tab running while hidden
+    // Novi's window = the one one of its own tabs is in (a window number alone could be yours after a restart).
+    let home = null;
+    for (const id of Object.values(w.slots)) {
+      const t = await chrome.tabs.get(id).catch(() => null);
+      if (t && t.windowId === w.noviWin && (await ours(id))) { home = t.windowId; break; }
+    }
+    if (home != null) tab = await chrome.tabs.create({ windowId: home, url: marked, active: false });
+    else {
+      const win = await chrome.windows.create({ url: marked, state: 'minimized', focused: false });
+      // Live 2026-10-22: Chrome on Windows opened it shown anyway (behind, but on screen).
+      await chrome.windows.update(win.id, { state: 'minimized' }).catch(() => {});
+      w.noviWin = win.id;
+      tab = win.tabs[0];
+    }
+  }
+  w.slots[slot] = tab.id;
+  w.used[tab.id] = Date.now();
+  await save(w);
+  return tab;
+}
+// A command on one of Novi's work tabs: remember it was used, and keep the page awake (stayAwake also
+// marks the page as Novi's).
+async function touch(tabId) {
+  const w = await work();
+  if (!Object.values(w.slots).includes(tabId)) return false;
+  w.used[tabId] = Date.now();
+  await save(w);
+  await chrome.scripting.executeScript({ target: { tabId }, world: 'MAIN', func: stayAwake }).catch(() => {});
+  return true;
+}
+async function closeIdle() {
+  const w = await work();
+  let changed = false;
+  for (const [slot, id] of Object.entries(w.slots)) {
+    if (Date.now() - (w.used[id] || 0) < IDLE_MS && (await exists(chrome.tabs.get(id)))) continue;
+    if (await ours(id)) await chrome.tabs.remove(id).catch(() => {});
+    delete w.slots[slot];
+    delete w.used[id];
+    changed = true;
+  }
+  if (changed) await save(w);
+}
+// Novi's work tabs it lost track of (an older version kept its list where an update wiped it): closed.
+async function closeOrphans() {
+  const mine = new Set(Object.values((await work()).slots));
+  for (const t of await chrome.tabs.query({})) {
+    if (!mine.has(t.id) && WORK_SITES.test(t.url || '') && (await ours(t.id))) await chrome.tabs.remove(t.id).catch(() => {});
+  }
+}
+closeOrphans().catch(() => {});
+
 async function inPage(tabId, name, args) {
+  await touch(tabId);
   await chrome.scripting.executeScript({ target: { tabId }, files: ['page.js'] });
   const [r] = await chrome.scripting.executeScript({ target: { tabId }, func: (n, a) => window.__novi[n](a), args: [name, args] });
   if (r?.result?.error) throw new Error(r.result.error);
@@ -71,6 +156,12 @@ async function inPage(tabId, name, args) {
 }
 
 async function handle(cmd, args) {
+  if (cmd === 'open' && args.slot) {
+    const tab = await openJob(args.url, args.slot);
+    await loaded(tab.id);
+    await touch(tab.id);
+    return { tabId: tab.id };
+  }
   if (cmd === 'open') {
     // background: a new tab that stays behind the one the user is looking at (WhatsApp sends).
     // tabId: load the page in that tab (an AI site's own tab gets a fresh chat without a new tab).

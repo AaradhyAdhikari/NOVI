@@ -20,16 +20,17 @@ export function createSiteDriver({ request: raw, sites = SITES, sleep = (ms) => 
   const request = (cmd, args, opts) => raw(cmd, args, opts ?? (SLOW[cmd] ? { timeoutMs: SLOW[cmd] } : undefined))
     .catch((err) => { err.step ??= cmd; throw err; });
 
+  // One tab per site in Novi's own minimized Chrome window, kept by the extension ("slot") — so a Novi
+  // restart reuses it instead of opening another (user, 2026-10-22: "it opens too many tabs").
   async function openFresh(key) {
-    const site = sites[key];
-    const known = tabs[key] && ((await request('tabs')).tabs || []).some((t) => t.id === tabs[key]);
-    const opened = await request('open', known ? { url: site.url, tabId: tabs[key], background: true } : { url: site.url, newTab: true, background: true });
+    const opened = await request('open', { url: sites[key].url, slot: `orchestrator-${key}`, newTab: true, background: true });
     tabs[key] = opened?.tabId ?? tabs[key];
   }
 
   // The message box shows up, or why not (login / not loaded). The page wait is shorter than the
   // wait for Chrome's answer (a slow page must not end as a bare "timeout"); one that still runs
-  // out counts as "not loaded yet" (a background tab Chrome held back).
+  // out counts as "not loaded yet" and is waited once more. Never brought forward (user, 2026-10-22:
+  // "do all this work in background and not by using my screen").
   async function ready(key) {
     const site = sites[key];
     const tabId = tabs[key];
@@ -43,8 +44,7 @@ export function createSiteDriver({ request: raw, sites = SITES, sleep = (ms) => 
     if (site.login && (await request('has', { selector: site.login, tabId })).found) {
       return { error: `${site.name} needs you to log in. Log in to ${site.name} in Chrome, then ask for the brief again.`, login: true };
     }
-    log(`[orchestrator] ${site.name}: not loaded in the background, bringing the tab forward`);
-    await request('switch', { tabId });
+    log(`[orchestrator] ${site.name}: not loaded yet in the background, waiting once more`);
     return (await loaded()) ? null : { error: `${site.name} didn't load in Chrome.` };
   }
 
@@ -52,17 +52,14 @@ export function createSiteDriver({ request: raw, sites = SITES, sleep = (ms) => 
     const site = sites[key];
     const tabId = tabs[key];
     const before = (await request('textOf', { selector: site.answer, tabId })).count || 0;
-    let forwarded = false;
     const type = async () => {
       await request('typeSel', { selector: site.input, text, tabId });
       const shown = ((await request('query', { selector: site.input, tabId })).texts || [])[0] || '';
       return shown.includes(text.replace(/\s+/g, ' ').trim().slice(0, 20));
     };
     if (!(await type())) {
-      log(`[orchestrator] ${site.name}: typing in the background did not land, bringing the tab forward`);
-      forwarded = true;
-      await request('switch', { tabId });
-      await type();
+      log(`[orchestrator] ${site.name}: typing in the background did not land, trying once more`);
+      if (!(await type())) return { error: `${site.name} didn't take the message in the background.` };
     }
     try { await request('clickSel', { selector: site.send, tabId }); } catch { await request('key', { key: 'Enter', tabId }); }
 
@@ -71,6 +68,7 @@ export function createSiteDriver({ request: raw, sites = SITES, sleep = (ms) => 
     let last = '';
     let same = 0; // checks in a row with the same text
     let sawBusy = false; // the site's stop button showed at least once
+    let startLogged = false;
     while (now() - start <= maxMs) {
       await sleep(pollMs);
       // A check Chrome is slow on (a busy page in a held-back tab) is skipped, not the end (live 2026-10-20).
@@ -94,21 +92,16 @@ export function createSiteDriver({ request: raw, sites = SITES, sleep = (ms) => 
         // Unchanged for ~12 s with every heading in: done even if the busy marker never goes away
         // (live 2026-10-20: Gemini's seemed to match all the time).
         if (complete && ((!busy && same >= (sawBusy ? 1 : 3)) || same >= 8)) return { text: answer };
-        // Stuck short of the headings asked for: Chrome doesn't draw a hidden tab's answer (live
-        // 2026-10-20: Gemini stayed "Gemini said" for 2 minutes). Bring it forward once.
-        if (!forwarded && same >= 4 && !complete) {
-          log(`[orchestrator] ${site.name}: the answer stopped short of ${want.filter((h) => !hasHeading(answer, h)).join(' / ')}, bringing the tab forward`);
-          forwarded = true;
-          await request('switch', { tabId });
-        }
+        // Stuck short of the headings asked for (live 2026-10-20: Gemini stayed "Gemini said" in a hidden
+        // tab; the extension now keeps Novi's tabs drawing): noted once, then waited out.
+        if (same === 4 && !complete) log(`[orchestrator] ${site.name}: the answer stopped short of ${want.filter((h) => !hasHeading(answer, h)).join(' / ')} in the background`);
         last = answer;
-      } else if (!forwarded && now() - start > startMs) {
-        // Chrome may hold back a page in the background: bring it forward once.
-        log(`[orchestrator] ${site.name}: nothing started in the background, bringing the tab forward`);
-        forwarded = true;
-        await request('switch', { tabId });
+      } else if (!startLogged && now() - start > startMs) {
+        startLogged = true;
+        log(`[orchestrator] ${site.name}: nothing started in the background after ${Math.round(startMs / 1000)} s, still waiting`);
       }
     }
+    if (!last) log(`[orchestrator] ${site.name}: no answer in the background`);
     return last ? { text: last, partial: true } : { error: `${site.name} didn't answer in time.` };
   }
 

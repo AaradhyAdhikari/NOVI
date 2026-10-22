@@ -75,3 +75,33 @@ describe('browser bridge (Novi ⇄ extension)', () => {
     await expect(bridge.request('read')).rejects.toThrow("The Novi extension isn't connected. Open Chrome (and check the Novi icon).");
   });
 });
+
+// 2026-10-22: Novi's own window needs extension 1.8.0. An older extension is told to reload itself
+// (Chrome then reads the new files from the folder) — once, so a reload that didn't help can't loop.
+describe('browser bridge: an old extension updates itself', () => {
+  function hello(port, version) {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}`, { headers: { Origin: ORIGIN } });
+    const state = { messages: [] };
+    ws.on('open', () => ws.send(JSON.stringify({ type: 'hello', code: 'secret-code', version })));
+    ws.on('message', (d) => state.messages.push(JSON.parse(d)));
+    ws.on('error', () => {});
+    return { ws, state };
+  }
+
+  it('older than wanted → told to reload, once; the wanted version or newer → not', async () => {
+    const port = await start({ wantVersion: '1.8.0' });
+    const old = hello(port, '1.7.0');
+    await tick();
+    expect(old.state.messages).toContainEqual({ type: 'reload' });
+    old.ws.close();
+    await tick();
+    const still = hello(port, '1.7.0'); // the reload didn't help (folder not updated?)
+    await tick();
+    expect(still.state.messages).not.toContainEqual({ type: 'reload' });
+    still.ws.close();
+    await tick();
+    const fresh = hello(port, '1.10.0');
+    await tick();
+    expect(fresh.state.messages).toEqual([{ type: 'welcome' }]);
+  });
+});

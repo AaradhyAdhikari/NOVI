@@ -39,7 +39,7 @@ describe('AI site driver (ChatGPT / Gemini through the Novi extension)', () => {
     const { request, calls } = fakeSite();
     const d = createSiteDriver({ request, ...fast });
     expect(await d.ask('chatgpt', 'Plan my portfolio')).toEqual({ text: 'Goal\n1. Build\n2. Test' });
-    expect(calls.find(([c]) => c === 'open')[1]).toEqual({ url: SITES.chatgpt.url, newTab: true, background: true });
+    expect(calls.find(([c]) => c === 'open')[1]).toEqual({ url: SITES.chatgpt.url, slot: 'orchestrator-chatgpt', newTab: true, background: true });
     const wait = calls.find(([c]) => c === 'waitFor');
     expect(wait[2].timeoutMs).toBeGreaterThan(wait[1].ms);
     expect(calls.find(([c]) => c === 'typeSel')[1]).toMatchObject({ selector: SITES.chatgpt.input, text: 'Plan my portfolio', tabId: 5 });
@@ -51,9 +51,10 @@ describe('AI site driver (ChatGPT / Gemini through the Novi extension)', () => {
     const d = createSiteDriver({ request, ...fast });
     await d.ask('chatgpt', 'one');
     await d.ask('chatgpt', 'two');
+    // One tab per site, kept by the extension (so a Novi restart doesn't open another one).
     expect(calls.filter(([c]) => c === 'open').map(([, a]) => a)).toEqual([
-      { url: SITES.chatgpt.url, newTab: true, background: true },
-      { url: SITES.chatgpt.url, tabId: 5, background: true },
+      { url: SITES.chatgpt.url, slot: 'orchestrator-chatgpt', newTab: true, background: true },
+      { url: SITES.chatgpt.url, slot: 'orchestrator-chatgpt', newTab: true, background: true },
     ]);
     const opens = calls.filter(([c]) => c === 'open').length;
     await d.followUp('chatgpt', 'make it blue');
@@ -65,31 +66,33 @@ describe('AI site driver (ChatGPT / Gemini through the Novi extension)', () => {
     expect(await createSiteDriver({ request: fakeSite({ loads: false }).request, ...fast }).ask('chatgpt', 'x')).toEqual({ error: "ChatGPT didn't load in Chrome." });
   });
 
-  it('nothing starts in the background → the tab comes forward once; typing that did not land is retried in front', async () => {
+  // 2026-10-22, user: "it should do all this work in background and not by using my screen". Novi never
+  // brings a tab forward any more; a site that won't work hidden ends in words (the backup AI takes over).
+  it('never brings a tab forward: nothing starts → waits, then says so; typing that did not land → tried once more, then says so', async () => {
     const slow = fakeSite({ startsAfterForward: true });
-    expect(await createSiteDriver({ request: slow.request, ...fast }).ask('chatgpt', 'x')).toMatchObject({ text: 'Goal\n1. Build\n2. Test' });
-    expect(slow.calls.filter(([c]) => c === 'switch')).toHaveLength(1);
+    expect(await createSiteDriver({ request: slow.request, ...fast, maxMs: 20_000 }).ask('chatgpt', 'x')).toEqual({ error: "ChatGPT didn't answer in time." });
+    expect(slow.calls.some(([c]) => c === 'switch')).toBe(false);
     const stuck = fakeSite({ typing: false });
-    await createSiteDriver({ request: stuck.request, ...fast }).ask('chatgpt', 'Plan it');
+    expect(await createSiteDriver({ request: stuck.request, ...fast }).ask('chatgpt', 'Plan it')).toEqual({ error: "ChatGPT didn't take the message in the background." });
     expect(stuck.calls.filter(([c]) => c === 'typeSel')).toHaveLength(2);
+    expect(stuck.calls.some(([c]) => c === 'switch')).toBe(false);
   });
 
   it('never finishes → what came so far (marked partial), or an error if nothing came', async () => {
     const long = Array.from({ length: 400 }, (_, i) => `part ${i}`);
     expect(await createSiteDriver({ request: fakeSite({ answer: long }).request, ...fast, maxMs: 10_000 }).ask('chatgpt', 'x')).toMatchObject({ partial: true });
     const silent = fakeSite({ startsAfterForward: true });
-    const req = async (cmd, a, o) => (cmd === 'switch' ? {} : silent.request(cmd, a, o));
-    expect(await createSiteDriver({ request: req, ...fast, maxMs: 20_000 }).ask('chatgpt', 'x')).toEqual({ error: "ChatGPT didn't answer in time." });
+    expect(await createSiteDriver({ request: silent.request, ...fast, maxMs: 20_000 }).ask('chatgpt', 'x')).toEqual({ error: "ChatGPT didn't answer in time." });
   });
 
   // First live run (2026-10-20): Gemini ended with a bare "timeout" (a Chrome step over 15 s) and the
   // brief said "timeout.". Now a slow load counts as "not loaded yet", and a slow step is named.
-  it('a load wait that runs out brings the tab forward once instead of failing', async () => {
+  it('a load wait that runs out is waited once more (in the background) instead of failing', async () => {
     const site = fakeSite({ site: SITES.gemini });
     let waits = 0;
     const req = async (cmd, a, o) => { if (cmd === 'waitFor' && (waits += 1) === 1) throw new Error('timeout'); return site.request(cmd, a, o); };
     expect(await createSiteDriver({ request: req, ...fast }).ask('gemini', 'x')).toMatchObject({ text: 'Goal\n1. Build\n2. Test' });
-    expect(site.calls.some(([c]) => c === 'switch')).toBe(true);
+    expect(site.calls.some(([c]) => c === 'switch')).toBe(false);
   });
 
   it('a Chrome step that times out says which site, in words; slow steps get more time', async () => {
@@ -132,31 +135,18 @@ describe('AI site driver (ChatGPT / Gemini through the Novi extension)', () => {
 
   // Eighth live run: Gemini's text stayed "Gemini said" for 2 minutes — Chrome doesn't draw a hidden
   // tab's answer. Stuck short of the headings asked for → the tab comes forward once, then it fills in.
-  it('an answer stuck without the asked-for headings brings its tab forward once', async () => {
+  it('an answer stuck without the asked-for headings: waited out in the background, what came is kept (partial)', async () => {
     const site = fakeSite({ site: SITES.gemini, answer: ['Gemini said'] });
-    let front = false;
-    const full = 'Gemini said\nExamples\nCalculator.net\nSecurity rules\nValidate input';
-    const req = async (cmd, a, o) => {
-      if (cmd === 'switch') front = true;
-      if (cmd === 'has' && a.selector === SITES.gemini.busy) return { found: false };
-      if (cmd === 'textOf' && front) return { count: 2, text: full };
-      return site.request(cmd, a, o);
-    };
-    expect(await createSiteDriver({ request: req, ...fast }).ask('gemini', 'x', { want: ['Examples', 'Security rules'] })).toEqual({ text: full });
-    expect(site.calls.filter(([c]) => c === 'switch')).toHaveLength(1);
+    const req = async (cmd, a, o) => (cmd === 'has' && a.selector === SITES.gemini.busy ? { found: false } : site.request(cmd, a, o));
+    expect(await createSiteDriver({ request: req, ...fast, maxMs: 20_000 }).ask('gemini', 'x', { want: ['Examples', 'Security rules'] })).toEqual({ text: 'Gemini said', partial: true });
+    expect(site.calls.some(([c]) => c === 'switch')).toBe(false);
   });
 
   // Ninth live run: Gemini's "busy" marker seems to match all the time, so neither rule fired.
-  it('a busy marker that never goes away: stuck → forward, complete and still → done', async () => {
-    const site = fakeSite({ site: SITES.gemini, answer: ['Gemini said'] });
-    let front = false;
+  it('a busy marker that never goes away: complete and still → done', async () => {
     const full = 'Gemini said\nExamples\nCalculator.net\nSecurity rules\nValidate input';
-    const req = async (cmd, a, o) => {
-      if (cmd === 'switch') front = true;
-      if (cmd === 'has' && a.selector === SITES.gemini.busy) return { found: true };
-      if (cmd === 'textOf' && front) return { count: 2, text: full };
-      return site.request(cmd, a, o);
-    };
+    const site = fakeSite({ site: SITES.gemini, answer: ['Gemini said', full] });
+    const req = async (cmd, a, o) => (cmd === 'has' && a.selector === SITES.gemini.busy ? { found: true } : site.request(cmd, a, o));
     expect(await createSiteDriver({ request: req, ...fast }).ask('gemini', 'x', { want: ['Examples', 'Security rules'] })).toEqual({ text: full });
   });
 

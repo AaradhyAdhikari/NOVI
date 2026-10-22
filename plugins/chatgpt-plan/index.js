@@ -27,9 +27,10 @@ export function createSync({ dir, guideFile, runtime: rt, now = () => new Date()
   let tabId = null;
   let running = null;
 
+  // Its own tab in Novi's minimized Chrome window, kept by the extension ("slot": one tab, also after a
+  // restart), never brought forward (user, 2026-10-22: "it opens too many tabs… not by using my screen").
   async function open(request, url, selector) {
-    const known = tabId && ((await request('tabs')).tabs || []).some((t) => t.id === tabId);
-    const opened = await request('open', known ? { url, tabId, background: true } : { url, newTab: true, background: true }, { timeoutMs: 40_000 });
+    const opened = await request('open', { url, slot: 'chatgpt-plan', newTab: true, background: true }, { timeoutMs: 40_000 });
     tabId = opened?.tabId ?? tabId;
     // A hidden tab Chrome holds back can run past the wait (live 2026-10-20: "timeout") — count that as not loaded yet.
     const loaded = async () => {
@@ -40,10 +41,9 @@ export function createSync({ dir, guideFile, runtime: rt, now = () => new Date()
     };
     if (await loaded()) return null;
     if ((await request('has', { selector: LOGIN, tabId })).found) return 'Log in to ChatGPT in Chrome, then ask me to check the plan again.';
-    await request('switch', { tabId }); // Chrome holds back background tabs
-    if (await loaded()) return null;
-    log(`[chatgpt-plan] ${url}: "${selector}" never showed, even in front`);
-    return "ChatGPT didn't load in Chrome. Is the Chrome window minimized? Leave it open (it can be behind other windows) and ask again.";
+    if (await loaded()) return null; // waited once more, in the background
+    log(`[chatgpt-plan] ${url}: "${selector}" never showed in the background`);
+    return "ChatGPT didn't load in Chrome. Check chatgpt.com opens in Chrome, then ask again.";
   }
 
   // The sidebar's projects and pinned chats → Novi Memory notes, which hang off the ChatGPT dot (user,

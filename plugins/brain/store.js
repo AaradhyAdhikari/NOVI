@@ -46,6 +46,20 @@ export function openStore(file) {
     CREATE INDEX IF NOT EXISTS chunk_items_item ON chunk_items(item_id);
   `);
   if (!hadMap) db.exec("INSERT INTO chunk_items (chunk, item_id, has_text) SELECT rowid, item_id, text != '' FROM chunks"); // older brain.db: once
+  // Passages still waiting for their meaning vector (first = notes/projects 0, files 1). Finding them by
+  // scanning every passage took up to 32 s inside Novi with 350k of them (live 2026-10-22).
+  const hadTodo = db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'vec_todo'").get();
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS vec_todo (chunk INTEGER PRIMARY KEY, item_id TEXT, first INTEGER, mtime REAL);
+    CREATE INDEX IF NOT EXISTS vec_todo_order ON vec_todo(first, mtime DESC, chunk);
+    CREATE INDEX IF NOT EXISTS vec_todo_item ON vec_todo(item_id);
+  `);
+  if (!hadTodo) {
+    db.exec(`INSERT INTO vec_todo (chunk, item_id, first, mtime)
+      SELECT ci.chunk, ci.item_id, CASE i.kind WHEN 'note' THEN 0 WHEN 'project' THEN 0 ELSE 1 END, i.mtime
+      FROM chunk_items ci JOIN items i ON i.id = ci.item_id LEFT JOIN vectors v ON v.chunk = ci.chunk
+      WHERE v.chunk IS NULL AND ci.has_text = 1`); // older brain.db: once
+  }
   const q = {
     upsert: db.prepare(`INSERT INTO items (id, kind, title, path, url, project, mtime, size) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET kind = excluded.kind, title = excluded.title, path = excluded.path, url = excluded.url,
@@ -61,10 +75,19 @@ export function openStore(file) {
     del: db.prepare('DELETE FROM items WHERE id = ?'),
     delLinks: db.prepare('DELETE FROM links WHERE a = ? OR b = ?'),
     link: db.prepare('INSERT OR IGNORE INTO links (a, b, rel) VALUES (?, ?, ?)'),
+    addTodo: db.prepare("INSERT OR REPLACE INTO vec_todo (chunk, item_id, first, mtime) SELECT ?, id, CASE kind WHEN 'note' THEN 0 WHEN 'project' THEN 0 ELSE 1 END, mtime FROM items WHERE id = ?"),
+    delTodo: db.prepare('DELETE FROM vec_todo WHERE chunk = ?'),
+    delTodos: db.prepare('DELETE FROM vec_todo WHERE item_id = ?'),
+    pickTodo: db.prepare('SELECT chunk AS rowid, item_id FROM vec_todo ORDER BY first, mtime DESC, chunk LIMIT ?'),
   };
   let version = 0; // bumps when vectors change, so the in-memory matrix is rebuilt
   let queue = []; // passages picked for meaning vectors, see missingVectors
   let matrix = null; // { version, n, dims, q: Int8Array, scale: Float32Array, chunk: [], item: [] }
+  // A search that found nothing isn't repeated until something new comes in (live 2026-10-22: with every
+  // file read and every passage vectored, the two searches still ran every 1.5 s — ~2.6 s each time — and
+  // Novi was blocked for 10–40 s at a stretch).
+  let allRead = false;
+  let allVectored = false;
   // Nested calls join the outer transaction (notes call setText inside one).
   let depth = 0;
   const tx = (fn) => {
@@ -76,8 +99,9 @@ export function openStore(file) {
   const addChunk = (id, n, title, p, text) => {
     const { lastInsertRowid } = q.addChunk.run(id, n, title, p, text);
     q.addMap.run(lastInsertRowid, id, text ? 1 : 0);
+    if (text) { q.addTodo.run(lastInsertRowid, id); allVectored = false; }
   };
-  const delChunks = (id) => { q.delChunks.run(id); q.delMap.run(id); };
+  const delChunks = (id) => { q.delChunks.run(id); q.delMap.run(id); q.delTodos.run(id); };
 
   return {
     db,
@@ -85,7 +109,9 @@ export function openStore(file) {
     get: (id) => q.get.get(id) || null,
     // An item by name; with `chunks`, its searchable text too (names alone get one empty chunk).
     upsert({ id, kind, title, path: p = null, url = null, project = null, mtime = null, size = null }) {
-      const isNew = !q.get.get(id);
+      const old = q.get.get(id);
+      const isNew = !old;
+      if (kind === 'file' && (isNew || old.mtime !== mtime)) allRead = false;
       q.upsert.run(id, kind, title, p, url, project, mtime, size);
       if (isNew) addChunk(id, 0, title, p || '', '');
       return isNew;
@@ -110,16 +136,19 @@ export function openStore(file) {
       // A range on the path index (fast even with hundreds of thousands of files).
       db.prepare("UPDATE items SET project = ? WHERE kind IN ('file', 'folder') AND (path = ? OR (path >= ? AND path < ?))").run(project, folder, prefix, `${prefix}\u{10FFFF}`);
     },
-    unread: (limit) => db.prepare("SELECT * FROM items WHERE kind = 'file' AND (read_mtime IS NULL OR read_mtime != mtime) LIMIT ?").all(limit),
-    // Passages still without their meaning vector: notes and projects first, then the newest files.
-    // Picked from chunk_items (small, indexed), QUEUE at a time: the pick sorts every waiting passage
-    // (~160 ms with 300k), too slow to repeat every 1.5 s. Only the chosen passages' text is read.
+    unread(limit) {
+      if (allRead) return [];
+      const rows = db.prepare("SELECT * FROM items WHERE kind = 'file' AND (read_mtime IS NULL OR read_mtime != mtime) LIMIT ?").all(limit);
+      if (!rows.length) allRead = true;
+      return rows;
+    },
+    // Passages still without their meaning vector: notes and projects first, then the newest files —
+    // the head of the vec_todo list, QUEUE at a time. Only the chosen passages' text is read.
     missingVectors(limit) {
       if (!queue.length) {
-        queue = db.prepare(`SELECT ci.chunk AS rowid, ci.item_id AS item_id FROM chunk_items ci
-          JOIN items i ON i.id = ci.item_id LEFT JOIN vectors v ON v.chunk = ci.chunk
-          WHERE v.chunk IS NULL AND ci.has_text = 1
-          ORDER BY CASE i.kind WHEN 'note' THEN 0 WHEN 'project' THEN 0 ELSE 1 END, i.mtime DESC, ci.chunk LIMIT ?`).all(Math.max(limit, QUEUE));
+        if (allVectored) return [];
+        queue = q.pickTodo.all(Math.max(limit, QUEUE));
+        if (!queue.length) { allVectored = true; return []; }
       }
       const text = db.prepare('SELECT text FROM chunks WHERE rowid = ?');
       const out = [];
@@ -131,7 +160,7 @@ export function openStore(file) {
       return out;
     },
     addVectors(rows) {
-      tx(() => { for (const r of rows) q.addVector.run(r.rowid, r.item_id, Buffer.from(r.q.buffer, r.q.byteOffset, r.q.byteLength), r.scale); });
+      tx(() => { for (const r of rows) { q.addVector.run(r.rowid, r.item_id, Buffer.from(r.q.buffer, r.q.byteOffset, r.q.byteLength), r.scale); q.delTodo.run(r.rowid); } });
       version += 1;
     },
     // The k passages closest in meaning to a unit vector (int8 dot products), optionally one project's.
@@ -170,7 +199,7 @@ export function openStore(file) {
         read: count("SELECT COUNT(*) n FROM items WHERE kind = 'file' AND read_mtime IS NOT NULL AND read_mtime = mtime AND id IN (SELECT item_id FROM chunk_items WHERE has_text = 1)"),
         pending: count("SELECT COUNT(*) n FROM items WHERE kind = 'file' AND (read_mtime IS NULL OR read_mtime != mtime)"),
         vectors: count('SELECT COUNT(*) n FROM vectors'),
-        unvectored: count('SELECT COUNT(*) n FROM chunk_items ci LEFT JOIN vectors v ON v.chunk = ci.chunk WHERE v.chunk IS NULL AND ci.has_text = 1'),
+        unvectored: count('SELECT COUNT(*) n FROM vec_todo'),
       };
     },
     close() { try { db.close(); } catch { /* already closed */ } },

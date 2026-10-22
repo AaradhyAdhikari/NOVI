@@ -44,7 +44,7 @@ describe('extension groups: links under the sidebar heading above them', () => {
       { heading: 'Recents', items: [{ text: 'Diet', href: '/c/bbb' }] },
     ] });
     expect(readExt('background.js')).toMatch(/'groups'/);
-    expect(JSON.parse(readExt('manifest.json')).version).toBe('1.7.0');
+    expect(JSON.parse(readExt('manifest.json')).version).toBe('1.8.3');
   });
 });
 
@@ -145,20 +145,21 @@ describe('sync: ChatGPT projects and pinned chats become notes', () => {
     expect(clicks[1]).toMatch(/Close sidebar/);
   });
 
-  it('a hidden tab that times out is brought forward once instead of failing', async () => {
+  // 2026-10-22, user: "it opens too many tabs… do all this work in background and not by using my screen".
+  it('its own tab in Novi\'s window (one, kept by the extension); a wait that times out is waited once more, never brought forward', async () => {
     const dir = mkdir();
     fs.writeFileSync(path.join(dir, 'chat.json'), JSON.stringify({ title: 'NOVI' }));
     let waits = 0;
     const calls = [];
-    const request = async (cmd) => {
+    const request = async (cmd, args) => {
       calls.push(cmd);
-      if (cmd === 'open') return { tabId: 7 };
+      if (cmd === 'open') { expect(args).toMatchObject({ slot: 'chatgpt-plan', background: true }); expect(args.newTab).toBe(true); return { tabId: 7 }; }
       if (cmd === 'waitFor') { waits += 1; if (waits === 1) throw new Error('timeout'); return { found: true }; }
       if (cmd === 'groups') return { groups: side([['NOVI', '/g/g-p-1/project']], null) };
       return {};
     };
     const out = await createSync({ dir, guideFile: 'none', runtime: { browserRequest: request, browserStatus: () => ({ connected: true }), wikiWrite: () => {} } })();
-    expect(calls).toContain('switch');
+    expect(calls).not.toContain('switch');
     expect(out.note).toMatch(/1 project \(NOVI\)/);
   });
 

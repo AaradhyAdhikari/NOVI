@@ -5,6 +5,7 @@ import { createIngest } from './ingest.js';
 import { searchBrain, contextFor, hybridSearch, aboutOwnThings, namedProject } from './search.js';
 import { createEmbedder, quantize } from './embed.js';
 import { createWorkerReader } from './reader.js';
+import { createWorkerEmbedder } from './embedWorker.js';
 
 // Novi's second brain, Part 1 (2026-10-18, spec docs/superpowers/specs/2026-10-18-novi-second-brain-design.md):
 // every file and folder by name, the words inside every readable file, projects and notes in one SQLite
@@ -66,7 +67,8 @@ export function createBrainPlugin({ dbFile = null, autoStart = true, syncEveryMs
         // NOVI_PLUGIN_BRAIN_MEANING=off in .env keeps meaning search (and its one-time download) off.
         embedder = givenEmbedder || (api.pluginConfig?.meaning === 'off'
           ? { ready: () => false, starting: () => false, start: async () => null, broken: () => 'turned off in .env', embed: async () => null }
-          : createEmbedder({ dir: path.join(rt.dataDir || '.', 'brain', 'models'), log }));
+          // In its own thread (useWorker): the model's run() holds whichever thread calls it (2026-10-22).
+          : (useWorker ? createWorkerEmbedder : createEmbedder)({ dir: path.join(rt.dataDir || '.', 'brain', 'models'), log }));
         return true;
       };
       let embedder = null;
@@ -111,7 +113,7 @@ export function createBrainPlugin({ dbFile = null, autoStart = true, syncEveryMs
           setTimeout(() => { sync().then(() => { embedder.start(); step(); }); }, 20_000).unref?.();
           if (syncEveryMs > 0) setInterval(sync, syncEveryMs).unref?.();
         },
-        stop() { reader?.close(); reader = null; },
+        stop() { reader?.close(); reader = null; embedder?.close?.(); },
       });
 
       api.registerTool({

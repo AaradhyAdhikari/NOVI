@@ -85,7 +85,7 @@ describe('claude.ai Projects through Chrome', () => {
     const web = createClaudeWeb({ request: c.request, ...quick });
     expect(await web.list()).toEqual({ names: ['Novi', 'Old notes'], projects: [{ name: 'Novi', url: 'https://claude.ai/project/p1' }, { name: 'Old notes', url: 'https://claude.ai/project/p2' }] });
     expect(c.calls.find(([cmd]) => cmd === 'query')[1]).toMatchObject({ firstLine: true, attr: 'href', scrollLast: true });
-    expect(c.calls[0]).toEqual(['open', { url: 'https://claude.ai/projects', newTab: true, background: true }]);
+    expect(c.calls[0]).toEqual(['open', { url: 'https://claude.ai/projects', slot: 'claude-link', newTab: true, background: true }]);
   });
 
   it('reads the whole list: scrolls until no new projects show up', async () => {
@@ -414,17 +414,20 @@ describe('claude.ai projects without Chrome', () => {
 describe('claude.ai project for every build — never forgotten', () => {
   const quick = { sleep: async () => {}, pollMs: 1, maxMs: 50 };
 
-  it('a page that does not load in the background: the tab comes forward and it goes on', async () => {
+  // 2026-10-22, user: "it opens too many tabs… do all this work in background and not by using my screen".
+  it('its own tab in Novi\'s window; a page slow to load is waited once more in the background, never brought forward', async () => {
     const c = fakeChrome();
     let waits = 0;
-    let front = false;
+    const opens = [];
     const req = async (cmd, a) => {
-      if (cmd === 'switch') { front = true; return {}; }
-      if (cmd === 'waitFor' && !front && (waits += 1)) throw new Error('timeout');
+      if (cmd === 'switch') throw new Error('brought forward');
+      if (cmd === 'open') opens.push(a);
+      if (cmd === 'waitFor' && (waits += 1) === 1) throw new Error('timeout');
       return c.request(cmd, a);
     };
     expect(await createClaudeWeb({ request: req, ...quick }).make({ name: 'Tip calculator', description: 'x' })).toEqual({ url: 'https://claude.ai/project/0193-abc' });
-    expect(front).toBe(true);
+    expect(opens[0]).toMatchObject({ slot: 'claude-link', newTab: true, background: true });
+    expect(opens[0].newTab).toBe(true); // an older extension still opens its own background tab, never yours
   });
 
   it('still not loaded: the error says where the tab ended up', async () => {
