@@ -23,7 +23,9 @@ export function sqliteAvailable() {
   try { loadSqlite(); return true; } catch { return false; }
 }
 
-export function openStore(file) {
+// refreshMs: how often another connection's new vectors are picked up (the search worker: every 10 min,
+// not on every search — loading 350k vectors takes seconds).
+export function openStore(file, { refreshMs = 0 } = {}) {
   const { DatabaseSync } = loadSqlite();
   if (file !== ':memory:') fs.mkdirSync(path.dirname(file), { recursive: true });
   const db = new DatabaseSync(file);
@@ -79,6 +81,7 @@ export function openStore(file) {
     delTodo: db.prepare('DELETE FROM vec_todo WHERE chunk = ?'),
     delTodos: db.prepare('DELETE FROM vec_todo WHERE item_id = ?'),
     pickTodo: db.prepare('SELECT chunk AS rowid, item_id FROM vec_todo ORDER BY first, mtime DESC, chunk LIMIT ?'),
+    newestVector: db.prepare('SELECT MAX(chunk) AS m FROM vectors'),
   };
   let version = 0; // bumps when vectors change, so the in-memory matrix is rebuilt
   let queue = []; // passages picked for meaning vectors, see missingVectors
@@ -165,12 +168,15 @@ export function openStore(file) {
     },
     // The k passages closest in meaning to a unit vector (int8 dot products), optionally one project's.
     nearest(vec, k = 20, project = null) {
-      if (!matrix || matrix.version !== version) {
+      // Rebuilt when this connection added vectors, or another one did (the search worker reads the
+      // file the main thread writes: a new newest vector).
+      const newest = q.newestVector.get()?.m ?? null;
+      if (!matrix || matrix.version !== version || (matrix.newest !== newest && Date.now() - matrix.at >= refreshMs)) {
         const rows = db.prepare('SELECT v.chunk AS chunk, v.item_id AS item_id, v.v AS v, v.scale AS scale, i.project AS project FROM vectors v JOIN items i ON i.id = v.item_id').all();
         const dims = rows[0] ? rows[0].v.length : vec.length;
         const qm = new Int8Array(rows.length * dims);
         rows.forEach((r, i) => qm.set(new Int8Array(r.v.buffer, r.v.byteOffset, dims), i * dims));
-        matrix = { version, n: rows.length, dims, q: qm, scale: Float32Array.from(rows.map((r) => r.scale)), chunk: rows.map((r) => r.chunk), item: rows.map((r) => r.item_id), project: rows.map((r) => r.project) };
+        matrix = { version, newest, at: Date.now(), n: rows.length, dims, q: qm, scale: Float32Array.from(rows.map((r) => r.scale)), chunk: rows.map((r) => r.chunk), item: rows.map((r) => r.item_id), project: rows.map((r) => r.project) };
       }
       const m = matrix;
       const best = [];

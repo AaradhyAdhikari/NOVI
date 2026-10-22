@@ -15,7 +15,11 @@ export function phraseKey(text) {
 }
 
 // Tools that change, send, delete or depend on what came just before — never replayed.
-const NEVER = /^(?:code_|whatsapp_|browser_|screen_(?!show$)|laptop_(?:run|power|window|clipboard|radio)|file_(?:delete|gather|undo_move|rename|new_folder|summary)|note_write|memory_remember|reminder_|timer_|calendar_add|tasks_(?:add|complete)|rename_project|forget_|remember_|preview_stop)|_(?:send|delete|add|write|mark_read|set)$/;
+// A question never becomes a shortcut to an action (live 2026-10-22: "what is my tip calculator project
+// about" was learned as "open it in VS Code" because the AI did that once).
+const QUESTION = /^(?:what|whats|where|wheres|when|why|how|who|which|is|are|does|do|did|tell me|kya|kaha|kahan|kab|kaise|kaun)\b/;
+const ACTION_TOOL = /^(?:open_|play_|file_open|preview_open|launch)/;
+const NEVER =/^(?:code_|whatsapp_|browser_|screen_(?!show$)|laptop_(?:run|power|window|clipboard|radio)|file_(?:delete|gather|undo_move|rename|new_folder|summary)|note_write|memory_remember|reminder_|timer_|calendar_add|tasks_(?:add|complete)|rename_project|forget_|remember_|preview_stop)|_(?:send|delete|add|write|mark_read|set)$/;
 const POINTS_BACK = /\b(?:it|this|that|these|those|her|him|them|usko|isko|again|same|previous|last one)\b/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -76,6 +80,7 @@ export function createShortcuts({ file, now = () => new Date(), max = 300, seeds
       const key = phraseKey(text);
       if (!tool || asked || NEVER.test(tool) || !output || output.error) return false;
       if (key.split(' ').length < 2 || POINTS_BACK.test(key)) return false;
+      if (QUESTION.test(key) && ACTION_TOOL.test(tool)) return false;
       return Boolean(replyFrom(output) || output.instructions);
     },
     learn(text, run) {

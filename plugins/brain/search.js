@@ -5,7 +5,9 @@ import path from 'node:path';
 const STOP = new Set(('a an the is are was were be been am do does did done to of in on at for from with about and or not no it its this that these those ' +
   'what whats when where which who whom why how can could would should will shall may might must have has had i me my mine we our you your ' +
   'he she they them his her their there here tell show find give get please novi hey okay ok write wrote written say said know any some all ' +
-  'kya hai hain ka ki ke ko mein me mera meri mere kab kaha kahan kaise').split(' '));
+  'kya hai hain ka ki ke ko mein me mera meri mere kab kaha kahan kaise ' +
+  // Command words say what to do, not what to look for, and "open*" matched nearly every passage (2026-10-22).
+  'open close start launch play browse visit go run search check see look list send set turn put take website site page link now right laptop chrome browser').split(' '));
 const MAX_PASSAGES = 6;
 const MAX_CHARS = 1500;
 const SNIPPET = 280;
@@ -55,11 +57,17 @@ export function searchBrain(store, query, { project = null, limit = 6 } = {}) {
 // Keyword hits + meaning hits (the local model), fused by rank. A passage found only by meaning must be
 // close enough (the model's own minSim). No model yet, or it fails → keyword hits only.
 export async function hybridSearch(store, query, { embedder = null, project = null, limit = 6 } = {}) {
-  const kw = searchBrain(store, query, { project, limit: 20 });
   let qv = null;
   try { if (embedder?.ready?.()) [qv] = (await embedder.embed([query], 'query')) || []; } catch { qv = null; }
+  return fusedSearch(store, query, qv, { project, limit, minSim: embedder?.minSim });
+}
+
+// The same with the query's meaning vector already made (qv, or null = keywords only) — what the search
+// worker runs on its own connection.
+export function fusedSearch(store, query, qv, { project = null, limit = 6, minSim = 0.83 } = {}) {
+  minSim ??= 0.83;
+  const kw = searchBrain(store, query, { project, limit: 20 });
   if (!qv) return kw.slice(0, limit);
-  const minSim = embedder.minSim ?? 0.83;
   const words = queryWords(query);
   const fused = new Map(kw.map((h, r) => [h.id, { ...h, rrf: 1 / (60 + r) }]));
   store.nearest(qv, 20, project).forEach((n, r) => {
@@ -81,7 +89,10 @@ export function namedProject(prompt, projects = []) {
   const lower = String(prompt || '').toLowerCase();
   return projects.find((p) => p && new RegExp(`(?<![\\p{L}\\p{N}])${p.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}])`, 'u').test(lower)) || null;
 }
-export const aboutOwnThings = (prompt, projects = []) => OWN.test(String(prompt || '')) || Boolean(namedProject(prompt, projects));
+// A command ("open my github profile", "play my playlist") is something to do, not a question about your
+// files: it never waits for a search (live 2026-10-22: that search held "open my github profile" for seconds).
+const ACTION = /^\s*(?:(?:ok(?:ay)?|hey novi|novi|please|can you|could you|now)[,\s]+)*(?:open|close|play|pause|resume|stop|start|launch|turn|set|go to|send|message|text|call|search|google|browse|visit|mute|unmute|lock|shut|restart|switch)\b/i;
+export const aboutOwnThings = (prompt, projects = []) => !ACTION.test(String(prompt || '')) && (OWN.test(String(prompt || '')) || Boolean(namedProject(prompt, projects)));
 
 // hits: already searched (hybridSearch, with meaning); else a keyword search here.
 export function contextFor(store, prompt, { projects = [], hits: given = null } = {}) {

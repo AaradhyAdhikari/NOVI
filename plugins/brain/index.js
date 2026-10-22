@@ -6,6 +6,7 @@ import { searchBrain, contextFor, hybridSearch, aboutOwnThings, namedProject } f
 import { createEmbedder, quantize } from './embed.js';
 import { createWorkerReader } from './reader.js';
 import { createWorkerEmbedder } from './embedWorker.js';
+import { createSearchWorker } from './searchWorker.js';
 
 // Novi's second brain, Part 1 (2026-10-18, spec docs/superpowers/specs/2026-10-18-novi-second-brain-design.md):
 // every file and folder by name, the words inside every readable file, projects and notes in one SQLite
@@ -26,7 +27,8 @@ export async function embedSome(store, embedder, n = 16) {
   return rows.length;
 }
 
-export function createBrainPlugin({ dbFile = null, autoStart = true, syncEveryMs = 15 * 60_000, readEveryMs = 1500, batch = 4, embedder: givenEmbedder = null, embedBatch = 16, useWorker = true, quietMs = 4000 } = {}) {
+// contextMs: how long an AI turn waits for evidence from your files before going on without it.
+export function createBrainPlugin({ dbFile = null, autoStart = true, syncEveryMs = 15 * 60_000, readEveryMs = 1500, batch = 4, embedder: givenEmbedder = null, embedBatch = 16, useWorker = true, quietMs = 4000, search: givenSearch = null, contextMs = 2500 } = {}) {
   return definePluginEntry({
     id: 'brain',
     name: 'Second brain',
@@ -72,6 +74,23 @@ export function createBrainPlugin({ dbFile = null, autoStart = true, syncEveryMs
         return true;
       };
       let embedder = null;
+      // Searches run in their own thread (own connection to brain.db): on the main thread one search held
+      // Novi for 7–10 s before the AI could start (live 2026-10-22: "open my github profile" took 27 s).
+      let searcher = null;
+      const dbPath = () => dbFile || path.join(rt.dataDir || '.', 'brain', 'brain.db');
+      const inThread = () => useWorker && dbPath() !== ':memory:';
+      async function find(query, opts) {
+        if (givenSearch) return givenSearch(query, opts);
+        if (!inThread()) return hybridSearch(store, query, { embedder, ...opts });
+        searcher ||= createSearchWorker({ file: dbPath() });
+        let qv = null;
+        try { if (embedder?.ready?.()) [qv] = (await embedder.embed([query], 'query')) || []; } catch { qv = null; }
+        return searcher.search({ query, qv, ...opts, minSim: embedder?.minSim });
+      }
+      const within = (p, ms) => new Promise((resolve) => {
+        const timer = setTimeout(() => resolve(null), ms);
+        p.then((v) => { clearTimeout(timer); resolve(v); }, () => { clearTimeout(timer); resolve(null); });
+      });
       let reading = false;
       async function readAll({ respectBusy = false } = {}) {
         if (reading) return;
@@ -95,6 +114,7 @@ export function createBrainPlugin({ dbFile = null, autoStart = true, syncEveryMs
         async start() {
           if (!autoStart) return;
           if (!ready()) { log(`[brain] ${OFF}`); return; }
+          if (inThread()) (searcher ||= createSearchWorker({ file: dbPath() })).start(); // loads its vectors now, not on your first question
           const sync = async () => {
             if (paused()) { setTimeout(sync, 30_000).unref?.(); return; } // not while the user is talking to Novi
             await ingest.syncAll().catch((err) => log(`[brain] sync failed: ${err.message}`));
@@ -113,7 +133,7 @@ export function createBrainPlugin({ dbFile = null, autoStart = true, syncEveryMs
           setTimeout(() => { sync().then(() => { embedder.start(); step(); }); }, 20_000).unref?.();
           if (syncEveryMs > 0) setInterval(sync, syncEveryMs).unref?.();
         },
-        stop() { reader?.close(); reader = null; embedder?.close?.(); },
+        stop() { reader?.close(); reader = null; embedder?.close?.(); searcher?.close(); searcher = null; },
       });
 
       api.registerTool({
@@ -122,7 +142,7 @@ export function createBrainPlugin({ dbFile = null, autoStart = true, syncEveryMs
         parameters: obj({ query: { type: 'string', description: 'What to look for' }, project: { type: 'string', description: 'Only this project (optional)' } }, ['query']),
         async execute(_id, { query, project } = {}) {
           if (!ready()) return reply({ error: OFF });
-          const results = (await hybridSearch(store, query, { embedder, project: project ? String(project).toLowerCase() : null, limit: 8 }))
+          const results = (await find(query, { project: project ? String(project).toLowerCase() : null, limit: 8 }))
             .map(({ kind, title, path: p, project: pr, snippet }) => ({ kind, title, path: p, project: pr, snippet: snippet.slice(0, 160) }));
           return reply({ results, note: results.length ? null : `Nothing in your brain matches "${query}".` });
         },
@@ -149,7 +169,15 @@ export function createBrainPlugin({ dbFile = null, autoStart = true, syncEveryMs
         try {
           const projects = projectNames();
           if (!aboutOwnThings(prompt, projects)) return undefined;
-          const hits = await hybridSearch(store, prompt, { embedder, project: namedProject(prompt, projects), limit: 12 });
+          // Your files only if they answer quickly: an AI turn never waits more than contextMs for them.
+          const started = Date.now();
+          const search = find(prompt, { project: namedProject(prompt, projects), limit: 12 });
+          const hits = await within(search, contextMs);
+          if (!hits) {
+            log(`[brain] your files took over ${contextMs / 1000} s; this answer goes without them`);
+            search.then(() => log(`[brain] (that search took ${Date.now() - started} ms)`), () => {});
+            return undefined;
+          }
           const ctx = contextFor(store, prompt, { projects, hits });
           return ctx.text ? { appendContext: ctx.text, sensitive: true } : undefined;
         } catch (err) { log(`[brain] context failed: ${err.message}`); return undefined; }

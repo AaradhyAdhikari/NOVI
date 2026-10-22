@@ -97,3 +97,15 @@ describe('starter shortcuts', () => {
     expect(replyFrom({ spoken: 'Morning! Sunny.', text: 'Say this: Morning! Sunny.\n\nDetails:\nWeather: 30°' })).toBe('Morning! Sunny.\n\nWeather: 30°');
   });
 });
+
+// Live 2026-10-22: "what is my tip calculator project about" was learned as "open it in VS Code" (the AI
+// happened to open the editor once). A question never becomes a shortcut to an action.
+describe('a question is never a shortcut to an action', () => {
+  it('questions learn only answers; commands still learn actions', () => {
+    const s = createShortcuts({ file: path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'sc-q-')), 'sc.json') });
+    expect(s.learn('what is my tip calculator project about', { tool: 'open_project', args: { project: 'tip calculator' }, output: { opened: true, note: 'Opened tip calculator in VS Code.' } })).toBe(false);
+    expect(s.learn('where is my github profile', { tool: 'open_website', args: { target: 'https://github.com/x' }, output: { opened: true, note: 'Opened.' } })).toBe(false);
+    expect(s.learn('what is the weather today', { tool: 'weather_get', args: { when: 'today' }, output: { text: 'Sunny, 30°.' } })).toBe(true);
+    expect(s.learn('open my github profile', { tool: 'open_website', args: { target: 'https://github.com/x' }, output: { opened: true, note: 'Opened.' } })).toBe(true);
+  });
+});
