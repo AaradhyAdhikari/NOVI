@@ -14,7 +14,6 @@ const str = (description) => ({ type: 'string', description });
 const key = (s) => String(s || '').trim().toLowerCase();
 const samePath = (a, b) => path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
 const count = (n, one, many) => `${n} ${n === 1 ? one : many}`;
-const NO_CHROME = "Chrome isn't connected, so I can't reach claude.ai. Open Chrome with the Novi extension and ask again.";
 
 export function createClaudeLinkPlugin({ driver = null, listCode = () => listClaudeCodeProjects(), track = (p) => p.catch(() => {}), now = () => new Date(), syncEveryMs = 30 * 60_000, webEveryMs = 3 * 3600_000 } = {}) {
   return definePluginEntry({
@@ -123,9 +122,18 @@ export function createClaudeLinkPlugin({ driver = null, listCode = () => listCla
             if (connected() && (!state.webAt || now() - new Date(state.webAt) > webEveryMs)) {
               try { const list = await getWeb().list(); if (list.names) syncWeb(list); } catch (err) { log(`[claude-link] claude.ai sync failed: ${err.message}`); }
             }
+            // Projects that didn't reach claude.ai yet (Chrome was closed, or the page failed).
+            await retryMakes();
           };
           setTimeout(run, 30_000).unref?.();
           if (syncEveryMs > 0) setInterval(run, syncEveryMs).unref?.();
+          // Chrome just connected → the projects waiting for it are made now, not at the next 30-min run.
+          let wasConnected = connected();
+          setInterval(() => {
+            const on = connected();
+            if (on && !wasConnected && Object.keys(state.toMake || {}).length) retryMakes().catch((err) => log(`[claude-link] ${err.message}`));
+            wasConnected = on;
+          }, 60_000).unref?.();
         },
       });
 
@@ -184,7 +192,24 @@ export function createClaudeLinkPlugin({ driver = null, listCode = () => listCla
 
       // The claude.ai project for one of Novi's projects, in the background. quiet: only say how it went
       // when it worked or needs the user (the automatic runs).
-      async function make({ project, description, display }) {
+      // Projects still to make on claude.ai (user, 2026-10-21: "whenever I tell Novi to build something it
+      // should add that in Claude projects" — the Tip calculator never got there). Chrome closed or the
+      // page failing → the project waits here and is tried again until it is made.
+      const remember = ({ project, description, display }) => {
+        (state.toMake ||= {})[key(project)] = { project, description: description || '', display, since: state.toMake?.[key(project)]?.since || now().toISOString() };
+        save();
+      };
+      async function retryMakes() {
+        if (!connected()) return;
+        for (const [k, job] of Object.entries(state.toMake || {})) {
+          if (state.linked[k]) { delete state.toMake[k]; save(); continue; }
+          if (pending.has(k)) continue;
+          await make({ ...job, quiet: true }).catch((err) => log(`[claude-link] ${err.message}`));
+        }
+      }
+      if (api.runtime) api.runtime.claudeRetryMakes = retryMakes;
+
+      async function make({ project, description, display, quiet = false }) {
         const k = key(project);
         pending.add(k);
         try {
@@ -205,7 +230,13 @@ export function createClaudeLinkPlugin({ driver = null, listCode = () => listCla
             brief ? `The latest plan:\n${brief.slice(0, 3000)}` : '',
           ].filter(Boolean).join('\n\n');
           const out = await getWeb().make({ name: display, description: about || `The ${display} project`, instructions });
-          if (out.error) { rt.say?.(out.error, { kind: null }); return; }
+          if (out.error) {
+            remember({ project, description, display });
+            log(`[claude-link] making ${display} on claude.ai failed: ${out.error}`);
+            if (!quiet) rt.say?.(`${out.error} I'll keep trying to put ${display} on claude.ai.`, { kind: null });
+            return;
+          }
+          if (state.toMake?.[k]) delete state.toMake[k];
           state.linked[k] = { url: out.url, at: now().toISOString() };
           state.web = [...state.web, display];
           state.webProjects = [...(state.webProjects || []), { name: display, url: out.url }];
@@ -227,7 +258,10 @@ export function createClaudeLinkPlugin({ driver = null, listCode = () => listCla
           const display = displayOf(at, project);
           const linked = state.linked[k];
           if (linked) return reply({ note: linked.url ? `${display} is already on claude.ai: ${linked.url}` : `${display} is already on claude.ai.` });
-          if (!connected()) return reply({ error: NO_CHROME });
+          if (!connected()) {
+            remember({ project: at.name, description, display });
+            return reply({ note: `Chrome isn't connected, so I can't reach claude.ai right now. I'll make ${display} on claude.ai as soon as it is (open Chrome with the Novi extension).` });
+          }
           if (pending.has(k)) return reply({ note: `I'm already making ${display} on claude.ai.` });
           track(make({ project: at.name, description, display }).catch((err) => { log(`[claude-link] ${err.message}`); rt.say?.(`Making ${display} on claude.ai failed: ${err.message}`, { kind: null }); }));
           return reply({ note: `Making the ${display} project on claude.ai in Chrome…` });
@@ -296,9 +330,10 @@ export function createClaudeLinkPlugin({ driver = null, listCode = () => listCla
           save();
           rt.wikiWrite?.({ title: `${displayOf(at, project)} project`, text: `Folder: ${at.path}${toolName === 'code_new_project' && params.description ? `\nAbout: ${params.description}` : ''}` });
         }
-        if (!connected()) return;
         if (state.linked[k] || pending.has(k)) return;
-        track(make({ project: at.name, description: toolName === 'code_new_project' ? params.description : '', display: displayOf(at, project) }).catch((err) => log(`[claude-link] ${err.message}`)));
+        const job = { project: at.name, description: toolName === 'code_new_project' ? params.description : '', display: displayOf(at, project) };
+        if (!connected()) { remember(job); return; } // made once Chrome is back
+        track(make(job).catch((err) => { remember(job); log(`[claude-link] ${err.message}`); }));
       });
     },
   });

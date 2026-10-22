@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -155,7 +155,8 @@ function setup({ known = [], web = {}, connected = true, codeProjects = [], data
   const host = new PluginHost({ runtime, logger: { warn() {}, info() {} } });
   expect(host.register(createClaudeLinkPlugin({ driver, listCode: () => codeProjects, track: (p) => jobs.push(p), now: () => new Date(2026, 9, 18) }))).toBe(true);
   const run = (name, args = {}) => host.get(name).run(args);
-  return { host, run, remembered, notes, made, jobs, dataDir, opened, runtime, recased };
+  const retryMakes = () => runtime.claudeRetryMakes();
+  return { host, run, remembered, notes, made, jobs, dataDir, opened, runtime, recased, retryMakes };
 }
 
 describe('claude-link plugin', () => {
@@ -236,9 +237,13 @@ describe('claude-link plugin', () => {
     expect(s.made).toEqual([]);
   });
 
-  it('make: Chrome not connected or an unknown project → said plainly', async () => {
-    expect((await setup({ known: [{ name: 'portfolio', path: '/p/P' }], connected: false }).run('claude_project_make', { project: 'portfolio' })).error)
-      .toMatch(/Chrome isn't connected/);
+  it('make: Chrome not connected → kept for later and said plainly; an unknown project → said plainly', async () => {
+    const off = setup({ known: [{ name: 'portfolio', path: '/p/Portfolio' }], connected: false });
+    expect((await off.run('claude_project_make', { project: 'portfolio' })).note)
+      .toMatch(/Chrome isn't connected.*I'll make Portfolio on claude\.ai as soon as it is/);
+    off.runtime.browserStatus = () => ({ connected: true });
+    await off.retryMakes();
+    expect(off.made.map((m) => m.name)).toEqual(['Portfolio']);
     expect((await setup().run('claude_project_make', { project: 'nope' })).error).toMatch(/don't know a project called nope/);
   });
 
@@ -401,5 +406,98 @@ describe('claude.ai projects without Chrome', () => {
     s.runtime.privateComplete = async () => 'ok';
     expect((await s.run('project_status', { project: 'flexr' })).note).toBe('Checking FLEXR…');
     expect((await s.run('claude_project_open', { project: 'flexr' })).note).toBe('Opened FLEXR on claude.ai.');
+  });
+});
+
+// Live 2026-10-21: "let's build a tiny tip calculator app" → the project was built, but it never
+// appeared on claude.ai: "claude.ai didn't load in Chrome" (a hidden tab), and nothing tried again.
+describe('claude.ai project for every build — never forgotten', () => {
+  const quick = { sleep: async () => {}, pollMs: 1, maxMs: 50 };
+
+  it('a page that does not load in the background: the tab comes forward and it goes on', async () => {
+    const c = fakeChrome();
+    let waits = 0;
+    let front = false;
+    const req = async (cmd, a) => {
+      if (cmd === 'switch') { front = true; return {}; }
+      if (cmd === 'waitFor' && !front && (waits += 1)) throw new Error('timeout');
+      return c.request(cmd, a);
+    };
+    expect(await createClaudeWeb({ request: req, ...quick }).make({ name: 'Tip calculator', description: 'x' })).toEqual({ url: 'https://claude.ai/project/0193-abc' });
+    expect(front).toBe(true);
+  });
+
+  it('still not loaded: the error says where the tab ended up', async () => {
+    const c = fakeChrome();
+    const req = async (cmd, a) => {
+      if (cmd === 'waitFor') return { found: false };
+      if (cmd === 'tabs') return { tabs: [{ id: 7, url: 'https://claude.ai/new' }] };
+      return c.request(cmd, a);
+    };
+    expect((await createClaudeWeb({ request: req, ...quick }).make({ name: 'X' })).error).toMatch(/claude\.ai didn't show the new-project page \(the tab is on claude\.ai\/new\)/);
+  });
+
+  it('slow steps get more time, and a step Chrome never answers is named (live: a bare "timeout")', async () => {
+    const c = fakeChrome();
+    const asked = [];
+    const req = async (cmd, a, o) => {
+      asked.push([cmd, o?.timeoutMs]);
+      if (cmd === 'typeSel') throw new Error('timeout');
+      return c.request(cmd, a);
+    };
+    const out = await createClaudeWeb({ request: req, ...quick }).make({ name: 'Tip calculator' });
+    expect(out.error).toBe("Chrome didn't answer in time while typing the project name on claude.ai. Try again in a moment.");
+    expect(asked.find(([cmd]) => cmd === 'open')[1]).toBe(40_000);
+    expect(asked.find(([cmd]) => cmd === 'typeSel')[1]).toBe(30_000);
+  });
+
+  it('list: an icon on a card (no letters) is not a project, and one link counts once (live: "" next to Tip calculator)', async () => {
+    const req = async (cmd) => {
+      if (cmd === 'open') return { tabId: 7 };
+      if (cmd === 'tabs') return { tabs: [{ id: 7, url: 'https://claude.ai/projects' }] };
+      if (cmd === 'waitFor') return { found: true };
+      if (cmd === 'query') return { texts: ['', 'Tip calculator', 'Tip calculator copy', 'NOVI'], values: ['/project/1', '/project/1', '/project/1', '/project/2'] };
+      return {};
+    };
+    expect(await createClaudeWeb({ request: req, ...quick }).list()).toEqual({
+      names: ['Tip calculator', 'NOVI'],
+      projects: [{ name: 'Tip calculator', url: 'https://claude.ai/project/1' }, { name: 'NOVI', url: 'https://claude.ai/project/2' }],
+    });
+  });
+
+  it('Chrome closed when the build starts: the project waits on a list and is made once Chrome is back', async () => {
+    const s = setup({ known: [{ name: 'tip calculator', path: '/p/Tip calculator' }], connected: false });
+    await s.host.afterToolCall({ toolName: 'code_new_project', params: { name: 'Tip calculator', description: 'A tip calculator' }, result: { created: '/p/Tip calculator', project: 'tip calculator' } });
+    expect(s.made).toEqual([]);
+    s.runtime.browserStatus = () => ({ connected: true });
+    await s.retryMakes();
+    expect(s.made.map((m) => m.name)).toEqual(['Tip calculator']);
+    await s.retryMakes();
+    expect(s.made).toHaveLength(1); // made once, then off the list
+  });
+
+  it('a make that fails stays on the list and is tried again', async () => {
+    const s = setup({ known: [{ name: 'tip calculator', path: '/p/Tip calculator' }], web: { make: { error: "claude.ai didn't load in Chrome." } } });
+    await s.host.afterToolCall({ toolName: 'code_new_project', params: { name: 'Tip calculator' }, result: { created: '/p/Tip calculator', project: 'tip calculator' } });
+    await Promise.all(s.jobs);
+    expect(s.made).toHaveLength(1);
+    await s.retryMakes();
+    expect(s.made).toHaveLength(2);
+    expect(JSON.parse(fs.readFileSync(path.join(s.dataDir, 'claude-link.json'), 'utf8')).toMake).toHaveProperty(['tip calculator']);
+  });
+
+  it('a project waiting for Chrome is made within a minute of Chrome connecting (not 30 min later)', async () => {
+    vi.useFakeTimers();
+    try {
+      const s = setup({ known: [{ name: 'tip calculator', path: '/p/Tip calculator' }], connected: false });
+      await s.host.startServices();
+      await s.host.afterToolCall({ toolName: 'code_new_project', params: { name: 'Tip calculator' }, result: { created: '/p/Tip calculator', project: 'tip calculator' } });
+      await vi.advanceTimersByTimeAsync(61_000);
+      expect(s.made).toEqual([]);
+      s.runtime.browserStatus = () => ({ connected: true });
+      await vi.advanceTimersByTimeAsync(61_000);
+      expect(s.made.map((m) => m.name)).toEqual(['Tip calculator']);
+      await s.host.stopServices();
+    } finally { vi.useRealTimers(); }
   });
 });

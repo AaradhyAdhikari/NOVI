@@ -5,16 +5,45 @@ import fs from 'node:fs';
 // it there when claude.ai changes. Every answer is a plain object; nothing is thrown.
 export const CLAUDE = JSON.parse(fs.readFileSync(new URL('./claude.json', import.meta.url), 'utf8'));
 
+// Steps Chrome is slow with in a background tab get more time than the bridge's 15 s (live 2026-10-21:
+// making Tip calculator failed with a bare "timeout").
+const SLOW = { open: 40_000, typeSel: 30_000, clickSel: 30_000, query: 30_000 };
+
 export function createClaudeWeb({ request, site = CLAUDE, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), pollMs = 1000, maxMs = 20_000 } = {}) {
   let tabId = null;
+  // One step, named when Chrome doesn't answer in time.
+  const step = async (what, cmd, args) => {
+    try { return await request(cmd, args, { timeoutMs: SLOW[cmd] }); } catch (err) {
+      if (/timeout/i.test(err?.message)) throw new Error(`Chrome didn't answer in time while ${what} on claude.ai. Try again in a moment.`);
+      throw err;
+    }
+  };
 
   async function open(url) {
     const known = tabId && ((await request('tabs')).tabs || []).some((t) => t.id === tabId);
-    const out = await request('open', known ? { url, tabId, background: true } : { url, newTab: true, background: true });
+    const out = await step('opening the page', 'open', known ? { url, tabId, background: true } : { url, newTab: true, background: true });
     tabId = out?.tabId ?? tabId;
   }
-  const waitFor = async (selector, ms = 15_000) => Boolean((await request('waitFor', { selector, ms, tabId }, { timeoutMs: ms + 5_000 }))?.found);
+  // A wait Chrome doesn't answer in time (a hidden tab it holds back) counts as "not there yet".
+  const waitFor = async (selector, ms = 15_000) => {
+    try { return Boolean((await request('waitFor', { selector, ms, tabId }, { timeoutMs: ms + 5_000 }))?.found); } catch (err) {
+      if (/timeout/i.test(err.message)) return false;
+      throw err;
+    }
+  };
   const loginNeeded = async () => Boolean((await request('has', { selector: site.login, tabId }))?.found);
+  // Live 2026-10-21: the new-project page never showed in a background tab ("claude.ai didn't load"),
+  // so the Tip calculator never reached claude.ai. Not there → the tab comes forward once.
+  async function ready(selector, ms) {
+    if (await waitFor(selector, ms)) return true;
+    if (await loginNeeded()) return 'login';
+    await request('switch', { tabId });
+    return waitFor(selector, ms);
+  }
+  const whereIs = async () => {
+    const url = ((await request('tabs')).tabs || []).find((t) => t.id === tabId)?.url || '';
+    return url.replace(/^https?:\/\//, '').replace(/[?#].*$/, '').replace(/\/$/, '') || 'an empty page';
+  };
   const notReady = async () => ((await loginNeeded())
     ? { error: 'Claude needs you to log in. Log in to Claude in Chrome (claude.ai), then ask again.', login: true }
     : { error: "claude.ai didn't load in Chrome." });
@@ -29,8 +58,9 @@ export function createClaudeWeb({ request, site = CLAUDE, sleep = (ms) => new Pr
   // Every project card, scrolling until no new one shows up (claude.ai loads more as you scroll).
   async function list() {
     await open(site.list);
-    if (!(await waitFor(site.cards))) {
-      if (await loginNeeded()) return notReady();
+    const shown = await ready(site.cards);
+    if (shown !== true) {
+      if (shown === 'login' || (await loginNeeded())) return notReady();
       return { error: "I couldn't read your projects on claude.ai (the page may have changed, or it didn't load). Open claude.ai/projects in Chrome and ask again." };
     }
     const projects = [];
@@ -39,9 +69,13 @@ export function createClaudeWeb({ request, site = CLAUDE, sleep = (ms) => new Pr
       const { texts = [], values } = out;
       if (texts.length && !values) return { error: 'Reload the Novi extension in chrome://extensions (Novi needs its new version to read claude.ai), then ask again.' };
       let fresh = 0;
+      // An icon on a card (an icon-font character, no letters) is not a name; one link = one project.
       texts.forEach((t, i) => {
         const name = String(t).split('\n')[0].trim();
-        if (name && !projects.some((p) => p.name === name)) { projects.push({ name, url: values[i] ? new URL(values[i], 'https://claude.ai').href : null }); fresh += 1; }
+        const url = values[i] ? new URL(values[i], 'https://claude.ai').href : null;
+        if (!/[\p{L}\p{N}]/u.test(name) || projects.some((p) => p.name === name || (url && p.url === url))) return;
+        projects.push({ name, url });
+        fresh += 1;
       });
       quiet = fresh ? 0 : quiet + 1;
       if (quiet < 2) await sleep(pollMs);
@@ -60,10 +94,12 @@ export function createClaudeWeb({ request, site = CLAUDE, sleep = (ms) => new Pr
 
   async function make({ name, description = '', instructions = '' }) {
     await open(site.create);
-    if (!(await waitFor(site.nameInput))) return notReady();
-    await request('typeSel', { selector: site.nameInput, text: name, tabId });
-    if (description) await request('typeSel', { selector: site.descriptionInput, text: description, tabId });
-    await request('clickSel', { selector: site.submit, tabId });
+    const shown = await ready(site.nameInput);
+    if (shown === 'login') return notReady();
+    if (!shown) return { error: `claude.ai didn't show the new-project page (the tab is on ${await whereIs()}).` };
+    await step('typing the project name', 'typeSel', { selector: site.nameInput, text: name, tabId });
+    if (description) await step('typing the description', 'typeSel', { selector: site.descriptionInput, text: description, tabId });
+    await step('pressing Create project', 'clickSel', { selector: site.submit, tabId });
     // The new project's own page: claude.ai/project/<id>.
     let url = null;
     for (let waited = 0; waited <= maxMs && !url; waited += pollMs) {
@@ -75,7 +111,7 @@ export function createClaudeWeb({ request, site = CLAUDE, sleep = (ms) => new Pr
     if (!instructions) return { url };
     const box = (await clickText(site.instructionsButton, site.instructionsTexts)) && (await waitFor(site.instructionsBox, 8_000));
     if (!box) return { url, instructionsMissed: true };
-    await request('typeSel', { selector: site.instructionsBox, text: instructions, tabId });
+    await step('typing the instructions', 'typeSel', { selector: site.instructionsBox, text: instructions, tabId });
     return (await clickText(site.saveButton, site.saveTexts)) ? { url } : { url, instructionsMissed: true };
   }
 
