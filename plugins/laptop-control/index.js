@@ -134,6 +134,22 @@ export function createLaptopControlPlugin({
           return { url, title: r.title, browser, note: `The page open in ${browser}: ${url}` };
         });
 
+      let lastTabWindow = null; // the browser window Novi last closed a tab in — reopened there
+      // "Close this tab" / "reopen the tab" in the front browser (2026-10-22: "close the tab" failed).
+      // Reopening is one word away, so closing a tab doesn't ask.
+      tool(api, 'laptop_tab', 'Close the tab open in the front-most browser window on the laptop (do: close), or bring back the last closed tab (do: reopen).',
+        obj({ do: { type: 'string', enum: ['close', 'reopen'] } }, ['do']),
+        async (args) => {
+          const reopen = args.do === 'reopen';
+          const r = await run('tab', reopen ? { do: 'reopen', ...(lastTabWindow ? { win: lastTabWindow } : {}) } : { do: 'close' });
+          if (r.none) return { error: 'No browser window is open on the laptop.' };
+          if (!reopen && r.win) lastTabWindow = r.win; // (not "id": that is the worker's message number)
+          const browser = BROWSER[r.browser] || r.browser;
+          if (reopen) return { ...r, note: `Opened the last closed tab again in ${browser}.` };
+          const page = String(r.title || '').replace(/\s+-\s+(?:Google Chrome|Brave|Microsoft Edge|Mozilla Firefox|Opera|Vivaldi|Arc)$/i, '').trim();
+          return { ...r, note: `Closed the ${page ? `"${page}" ` : ''}tab in ${browser}. Say "reopen the tab" to bring it back.` };
+        });
+
       tool(api, 'laptop_battery', 'Battery level, charging or time left. Read-only.', obj({}), async () => {
         const b = await run('battery', {});
         if (b.none) return { ...b, note: "This laptop doesn't report a battery." };

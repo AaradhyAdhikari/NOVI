@@ -200,3 +200,16 @@ describe('the page open in the front browser', () => {
     expect((await setup({ answers: { link: () => ({ none: true }) } }).tool('laptop_current_link').run({})).error).toBe('No browser window is open on the laptop.');
   });
 });
+
+describe('the tab open in the front browser', () => {
+  it('laptop_tab closes it without asking and says how to bring it back; reopen too', async () => {
+    const { tool, calls } = setup({ answers: { tab: () => ({ win: 42, title: 'snaxgaming Live Stream - Watch Live on KICK - Brave', browser: 'brave' }) } });
+    expect(await tool('laptop_tab').gate({ do: 'close' })).toEqual({});
+    const out = await tool('laptop_tab').run({ do: 'close' });
+    expect(out.note).toBe('Closed the "snaxgaming Live Stream - Watch Live on KICK" tab in Brave. Say "reopen the tab" to bring it back.');
+    expect((await tool('laptop_tab').run({ do: 'reopen' })).note).toBe('Opened the last closed tab again in Brave.');
+    // reopened in the window Novi closed it in (live: focus moved to another browser and reopened there)
+    expect(calls.filter((c) => c[0] === 'tab').map((c) => c[1])).toEqual([{ do: 'close' }, { do: 'reopen', win: 42 }]);
+    expect((await setup({ answers: { tab: () => ({ none: true }) } }).tool('laptop_tab').run({ do: 'close' })).error).toBe('No browser window is open on the laptop.');
+  });
+});

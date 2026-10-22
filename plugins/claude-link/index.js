@@ -279,7 +279,13 @@ export function createClaudeLinkPlugin({ driver = null, listCode = () => listCla
         } else if (web?.url) facts.push(`On claude.ai: ${web.url} (Chrome isn't connected, so I couldn't read its chats).`);
         if (at?.path) {
           try { const next = await rt.callTool?.('project_next', { project: at.name }); if (next?.text) facts.push(next.text); } catch (err) { log(`[claude-link] project_next: ${err.message}`); }
-        } else facts.push('No folder on the laptop yet.');
+        } else {
+          facts.push('No folder on the laptop yet.');
+          try {
+            const repo = await rt.callTool?.('github_repo', { name });
+            if (repo?.commits?.length) facts.push(`On GitHub (${repo.name}), latest commits: ${repo.commits.map((c) => `${c.message} (${c.date})`).join('; ')}.`);
+          } catch (err) { log(`[claude-link] github_repo: ${err.message}`); }
+        }
         const brief = rt.wikiRead?.(`${name} brief`);
         if (brief) facts.push(`Latest brief: ${brief.slice(0, 900)}`);
         const note = rt.wikiRead?.(`${name} project`);
@@ -287,7 +293,7 @@ export function createClaudeLinkPlugin({ driver = null, listCode = () => listCla
         const said = facts.filter((f) => !f.startsWith('Novi')).join(' ');
         const plain = `${name}: ${said.charAt(0).toLowerCase()}${said.slice(1)}`.slice(0, 600);
         try {
-          const said = String(await rt.privateComplete?.(`Say in 2-3 short spoken sentences how far the user's project "${name}" has got and what is next. Use ONLY these facts; if they are thin, say what is known and offer to open it on claude.ai.\n\n${facts.join('\n')}`) || '').trim();
+          const said = String(await rt.privateComplete?.(`Say in 2-3 short spoken sentences how far the user's project "${name}" has got and what is next. Today is ${new Date().toISOString().slice(0, 10)}: say how long ago dated work was, never "this week" for older work. Use ONLY these facts; if they are thin, say what is known and offer to open it on claude.ai.\n\n${facts.join('\n')}`) || '').trim();
           return said || plain;
         } catch { return plain; }
       }

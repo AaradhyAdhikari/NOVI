@@ -172,7 +172,13 @@ export function createGithubPlugin({ fetchImpl = fetch, sleep } = {}) {
           if (!repo) return { content: [], details: { error: `${login} has no repo called ${name} on GitHub.`, repos: (repos || []).map((r) => r.name) } };
           let readme = '';
           try { readme = (await (await get(`https://api.github.com/repos/${repo.full_name}/readme`, 'application/vnd.github.raw')).text()).slice(0, 4000); } catch { /* no README */ }
-          return { content: [], details: { name: repo.name, description: repo.description || '', language: repo.language || '', topics: repo.topics || [], url: repo.html_url, readme } };
+          // The latest work (for "progress of X" when the project has no folder on the laptop).
+          let commits = [];
+          try {
+            const list = await (await get(`https://api.github.com/repos/${repo.full_name}/commits?per_page=5`)).json();
+            commits = (Array.isArray(list) ? list : []).map((c) => ({ message: String(c.commit?.message || '').split('\n')[0].slice(0, 120), date: String(c.commit?.author?.date || '').slice(0, 10) })).filter((c) => c.message);
+          } catch { /* no commits */ }
+          return { content: [], details: { name: repo.name, description: repo.description || '', language: repo.language || '', topics: repo.topics || [], url: repo.html_url, readme, commits } };
         },
       });
 

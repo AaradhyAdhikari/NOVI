@@ -20,7 +20,7 @@ describe('commands history', () => {
     expect(list[0].at).toBe('2026-10-15T10:01:00.000Z');
   });
 
-  it('keeps the last 500 (rewrites the file after 600)', () => {
+  it('keeps the last 500 (rewrites the file after 600)', { timeout: 20_000 }, () => {
     const file = tmp();
     const h = createHistory({ file });
     for (let i = 0; i < 601; i++) h.add(entry(i));

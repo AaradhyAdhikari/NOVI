@@ -267,11 +267,16 @@ describe('contribution graph (public, no sign-in)', () => {
         { name: 'TraceBites', full_name: 'AaradhyAdhikari/TraceBites', description: 'Multi-role QR-based farm-to-consumer traceability platform.', language: 'TypeScript', html_url: 'https://github.com/AaradhyAdhikari/TraceBites', private: false, topics: ['qr'] },
       ] } },
       { match: /repos\/AaradhyAdhikari\/TraceBites\/readme$/, reply: { html: '# TraceBites\nFarm to consumer product journeys with digital passports.' } },
+      { match: /repos\/AaradhyAdhikari\/TraceBites\/commits\?per_page=5$/, reply: { body: [
+        { commit: { message: 'Add QR scanning\n\nlong body', author: { date: '2026-10-20T10:00:00Z' } } },
+        { commit: { message: 'First version', author: { date: '2026-10-01T09:00:00Z' } } },
+      ] } },
     ] });
     expect(await host.get('github_repo').gate({ name: 'x' })).toEqual({});
     const out = await host.get('github_repo').run({ name: 'tracebite' });
     expect(out).toMatchObject({ name: 'TraceBites', description: 'Multi-role QR-based farm-to-consumer traceability platform.', language: 'TypeScript', url: 'https://github.com/AaradhyAdhikari/TraceBites' });
     expect(out.readme).toMatch(/digital passports/);
+    expect(out.commits).toEqual([{ message: 'Add QR scanning', date: '2026-10-20' }, { message: 'First version', date: '2026-10-01' }]);
     expect(calls.find((c) => /readme$/.test(c.url)).headers.Accept).toBe('application/vnd.github.raw');
     expect((await host.get('github_repo').run({ name: 'flexr' })).name).toBe('FLEXR-');
     expect((await host.get('github_repo').run({ name: 'weather station' })).error).toMatch(/no repo called weather station/i);

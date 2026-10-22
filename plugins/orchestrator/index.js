@@ -17,6 +17,7 @@ const str = (description) => ({ type: 'string', description });
 const stamp = (d) => `${d.toLocaleDateString('en-CA')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 const sentence = (s) => (/[.!?]$/.test(s) ? s : `${s}.`);
 const MAX_ROUNDS = 5;
+const NO = "Okay, I won't send the brief.";
 const HOW = 'Say "yes" to send it to Claude ("yes, also …" to add something), "change …" to change the plan, or "no".';
 
 export function createOrchestratorPlugin({ driver = null, track = () => {}, now = () => new Date() } = {}) {
@@ -67,22 +68,23 @@ export function createOrchestratorPlugin({ driver = null, track = () => {}, now 
           rt.say?.(`I couldn't reach ChatGPT or Gemini (${plan.error}). Say "tell Claude to …" to start without a brief.`, { kind: null });
           return;
         }
+        const changes = []; // what the user changed on earlier cards, shown on the new one
         for (let round = 0; round < MAX_ROUNDS; round++) {
-          const brief = buildBrief({ project: title, request, plan, ideas });
+          const brief = buildBrief({ project: title, request, plan, ideas, changes });
           rt.wikiWrite?.({ title: `${title} brief`, text: brief.text.replace(/^# Brief: .*$/m, `## ${stamp(now())}`) });
-          const d = await rt.ask({ title: 'Send this brief to Claude?', detail: `${brief.text}\n\n${HOW}`, prompt: brief.spoken, changeable: true, addable: true, source: 'orchestrator' });
+          const d = await rt.ask({ title: 'Send this brief to Claude?', detail: `${brief.text}\n\n${HOW}`, prompt: brief.spoken, changeable: true, addable: true, source: 'orchestrator', speaksOnDeny: true });
           if (d.allow) {
             const instruction = `${request}\n\nFollow this brief (made by Novi with ChatGPT and Gemini):\n\n${brief.text}${d.addition ? `\n\nAlso: ${d.addition}` : ''}`;
             const out = known ? await rt.startCoding({ project: known.name, instruction }) : await rt.newProject({ name: title, description: request, instruction });
             rt.say?.(out?.note || 'Claude is on it.', { kind: null });
             return;
           }
-          if (!d.change) { rt.say?.("Okay, I won't send the brief.", { kind: null }); return; }
+          if (!d.change) { rt.say?.(NO, { kind: null }); return; }
           // "Change X": the same ChatGPT chat, else the backup AI with the plan so far.
           const changed = plan.site
             ? await getSites().followUp('chatgpt', changePrompt(d.change), { want: PLAN_HEADINGS })
             : { text: await rt.complete?.(`${planP}\n\nThe plan so far:\n${plan.text || '(none)'}\n\n${changePrompt(d.change)}`, { prefer: 'githubmodels' }).catch(() => null) };
-          if (changed?.text) plan = { ...plan, text: changed.text };
+          if (changed?.text) { plan = { ...plan, text: changed.text }; changes.push(d.change); }
           else rt.say?.(`I couldn't change it (${changed?.error || 'no answer'}), so here's the brief as it was.`, { kind: null });
         }
       }

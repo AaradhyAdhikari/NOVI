@@ -384,10 +384,10 @@ export class Agent {
     const quick = (waiting && answerKind(text)) || quickCommand(text);
     if (quick) {
       const quickReply = await this._quick(quick, from);
-      if (quickReply) return this._remember(text, quickReply);
+      if (quickReply != null) return this._remember(text, quickReply); // '' = the card's asker already answered
     }
     const control = await this._controlCommand(text);
-    if (control) return this._remember(text, control);
+    if (control != null) return this._remember(text, control); // '' = a picture already said it all
     const browse = await this._browserCommand(text);
     if (browse) return this._remember(text, browse);
     // "Type: …" / "likho …": those exact words into the app in front (plugins/dictation), no AI.
@@ -511,7 +511,8 @@ export class Agent {
     const runs = []; // { tool, args, output, asked } — one quiet successful run → a learned shortcut
     // Personal context (memories) only goes to providers the user trusts with private data.
     let provider = extra.sensitive ? this.privateProviders[0] : undefined;
-    let waited = false;
+    let waitedMs = 0; // short rate limits waited out this turn
+    let waits = 0;
     let ranTool = false;
     let toolFailed = false;
     let pushedBack = false;
@@ -527,8 +528,11 @@ export class Agent {
         if (!(err instanceof AllProvidersUnavailableError)) throw err;
         // A private turn can't fall back to another provider; a short rate-limit is worth waiting out.
         // A private turn can't fall back, so it waits up to 20 s; any turn waits out a few seconds.
-        if (!waited && err.retryInMs <= (extra.sensitive ? 20_000 : 5_000)) {
-          waited = true;
+        // Several short waits in a row are fine (live 2026-10-22: "busy, try again in about 1 seconds"),
+        // but at most 3, so tiny retry hints can't turn one turn into dozens of AI calls.
+        if (waits < 3 && waitedMs + err.retryInMs <= (extra.sensitive ? 20_000 : 5_000)) {
+          waits += 1;
+          waitedMs += Math.max(err.retryInMs, 1);
           await this.sleep(err.retryInMs);
           round -= 1;
           continue;
@@ -545,8 +549,9 @@ export class Agent {
           round -= 1;
           continue;
         }
+        this.logger?.warn?.(`[brain] no AI answered: ${String(err.message).slice(0, 200)}`);
         // A tool already did the job (the graph is on screen): no "busy" line under it, just nothing more.
-        const fallback = notes.length ? notes.join(' ') : lastText || (ranTool && !toolFailed ? '' : `My AI providers are busy right now. Try again in about ${Math.ceil(err.retryInMs / 1000)} seconds.`);
+        const fallback = notes.length ? notes.join(' ') : lastText || (ranTool && !toolFailed ? '' : `My AI providers are busy right now. Try again in about ${Math.ceil(err.retryInMs / 1000)} second${Math.ceil(err.retryInMs / 1000) === 1 ? '' : 's'}.`);
         return this._remember(text, fallback);
       }
       provider = res.provider; // a turn's tool rounds stay on one provider (Gemini thought signatures)
@@ -791,7 +796,7 @@ export class Agent {
     }
     const allow = kind === 'approve';
     if (!this.approvals.resolve(item.id, allow, 'voice', null, { from })) return needsProof(this.approvals.trust?.check?.(item, from, null)?.need);
-    return allow ? 'Approved.' : 'Okay, denied.';
+    return allow ? 'Approved.' : item.speaksOnDeny ? '' : 'Okay, denied.';
   }
 
   // One log line per tool run (name + ok or the error; never the arguments, which can be private).
@@ -896,7 +901,8 @@ export class Agent {
     }
     const { output } = await this._runTool({ id: `laptop-${Date.now()}`, function: { name: ctl.tool, arguments: JSON.stringify(args) } }, { direct: true });
     if (output?.notFound && args.do === 'focus') return null;
-    return output?.error || output?.note || 'Done.';
+    if (ctl.tool === 'screen_show' && !output?.error) return ''; // the picture is the answer
+    return output?.error || output?.note || output?.text || 'Done.';
   }
 
   // LeetCode / WhatsApp without the AI. A WhatsApp file or folder is found first; sending always

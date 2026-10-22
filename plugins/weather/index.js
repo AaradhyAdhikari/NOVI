@@ -1,6 +1,9 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { definePluginEntry } from '#plugin-sdk';
 
-// Weather from Open-Meteo: free, no API key. Home city comes from NOVI_PLUGIN_WEATHER_PLACE.
+// Weather from Open-Meteo: free, no API key. Home city comes from NOVI_PLUGIN_WEATHER_PLACE,
+// else the last city the user named (data/weather.json).
 const GEOCODE_URL = 'https://geocoding-api.open-meteo.com/v1/search';
 const FORECAST_URL = 'https://api.open-meteo.com/v1/forecast';
 
@@ -30,6 +33,9 @@ export function createWeatherPlugin({ fetchImpl = fetch } = {}) {
     name: 'Weather',
     description: 'Current weather and forecasts from Open-Meteo (free, no key).',
     register(api) {
+      const file = api.runtime.dataDir ? path.join(api.runtime.dataDir, 'weather.json') : null;
+      const lastPlace = () => { try { return JSON.parse(fs.readFileSync(file, 'utf8')).place || ''; } catch { return ''; } };
+      const keepPlace = (place) => { try { if (file) fs.writeFileSync(file, JSON.stringify({ place })); } catch { /* not important */ } };
       api.registerTool({
         name: 'weather_get',
         description: 'Get the current weather and the forecast for a city (any language: weather, mausam, हवामान). Always call this for weather — never guess or answer it from memory. Omit place to use the home city. days = how many days of forecast (1 = today only, max 7).',
@@ -41,14 +47,15 @@ export function createWeatherPlugin({ fetchImpl = fetch } = {}) {
           },
         },
         async execute(_toolCallId, { place, days } = {}) {
-          const name = String(place || api.pluginConfig.place || '').trim();
-          if (!name) return reply('Which city should I check the weather for? (Set NOVI_PLUGIN_WEATHER_PLACE in .env for a default.)');
+          const name = String(place || api.pluginConfig.place || (file && lastPlace()) || '').trim();
+          if (!name) return reply('Which city should I check the weather for? I’ll remember it for next time.');
           const n = Math.min(7, Math.max(1, Math.round(Number(days) || 1)));
 
           const geo = await getJson(fetchImpl, `${GEOCODE_URL}?${new URLSearchParams({ name, count: '1', language: 'en', format: 'json' })}`);
           const hit = geo.results?.[0];
           if (!hit) return reply(`I couldn't find a place called "${name}".`);
           const label = [hit.name, hit.admin1].filter(Boolean).join(', ');
+          if (place && !api.pluginConfig.place) keepPlace(hit.name);
 
           const f = await getJson(fetchImpl, `${FORECAST_URL}?${new URLSearchParams({
             latitude: String(hit.latitude),

@@ -168,7 +168,7 @@ describe('brain store: passages waiting for a vector are a short list', () => {
     expect(store.stats().unvectored).toBe(0);
   });
 
-  it('an older brain.db (no list yet) gets its list once, from what is missing', () => {
+  it('an older brain.db (no list yet) gets its list once, from what is missing', { timeout: 20_000 }, () => {
     const file = tmpDb();
     let store = openStore(file);
     store.upsert({ id: 'f', kind: 'file', title: 'f.txt', path: '/f.txt', mtime: 1 });

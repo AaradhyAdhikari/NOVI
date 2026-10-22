@@ -26,21 +26,21 @@ describe('"Hey Novi" by keyword spotting (no trained model needed)', () => {
       const detector = createKwsDetector({ dir: DIR });
       expect(await heard(detector, clip(f)), f).toBe(1);
     }
-  });
+  }, 60_000); // real speech model: ~10 s on the laptop
 
   it('ignores sound-alikes ("Novak is playing tennis", "hey nobody is here")', async () => {
     for (const f of ['kws-neg-12.wav', 'kws-neg-50.wav']) {
       const detector = createKwsDetector({ dir: DIR });
       expect(await heard(detector, clip(f)), f).toBe(0);
     }
-  });
+  }, 60_000);
 
   it('reports one score per 80 ms of audio, like the old detector', async () => {
     const detector = createKwsDetector({ dir: DIR });
     expect(await detector.process(new Int16Array(1280 * 3))).toHaveLength(3);
     expect(await detector.process(new Int16Array(640))).toHaveLength(0);
     expect(await detector.process(new Int16Array(640))).toHaveLength(1);
-  });
+  }, 60_000);
 });
 
 describe('which "Hey Novi" engine starts', async () => {

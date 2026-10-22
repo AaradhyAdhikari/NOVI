@@ -37,6 +37,12 @@ describe('Novi Memory: notes', () => {
     expect(note('DBMS plan')).toMatch(/Exam on 3 Nov\.\n\nUnit 3 is normalization\.\n$/);
   });
 
+  it('a note without a title is read back whole, not cut at its title (live: "…exam is on 5.")', async () => {
+    const { host } = setup();
+    const out = await host.get('note_write').run({ text: 'my DBMS exam is on 5 November' });
+    expect(out.note).toBe('Noted: "my DBMS exam is on 5 November".');
+  });
+
   it('title defaults to the first 6 words; unsafe characters are cleaned', async () => {
     const { host } = setup();
     expect((await host.get('note_write').run({ text: 'buy milk eggs bread and some fruit today please' })).title).toBe('buy milk eggs bread and some');

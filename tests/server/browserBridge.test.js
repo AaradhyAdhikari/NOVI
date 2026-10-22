@@ -6,6 +6,8 @@ let bridge;
 afterEach(() => bridge?.stop());
 const ORIGIN = 'chrome-extension://abcdefghijklmnop';
 const tick = (ms = 50) => new Promise((r) => setTimeout(r, ms));
+// Wait for a condition (≤ 2 s) instead of a fixed 50 ms — a busy laptop can be slower.
+const until = async (ok, ms = 2000) => { for (const end = Date.now() + ms; !ok() && Date.now() < end;) await tick(20); };
 
 async function start(opts = {}) {
   bridge = createBridge({ port: 0, code: 'secret-code', logger: { warn() {} }, ...opts });
@@ -27,7 +29,7 @@ describe('browser bridge (Novi ⇄ extension)', () => {
     const port = await start();
     expect(bridge.address()).toBe('127.0.0.1');
     const { state } = connect(port);
-    await tick();
+    await until(() => state.messages.length > 0);
     expect(bridge.connected()).toBe(true);
     expect(state.closed).toBe(false);
     expect(state.messages[0]).toEqual({ type: 'welcome' }); // the extension shows "connected" only now

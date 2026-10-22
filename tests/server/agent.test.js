@@ -579,6 +579,22 @@ describe('a few seconds of "busy" are waited out, not said', () => {
     expect(await agent.handle('tell me a joke')).toBe('A joke.');
     expect(waits).toEqual([1000]);
   });
+
+  it('keeps waiting while the waits stay short (5 s in all), never "busy, try again in 1 seconds"', async () => {
+    const waits = [];
+    const router = scriptedRouter([new AllProvidersUnavailableError(400), new AllProvidersUnavailableError(700), new AllProvidersUnavailableError(1200), reply('A joke.')]);
+    const agent = new Agent({ router, tools: new ToolRegistry(), approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) }, sleep: async (ms) => { waits.push(ms); }, logger: { log() {} } });
+    expect(await agent.handle('tell me a joke')).toBe('A joke.');
+    expect(waits).toEqual([400, 700, 1200]);
+  });
+
+  it('waits at most 3 times in a turn, even when every wait is tiny (no hammering the providers)', async () => {
+    const waits = [];
+    const router = scriptedRouter(Array.from({ length: 20 }, () => new AllProvidersUnavailableError(50)).concat([reply('A joke.')]));
+    const agent = new Agent({ router, tools: new ToolRegistry(), approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) }, sleep: async (ms) => { waits.push(ms); }, logger: { log() {}, warn() {} } });
+    expect(await agent.handle('tell me a joke')).toMatch(/busy/);
+    expect(waits).toEqual([50, 50, 50]);
+  });
 });
 
 describe('"also …" adds to the job', async () => {
@@ -1551,6 +1567,21 @@ describe('ChatGPT sync and "same thing" by voice, without the AI (2026-10-20)', 
   });
 });
 
+describe('a screenshot of the screen by voice', () => {
+  it('shows the picture with no "Done." under it (live 2026-10-22)', async () => {
+    const tools = new ToolRegistry()
+      .add({ name: 'screen_show', description: 's', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 's', run: async () => ({ text: 'Sent a screenshot of the laptop screen.' }) });
+    const agent = new Agent({ router: { chat: async () => { throw new Error('no AI'); } }, tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
+    expect(await agent.handle('show me a screenshot of my screen')).toBe('');
+  });
+  it('"list what\'s on my screen" answers with the list itself, no AI', async () => {
+    const tools = new ToolRegistry()
+      .add({ name: 'screen_items', description: 'i', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'i', run: async () => ({ text: 'On "Kick":\n1. link: snaxgaming' }) });
+    const agent = new Agent({ router: { chat: async () => { throw new Error('no AI'); } }, tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
+    expect(await agent.handle("list what's on my screen")).toBe('On "Kick":\n1. link: snaxgaming');
+  });
+});
+
 describe('the page open on the laptop → someone on WhatsApp (2026-10-22)', () => {
   const mk = (link = { url: 'https://kick.com/snaxgaming', title: 'snaxgaming Live Stream', browser: 'Brave' }) => {
     const ran = [];
@@ -1617,5 +1648,15 @@ describe('a busy provider mid-turn: another one finishes it', () => {
     const out = await agent.handle('what is in my notes about weather');
     expect(seen.every((s) => s.only === 'groq')).toBe(true);
     expect(out).not.toBe('It is 30 degrees.');
+  });
+});
+
+describe("a card's own words for a spoken no", () => {
+  it('"no" to the brief card says "Okay, I won\'t send the brief." once; the card hears it was by voice', async () => {
+    const approvals = new ApprovalQueue();
+    const agent = new Agent({ router: { chat: async () => { throw new Error('no AI'); } }, tools: new ToolRegistry(), approvals, memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) }, logger: { log() {} } });
+    const pending = approvals.decide({ title: 'Send this brief to Claude?', tier: 'medium', source: 'orchestrator', changeable: true, speaksOnDeny: true });
+    expect(await agent.handle('no')).toBe('');
+    expect(await pending).toMatchObject({ allow: false });
   });
 });

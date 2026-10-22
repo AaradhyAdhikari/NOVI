@@ -83,8 +83,13 @@ describe('preview: running sites', () => {
     const d = project({ '.novi/run.json': { command: cmd() } });
     const { port } = await sites.start('p', d);
     sites.stopAll();
-    await new Promise((r) => setTimeout(r, 500));
     expect(sites.running('p')).toBe(false);
-    await expect(fetch(`http://127.0.0.1:${port}/`)).rejects.toThrow();
+    // The process can take a moment to go on a busy laptop: wait (≤ 5 s) until the port stops answering.
+    let answered = true;
+    for (const end = Date.now() + 5000; answered && Date.now() < end;) {
+      answered = await fetch(`http://127.0.0.1:${port}/`).then(() => true, () => false);
+      if (answered) await new Promise((r) => setTimeout(r, 200));
+    }
+    expect(answered).toBe(false);
   });
 });

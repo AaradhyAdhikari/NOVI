@@ -30,7 +30,7 @@ const items = (s) => {
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
 // plan / ideas: { text, source, why? } (why = what failed before a backup answered) or { error }.
-export function buildBrief({ project, request, plan = {}, ideas = {} }) {
+export function buildBrief({ project, request, plan = {}, ideas = {}, changes = [] }) {
   const p = plan.text ? sections(plan.text, ['Goal', 'Steps', 'Look & feel', 'Done when']) : {};
   const i = ideas.text ? sections(ideas.text, ['Examples', 'Security rules']) : {};
   const part = (name, from, src) => (from.text
@@ -38,7 +38,7 @@ export function buildBrief({ project, request, plan = {}, ideas = {} }) {
     : `## ${name}\n(missing: ${from.error || 'no answer'})`);
   const notes = [plan.why && `${plan.why} ${cap(plan.source)} wrote the plan.`, ideas.why && `${ideas.why} ${cap(ideas.source)} wrote the examples and security rules.`].filter(Boolean);
   const text = [
-    `# Brief: ${project}\nWhat you asked: ${request}${notes.length ? `\n${notes.join(' ')}` : ''}`,
+    `# Brief: ${project}\nWhat you asked: ${request}${changes.length ? `\nYour changes: ${changes.join('; ')}` : ''}${notes.length ? `\n${notes.join(' ')}` : ''}`,
     part('Goal', plan, p), part('Steps', plan, p), part('Look & feel', plan, p),
     part('Examples', ideas, i), part('Security rules', ideas, i), part('Done when', plan, p),
   ].join('\n\n');

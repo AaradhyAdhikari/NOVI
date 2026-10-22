@@ -63,10 +63,13 @@ describe('orchestrator: a brief before Claude codes', () => {
     expect(s.asked.find(([w]) => w === 'followUp')).toEqual(['followUp', 'chatgpt', expect.stringMatching(/^Change the plan: make it blue/)]);
     expect(s.cards).toHaveLength(2);
     expect(s.cards[1].detail).toMatch(/A blue blog\./);
+    expect(s.cards[1].detail).toMatch(/\nYour changes: make it blue\n/); // which change the new card has
+    expect(s.cards[0].speaksOnDeny).toBe(true);
     expect(s.notes).toHaveLength(2);
     expect(s.started).toEqual([]);
     expect(s.said.at(-1)[0]).toBe("Okay, I won't send the brief.");
   });
+
 
   it('a site that fails → the free API for that part, and the card says so; a new project is made on yes', async () => {
     const s = setup({ known: false, sites: { chatgpt: { error: 'ChatGPT needs you to log in. Log in to ChatGPT in Chrome, then ask for the brief again.', login: true } } });

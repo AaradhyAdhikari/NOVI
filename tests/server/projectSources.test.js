@@ -23,7 +23,7 @@ function repo() {
 }
 
 describe('gatherSources (where you left off)', () => {
-  it('reads recent commits, notes, open plan items, TODOs and last tasks', async () => {
+  it('reads recent commits, notes, open plan items, TODOs and last tasks', { timeout: 20_000 }, async () => {
     const dir = repo();
     const s = await gatherSources({ dir, tasks: [{ instruction: 'add easy pairing', status: 'done' }] });
     expect(s.commits).toEqual(['Plan automations', 'Add remote access']);

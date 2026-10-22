@@ -61,6 +61,9 @@ const refuse = (what) => reply(`I won't ${what} here: it looks like a password, 
 const KIND = { Hyperlink: 'link', Button: 'button', ListItem: 'item', Edit: 'box', TabItem: 'tab', MenuItem: 'menu', CheckBox: 'checkbox', RadioButton: 'option', ComboBox: 'list', Image: 'picture', TreeItem: 'item', DataItem: 'item' };
 const PREFER = ['Hyperlink', 'Button', 'MenuItem', 'TabItem', 'CheckBox', 'RadioButton', 'Edit', 'ComboBox', 'Image', 'ListItem', 'TreeItem', 'DataItem'];
 const SECRET_FIELD = /password|passcode|card number|cvv|\botp\b|one[\s-]?time|pin\b/i;
+// The window's and browser's own buttons: kept (still clickable by name) but listed after the page's items.
+const BROWSER_UI = /^(?:minimi[sz]e|maximi[sz]e|restore|close|back|forward|reload|home|new tab|search tabs|tab search|bookmark this tab|view site information|address and search bar|zoom: \d+%|install .+|brave (?:shields|rewards|wallet)|brave|vpn|leo ai|(?:show|hide) sidebar|extensions|side panel|downloads?|customi[sz]e and control .+|(?:chrome|brave|edge) menu|control your music, videos, and more|you|profile.*)$/i;
+
 export function screenList(items = []) {
   const out = [];
   for (const it of items) {
@@ -70,7 +73,8 @@ export function screenList(items = []) {
     if (same) { if (PREFER.indexOf(it.type) >= 0 && PREFER.indexOf(it.type) < PREFER.indexOf(same.type)) same.type = it.type; continue; }
     out.push({ type: it.type, name, x: Math.round(it.x), y: Math.round(it.y) });
   }
-  return out.slice(0, 200);
+  const ui = (o) => BROWSER_UI.test(o.name);
+  return [...out.filter((o) => !ui(o)), ...out.filter(ui)].slice(0, 200);
 }
 const FILLER = new Set('the a an on in at of to button link click tap press icon please my this that'.split(' '));
 // The item whose name holds every word of the description (shortest name first).

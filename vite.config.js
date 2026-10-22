@@ -14,6 +14,11 @@ export default defineConfig({
   },
   test: {
     include: ['tests/**/*.test.js'],
-    environment: 'node'
+    environment: 'node',
+    // The laptop also runs the real Novi: one worker per core starved the timing-based tests
+    // (different ones timed out on every run, 2026-10-22). Half the cores + roomier timeouts.
+    maxWorkers: '50%',
+    testTimeout: 20_000,
+    hookTimeout: 30_000
   }
 })

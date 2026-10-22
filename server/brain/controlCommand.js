@@ -13,6 +13,8 @@ const re = (src) => new RegExp(`^(?:${src})$`, 'i');
 const RULES = [
   // A screenshot of the laptop screen (live 2026-10-22: the AI said "Here's a screenshot" and took none).
   // A project's page ("screenshot of the homepage") stays with the preview.
+  // "List what's on my screen" → the numbered list (live: the AI described the page instead of listing it)
+  [re("(?:list|read out|read) (?:what(?:'s| is) on|everything on|the (?:things|items|buttons|links) on) (?:my |the )?(?:laptop )?screen|what can i (?:click|tap|press)(?: on (?:my |the )?screen)?|screen (?:pe|par) kya kya hai"), () => T('screen_items', {})],
   [re("(?:(?:show|send|give)(?: me)? (?:a |the |my )?(?:screenshot|screen ?shot|ss|picture|photo|pic) of (?:my |the )?(?:laptop |computer |pc )?screen|take (?:a )?(?:screenshot|screen ?shot|ss)(?: of (?:my |the )?(?:laptop |computer )?screen)?|(?:ss|screenshot) of (?:my |the )?(?:laptop |computer )?screen|show me (?:my |the )?(?:laptop |computer )?screen|screen ka (?:ss|screenshot) (?:bhejo|bhej do|dikhao)|what(?:'s| is) on (?:my |the )?(?:laptop )?screen)"), () => T('screen_show', {})],
   // volume
   [re('(?:set )?(?:the )?volume (?:to |at )?(\\d{1,3})(?: ?%| percent)?'), (m) => T('laptop_volume', { level: Number(m[1]) })],
@@ -53,6 +55,8 @@ const RULES = [
   // windows
   [re('(?:switch|jump) to (?:the )?(.+?)(?: window| app)?|go to (?:the )?(.+?)(?: window| app)?'), (m) => app(m[1] || m[2], (a) => T('laptop_window', { app: a, do: 'focus' }))],
   [re('(minimi[sz]e|maximi[sz]e) (?:the )?(.+?)(?: window)?'), (m) => app(m[2], (a) => T('laptop_window', { app: a, do: m[1].toLowerCase().startsWith('mini') ? 'minimize' : 'maximize' }))],
+  [re('close (?:this|the|that|my|current|it)(?: current)? tab|tab (?:band|bandh) (?:karo|kar do)'), () => T('laptop_tab', { do: 'close' })],
+  [re('(?:re-?open|bring back|restore) (?:the |that |my )?(?:last |closed )*tab(?: again)?|(?:open|bring back) (?:the |that )?(?:last )?closed tab(?: again)?'), () => T('laptop_tab', { do: 'reopen' })],
   [re('close all (?:the |my )?(.+?)(?: windows| tabs)?'), (m) => app(m[1], (a) => T('laptop_window', { app: a, do: 'close', all: true }))],
   [re('close (?:the )?(.+?)(?: window| app)?'), (m) => app(m[1], (a) => T('laptop_window', { app: a, do: 'close' }))],
   [re('(.+?) (?:band|bandh) (?:karo|kar do)'), (m) => app(m[1], (a) => T('laptop_window', { app: a, do: 'close' }))],

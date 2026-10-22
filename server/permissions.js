@@ -73,7 +73,7 @@ export class ApprovalQueue extends EventEmitter {
   // timeoutMs: null = wait as long as it takes.
   // pin: a dangerous laptop command — allowed only with the voice PIN, on every device (remoteTrust).
   // changeable: "change X" is an answer too (the orchestrator's brief card) → { allow: false, change }.
-  decide({ title, detail = '', tier, source, prompt, choices, category, grantable = false, kind, addable = false, changeable = false, question, pin = false, timeoutMs }) {
+  decide({ title, detail = '', tier, source, prompt, choices, category, grantable = false, kind, addable = false, changeable = false, question, pin = false, timeoutMs, speaksOnDeny = false }) {
     const canGrant = Boolean(this.grants && grantable && category && tier === 'medium' && !kind && !question && !pin);
     if (canGrant && this.grants.has(category)) {
       this.grants.record({ category, title });
@@ -84,6 +84,7 @@ export class ApprovalQueue extends EventEmitter {
       id: crypto.randomUUID(), title, detail, tier, source, createdAt: Date.now(), ...(kind ? { kind } : {}),
       ...(prompt ? { prompt } : {}), ...(choices?.length ? { choices } : {}), ...(addable ? { addable: true } : {}),
       ...(question ? { question } : {}), ...(pin ? { pin: true } : {}), ...(changeable ? { changeable: true } : {}),
+      ...(speaksOnDeny ? { speaksOnDeny: true } : {}), // its asker says the "no" line itself: a spoken no adds nothing
       ...(canGrant ? { grant: { category, label: labelFor(category) } } : {}),
     };
     return new Promise((resolve) => {

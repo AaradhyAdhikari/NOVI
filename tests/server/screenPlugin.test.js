@@ -185,9 +185,9 @@ describe('what is on the screen, as a list (no AI)', () => {
     expect(await s.gate('screen_items', { app: 'Brave' })).toEqual({});
     const out = await s.run('screen_items', { app: 'Brave' });
     expect(out.text).toMatch(/^On "snaxgaming Live Stream - Watch Live on KICK - Brave":/);
-    expect(out.text).toMatch(/1\. button: Back/);
-    expect(out.text).toMatch(/2\. link: snaxgaming snaxgaming PUBG Mobile 3\.2K/);
-    expect(out.text).toMatch(/3\. link: Binks69 DUKH BEGIN\.\.\. 5 hours ago/);
+    expect(out.text).toMatch(/1\. link: snaxgaming snaxgaming PUBG Mobile 3\.2K/);
+    expect(out.text).toMatch(/2\. link: Binks69 DUKH BEGIN\.\.\. 5 hours ago/);
+    expect(out.text).toMatch(/3\. button: Back/); // the browser's own buttons come last
     expect(out.text).not.toMatch(/Password/);
     expect(out.sensitive).toBe(true);
   });
@@ -195,8 +195,8 @@ describe('what is on the screen, as a list (no AI)', () => {
   it('screen_click by number (from the last list) or by its words — no vision', async () => {
     const s = withItems();
     await s.run('screen_items', { app: 'Brave' });
-    expect((await s.gate('screen_click', { n: 3, app: 'Brave' })).approval.title).toBe('Click “Binks69 DUKH BEGIN... 5 hours ago”');
-    expect((await s.run('screen_click', { n: 3, app: 'Brave' })).text).toBe('Clicked “Binks69 DUKH BEGIN... 5 hours ago”.');
+    expect((await s.gate('screen_click', { n: 2, app: 'Brave' })).approval.title).toBe('Click “Binks69 DUKH BEGIN... 5 hours ago”');
+    expect((await s.run('screen_click', { n: 2, app: 'Brave' })).text).toBe('Clicked “Binks69 DUKH BEGIN... 5 hours ago”.');
     expect(s.actions.at(-1)).toEqual(['click', 485, 760]);
     await s.run('screen_click', { target: 'snaxgaming', app: 'Brave' });
     expect(s.actions.at(-1)).toEqual(['click', 160, 575]);

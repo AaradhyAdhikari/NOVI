@@ -101,6 +101,10 @@ public static class NoviWin {
     keybd_event(0x11, 0, 0, UIntPtr.Zero); keybd_event(letter, 0, 0, UIntPtr.Zero);
     keybd_event(letter, 0, 2, UIntPtr.Zero); keybd_event(0x11, 0, 2, UIntPtr.Zero);
   }
+  public static void CtrlShift(byte letter) {
+    keybd_event(0x11, 0, 0, UIntPtr.Zero); keybd_event(0x10, 0, 0, UIntPtr.Zero); keybd_event(letter, 0, 0, UIntPtr.Zero);
+    keybd_event(letter, 0, 2, UIntPtr.Zero); keybd_event(0x10, 0, 2, UIntPtr.Zero); keybd_event(0x11, 0, 2, UIntPtr.Zero);
+  }
 }
 '@
 [NoviWin]::SetProcessDPIAware() | Out-Null
@@ -149,7 +153,7 @@ $handlers = @{
     $browsers = 'chrome', 'brave', 'msedge', 'firefox', 'opera', 'vivaldi', 'arc'
     foreach ($w in [NoviWin]::List()) {
       $title = [string]$w[1]
-      if ($title -match '^(NOVI|Novi work)\b') { continue }
+      if ($title -match '^(NOVI|Novi work|Picture in picture|Picture-in-picture)\b') { continue }
       $p = Get-Process -Id ([int]$w[2]) -ErrorAction SilentlyContinue
       if (-not $p -or $browsers -notcontains $p.ProcessName.ToLower()) { continue }
       $A = [System.Windows.Automation.AutomationElement]
@@ -163,6 +167,24 @@ $handlers = @{
         }
       }
       return @{ url = ''; title = $title; browser = $p.ProcessName.ToLower() }
+    }
+    @{ none = $true }
+  }
+  # The tab in the front-most browser window (not Novi's): Ctrl+W closes it, Ctrl+Shift+T brings it back.
+  tab = { param($a)
+    $browsers = 'chrome', 'brave', 'msedge', 'firefox', 'opera', 'vivaldi', 'arc'
+    $list = @([NoviWin]::List())
+    # Reopen in the window Novi last closed a tab in, when it is still there.
+    if ($a.win) { $same = @($list | Where-Object { [long]$_[0] -eq [long]$a.win }); if ($same.Count) { $list = $same + $list } }
+    foreach ($w in $list) {
+      $title = [string]$w[1]
+      # (the window a tab was closed in may now show Novi's page: reopening there is still right)
+      if ($title -match '^(NOVI|Novi work|Picture in picture|Picture-in-picture)\b' -and -not ($a.win -and [long]$w[0] -eq [long]$a.win)) { continue }
+      $p = Get-Process -Id ([int]$w[2]) -ErrorAction SilentlyContinue
+      if (-not $p -or $browsers -notcontains $p.ProcessName.ToLower()) { continue }
+      [NoviWin]::Focus([long]$w[0]); Start-Sleep -Milliseconds 200
+      if ([string]$a.do -eq 'reopen') { [NoviWin]::CtrlShift([byte]0x54) } else { [NoviWin]::Ctrl([byte]0x57) }
+      return @{ win = [long]$w[0]; title = $title; browser = $p.ProcessName.ToLower() }
     }
     @{ none = $true }
   }

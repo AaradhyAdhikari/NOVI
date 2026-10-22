@@ -101,6 +101,9 @@ describe('send the page open on the laptop', () => {
     expect(browserCommand('send this page to my phone')).toEqual({ link: true, phone: true });
     expect(browserCommand('copy the link of the current page')).toEqual({ link: true, copy: true });
     expect(browserCommand('copy this link')).toEqual({ link: true, copy: true });
+    for (const said of ["what's the link of this page", 'What is the URL of this website?', 'give me the link of this video', 'tell me the current page link', 'which page is open', 'which website is open on my laptop'])
+      expect(browserCommand(said)).toEqual({ link: true, phone: true });
+    expect(browserCommand('what is the link of the github website')).toBeNull();
   });
   it('messages and files are unchanged', () => {
     expect(browserCommand('Send a message to Isha saying that you are short.')).toEqual({ tool: 'whatsapp_prepare', args: { to: 'Isha', text: 'you are short' } });

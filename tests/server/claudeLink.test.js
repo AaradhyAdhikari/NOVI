@@ -354,7 +354,9 @@ describe('project progress', () => {
 
   function withStatus({ known = [], webProjects = [], chats = ['Workout API', 'Login screen'], next = 'Last commit: added login. Next: payments.' } = {}) {
     const s = setup({ known, web: { list: { names: webProjects.map((p) => p.name), projects: webProjects }, info: { chats } } });
-    s.runtime.callTool = async (name, args) => (name === 'project_next' ? { text: `${args.project}: ${next}` } : { opened: true });
+    s.runtime.callTool = async (name, args) => (name === 'project_next' ? { text: `${args.project}: ${next}` }
+      : name === 'github_repo' ? (/flexr/i.test(args.name) ? { name: 'FLEXR-', url: 'https://github.com/a/FLEXR-', commits: [{ message: 'Diet plans screen', date: '2026-10-19' }, { message: 'Login', date: '2026-10-02' }] } : { error: 'no repo' })
+      : { opened: true });
     s.runtime.wikiRead = (t) => (/brief/i.test(t) ? 'Goal: a fitness app with workout plans.' : null);
     const asked = [];
     s.runtime.privateComplete = async (p) => { asked.push(p); return 'FLEXR: login is done, payments are next.'; };
@@ -372,6 +374,10 @@ describe('project progress', () => {
     expect(s.asked[0]).toMatch(/Workout API/);
     expect(s.asked[0]).toMatch(/Goal: a fitness app/);
     expect(s.asked[0]).toMatch(/No folder on the laptop/);
+    // no folder: its GitHub repo's latest commits say how far it got (live 2026-10-22: only "a note")
+    expect(s.asked[0]).toMatch(/On GitHub \(FLEXR-\), latest commits: Diet plans screen \(2026-10-19\); Login \(2026-10-02\)\./);
+    // no folder: its GitHub repo's latest commits say how far it got (live 2026-10-22: only "a note")
+    expect(s.asked[0]).toMatch(/On GitHub \(FLEXR-\), latest commits: Diet plans screen \(2026-10-19\); Login \(2026-10-02\)\./);
     expect(s.said.at(-1)).toBe('FLEXR: login is done, payments are next.');
   });
 

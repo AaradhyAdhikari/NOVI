@@ -4,6 +4,16 @@ import { controlCommand, isCancelWord } from '../../server/brain/controlCommand.
 const T = (tool, args) => ({ tool, args });
 const cases = [
   ['volume 40', T('laptop_volume', { level: 40 })],
+  ['close this tab', T('laptop_tab', { do: 'close' })],
+  ["list what's on my screen", T('screen_items', {})],
+  ['what can I click', T('screen_items', {})],
+  ['read everything on the screen', T('screen_items', {})],
+  ['Close the tab.', T('laptop_tab', { do: 'close' })],
+  ['close the current tab', T('laptop_tab', { do: 'close' })],
+  ['tab band karo', T('laptop_tab', { do: 'close' })],
+  ['reopen the tab', T('laptop_tab', { do: 'reopen' })],
+  ['open the closed tab again', T('laptop_tab', { do: 'reopen' })],
+  ['bring back that tab', T('laptop_tab', { do: 'reopen' })],
   ['Set the volume to 40 percent.', T('laptop_volume', { level: 40 })],
   ['volume up', T('laptop_volume', { change: 'up' })],
   ['turn up the volume', T('laptop_volume', { change: 'up' })],

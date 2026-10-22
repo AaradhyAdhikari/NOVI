@@ -58,6 +58,10 @@ export function linkCommand(text) {
     return { ...T('whatsapp_prepare', { to }), link: true };
   }
   if (new RegExp(`^copy\\s+${THE_PAGE}$`, 'i').test(t)) return { link: true, copy: true };
+  // "What's the link of this page", "which website is open" → the address in the reply (live: went to the AI).
+  if (new RegExp(`^(?:what(?:'s|s| is)|tell me|give me|show me)\\s+(?:the\\s+)?(?:(?:current|this)\\s+)?(?:page\\s+|website\\s+|video\\s+)?(?:link|url|address)(?:\\s+(?:of|for)\\s+${THE_PAGE})?$`, 'i').test(t)
+    || new RegExp(`^(?:tell me|give me|what(?:'s| is))\\s+${THE_PAGE}$`, 'i').test(t)
+    || /^which\s+(?:page|website|site|tab|video)\s+is\s+(?:this|open)(?:\s+(?:on|in)\s+(?:my |the )?(?:laptop|browser|chrome|brave))?$/i.test(t)) return { link: true, phone: true };
   return null;
 }
 

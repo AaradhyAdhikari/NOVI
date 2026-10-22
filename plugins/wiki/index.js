@@ -88,7 +88,10 @@ export function createWikiPlugin({ now = () => new Date(), env = process.env, ho
         async execute(_id, { title, text }) {
           if (looksSecret(text) || looksSecret(title)) return reply({ note: "I won't save passwords or codes in notes." });
           const out = notes.write({ title, text });
-          return reply({ ...out, note: out.created ? `Saved a note: ${out.title}.` : `Added to your note ${out.title}.` });
+          // No title given: say the words back (the title is just the first 6 — "…exam is on 5." sounded cut).
+          const said = String(text).trim().replace(/[.!?]+$/, '');
+          const note = !title && out.created ? `Noted: "${said.length > 140 ? `${said.slice(0, 140)}…` : said}".` : out.created ? `Saved a note: ${out.title}.` : `Added to your note ${out.title}.`;
+          return reply({ ...out, note });
         },
       });
 

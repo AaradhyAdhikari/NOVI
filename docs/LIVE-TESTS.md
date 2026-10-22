@@ -20,15 +20,26 @@ Last updated: 2026-10-22.
 - Novi's ChatGPT / Gemini / claude.ai work stays in one minimized Chrome window (no tab pile-up).
 - No more freezes; "open my github profile" is instant; "where is my resume" ≈ 3.5 s.
 
+## New tonight (2026-10-22, checked by Claude on the test copy)
+
+- [x] "what does my FLEXR / SignSync project do", "medikiosk kya karta hai" → from the README / GitHub.
+- [x] "progress of my FLEXR project" → now uses its GitHub commits too, with the right "how long ago".
+- [x] "note that my DBMS exam is on 5 November" → "Noted: "my DBMS exam is on 5 November"." (used to say "…on 5.").
+- [x] "show me a screenshot of my screen" → just the picture (no extra "Done.").
+- [x] "list what's on my screen" → straight to the numbered list (the page's links first, Brave's own buttons last; the little picture-in-picture video window is skipped).
+- [x] "what's the link of this page" / "which website is open" → the address at once (no AI).
+- [x] Brief card: "change the colours to …" → a new card that shows "Your changes: …"; "no" → one reply.
+- [x] "what's the weather" with no city set → asks once; the city you name is remembered.
+- [ ] **New:** "close this tab" / "tab band karo" → closes the tab in the browser in front; "reopen the tab" brings it back in the same window. *(close/reopen worked; one wrong-window reopen was fixed after — try it once)*
+- [ ] "busy" should now be rare: Novi waits out short limits (up to 5 s) instead of "try again in 1 seconds".
+
 ## New since 2026-10-21 — please check first
 
 - [ ] With any page open in Brave/Chrome (e.g. Kick): "play the first video on screen", "click Subscribe", "open the snaxgaming stream"
       → Novi lists what's on screen and clicks it (the first click asks; say "always allow" to stop the questions).
-- [ ] "list what's on my screen" → a numbered list of the links/buttons on the page. *(checked 2026-10-22 on Kick in Brave)*
 - [ ] "send this video to Isha" / "copy the link of the current website and send it to Rahul" → sent on WhatsApp from the laptop.
 - [ ] "send this page to my phone" (ask from the phone) → the laptop page's link in the chat. *(checked 2026-10-22)*
 - [ ] "copy this link" → the page's link on the laptop clipboard.
-- [ ] "show me a screenshot of my screen" → a real picture (it used to just say it sent one).
 
 - [ ] "what does my TraceBites app do", "what is FLEXR about", "tell me about my SignSync project", "medikiosk kya karta hai"
       → answered from the project's README / your GitHub repo, never a Google search. *(TraceBites checked 2026-10-22)*
@@ -40,7 +51,6 @@ Last updated: 2026-10-22.
 - [ ] "open my github profile", "open YouTube", "what's the weather" — each answers in a couple of seconds.
 - [ ] Questions about your things: "where is my resume", "what does my tracebite app do".
 - [ ] Build something new ("let's build a tiny unit converter app" → "yes"): it also shows up in your claude.ai Projects.
-- [ ] On the brief card, say **"change the colours to dark blue"** instead of yes → a new card with the change. *(never tried)*
 
 ## Voice
 

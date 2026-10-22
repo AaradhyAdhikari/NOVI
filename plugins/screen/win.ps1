@@ -30,7 +30,8 @@ public static class NoviScreen {
     EnumWindows((h, l) => {
       if (!IsWindowVisible(h) || IsIconic(h) || GetWindow(h, 4) != IntPtr.Zero || (GetWindowLong(h, -20) & 0x80) != 0) return true;
       var sb = new StringBuilder(512); GetWindowText(h, sb, 512); var t = sb.ToString();
-      if (t.Length == 0 || t.StartsWith("NOVI") || t.StartsWith("Novi work") || t == "Program Manager") return true;
+      // (a browser's floating video window sits on top but isn't the page the user means)
+      if (t.Length == 0 || t.StartsWith("NOVI") || t.StartsWith("Novi work") || t == "Program Manager" || t.StartsWith("Picture in picture") || t.StartsWith("Picture-in-picture")) return true;
       found = h; return false;
     }, IntPtr.Zero);
     return found;

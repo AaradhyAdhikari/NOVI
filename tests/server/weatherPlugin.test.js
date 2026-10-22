@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { PluginHost } from '../../server/plugins/host.js';
 import { createWeatherPlugin } from '../../plugins/weather/index.js';
@@ -14,7 +17,7 @@ const FORECAST = {
   },
 };
 
-function setup({ env = {}, geocode = { results: [PUNE] }, forecast = FORECAST } = {}) {
+function setup({ env = {}, geocode = { results: [PUNE] }, forecast = FORECAST, dataDir } = {}) {
   const calls = [];
   const fetchImpl = async (url) => {
     calls.push(String(url));
@@ -22,12 +25,24 @@ function setup({ env = {}, geocode = { results: [PUNE] }, forecast = FORECAST } 
     if (String(url).startsWith('https://api.open-meteo.com/v1/forecast')) return new Response(JSON.stringify(forecast));
     throw new Error(`unexpected ${url}`);
   };
-  const host = new PluginHost({ runtime: {}, env, logger: { warn() {} } });
+  const host = new PluginHost({ runtime: dataDir ? { dataDir } : {}, env, logger: { warn() {} } });
   expect(host.register(createWeatherPlugin({ fetchImpl }))).toBe(true);
   return { host, calls };
 }
 
 describe('weather plugin (Open-Meteo, no key)', () => {
+  it('remembers the last city named as the home city when none is set', async () => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'novi-weather-'));
+    const first = setup({ dataDir });
+    const none = await first.host.get('weather_get').run({});
+    expect(none.text).toMatch(/Which city/);
+    await first.host.get('weather_get').run({ place: 'Pune' });
+    const again = setup({ dataDir });
+    const out = await again.host.get('weather_get').run({});
+    expect(again.calls[0]).toContain('name=Pune');
+    expect(out.text).toMatch(/Pune, Maharashtra/);
+  });
+
   it('looks up the place, then reports current weather and today', async () => {
     const { host, calls } = setup();
     const out = await host.get('weather_get').run({ place: 'Pune' });
