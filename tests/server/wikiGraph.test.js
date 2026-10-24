@@ -105,6 +105,29 @@ describe('buildGraph: project groups', () => {
   });
 });
 
+// plugins/codemap (2026-10-24): a mapped project gets a 4th dot with what its code map says.
+describe('buildGraph: a project with a code map (graphify)', () => {
+  it('adds a "Code map" dot from the map itself (no tests / packages / headings, live: "vitest" topped graphify\'s own list); graphify-out is not counted as the project\'s files', () => {
+    const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'novi-mapped-'));
+    fs.writeFileSync(path.join(folder, 'index.js'), 'x');
+    fs.mkdirSync(path.join(folder, 'graphify-out'));
+    const n = (id, label, file, extra = {}) => ({ id, label, source_file: file, file_type: 'code', ...extra });
+    fs.writeFileSync(path.join(folder, 'graphify-out', 'graph.json'), JSON.stringify({
+      nodes: [n('app', 'app.js', 'server/app.js'), n('novi', 'createNovi()', 'server/app.js'), n('host', 'PluginHost', 'server/plugins/host.js'),
+        n('vitest', 'vitest', 'package.json'), n('road', 'Roadmap', 'CLAUDE.md', { file_type: 'document' })],
+      links: [['app', 'novi'], ['novi', 'host'], ['app', 'host'], ['novi', 'vitest'], ['app', 'vitest'], ['host', 'vitest'], ['road', 'app'], ['road', 'novi']]
+        .map(([source, target]) => ({ source, target, relation: 'calls' })),
+    }));
+    const g = buildGraph(vaultWith({ 'Notes/Novi project.md': `# Novi project\n\nFolder: ${folder}` }));
+    const files = g.nodes.filter((x) => x.folder === 'Project files');
+    expect(files.map((x) => x.title).sort()).toEqual(['Code map', 'Files']);
+    expect(files.find((x) => x.title === 'Code map').excerpt)
+      .toBe('3 parts and 3 links. The most connected: app.js, createNovi() and PluginHost. Say "show me the Novi code map" to open it, or ask "how does X connect to Y".');
+    expect(files.find((n) => n.title === 'Files').excerpt).toBe(`1 file in ${folder}`);
+    expect(g.links.some((l) => [l.source, l.target].includes(`codemap:${folder}`) && [l.source, l.target].includes('Notes/Novi project.md'))).toBe(true);
+  });
+});
+
 describe('buildGraph: a project whose folder came later', () => {
   it('reads the newest Folder: line, and Context: folders add their files too', () => {
     const a = fs.mkdtempSync(path.join(os.tmpdir(), 'novi-flexr-'));

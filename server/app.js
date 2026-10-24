@@ -205,10 +205,11 @@ export function createNovi(config, overrides = {}) {
       aiKeys: () => aiKeys(),
       // True while a request (or its speech-to-text) runs: background work (the second brain) waits.
       busy: () => working > 0,
-      // A one-time download link for a file (plugins/files file_send_phone).
-      fileLink: (file) => {
+      // A one-time download link for a file (plugins/files file_send_phone); inline = a page to view in
+      // place (plugins/codemap's graph.html), sandboxed so it can't reach Novi's own page or storage.
+      fileLink: (file, { inline = false } = {}) => {
         const token = crypto.randomBytes(24).toString('base64url');
-        downloads.set(token, { file, until: Date.now() + 10 * 60_000, uses: 0 });
+        downloads.set(token, { file, inline, until: Date.now() + 10 * 60_000, uses: 0 });
         return `/api/download/${token}`;
       },
       projects: {
@@ -532,7 +533,9 @@ export function createNovi(config, overrides = {}) {
     const d = downloads.get(String(req.params.token));
     if (!d || d.until < Date.now() || d.uses >= 5) { downloads.delete(String(req.params.token)); return res.status(404).send('This link has expired. Ask Novi to send the file again.'); }
     d.uses += 1;
-    res.download(d.file, path.basename(d.file));
+    if (!d.inline) return res.download(d.file, path.basename(d.file));
+    res.set('Content-Security-Policy', 'sandbox allow-scripts allow-popups');
+    res.sendFile(path.resolve(d.file));
   });
   // req.from: who is asking — 'local' (the laptop) or { deviceId } (a paired phone).
   app.use('/api', (req, res, next) => {

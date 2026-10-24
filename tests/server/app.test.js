@@ -314,6 +314,18 @@ describe('Novi server', () => {
     expect((await fetch(`${base}/api/download/nope`)).status).toBe(404);
   });
 
+  it('a page to view (the code map) opens in place, sandboxed away from Novi\'s own page', async () => {
+    const { base, novi } = await start();
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'novi-dl-')), 'graph.html');
+    fs.writeFileSync(file, '<html>map</html>');
+    const res = await fetch(`${base}${novi.plugins.runtime.fileLink(file, { inline: true })}`);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('<html>map</html>');
+    expect(res.headers.get('content-type')).toMatch(/text\/html/);
+    expect(res.headers.get('content-disposition')).toBeNull();
+    expect(res.headers.get('content-security-policy')).toMatch(/^sandbox allow-scripts/);
+  });
+
   it('Settings → Activity lists what happened in each request (laptop only)', async () => {
     const { base, novi } = await start();
     const rec = novi.activity.begin('volume 30', 'local');

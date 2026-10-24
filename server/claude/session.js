@@ -12,7 +12,7 @@ export function claudeArgs({ resumeSessionId, permissionMode } = {}) {
     '--permission-prompts', 'host',
     '--permission-prompt-tool', 'stdio',
     // Novi answers "what's the progress" / "what's next" by voice from this plan.
-    '--append-system-prompt', 'The user follows this task by voice from their phone. For any task with more than one step, keep a short step-by-step plan with the TodoWrite tool (one short line per step) and update it as you work. Ask the user a question only when you truly cannot continue; otherwise make a sensible choice and say so in your plan. If the project has a website, write .novi/run.json with {"command", "port", "pages": {"home": "/", ...}} so Novi can preview it.',
+    '--append-system-prompt', 'The user follows this task by voice from their phone. For any task with more than one step, keep a short step-by-step plan with the TodoWrite tool (one short line per step) and update it as you work. Ask the user a question only when you truly cannot continue; otherwise make a sensible choice and say so in your plan. If the project has a website, write .novi/run.json with {"command", "port", "pages": {"home": "/", ...}} so Novi can preview it. If graphify-out/GRAPH_REPORT.md exists, read it first to find your way around the code (it maps how the files, classes and functions connect; Novi refreshes it after each task) and open only the files you need; the code itself wins if they differ.',
   ];
   if (resumeSessionId) args.push('--resume', resumeSessionId);
   // Plan first (2026-10-18): Claude shows its plan (ExitPlanMode → Novi's card) before building.

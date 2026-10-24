@@ -1,0 +1,9 @@
+{
+  "id": "codemap",
+  "name": "Code map",
+  "description": "A map of how each project's code fits together (graphify, no AI): explain a part, how two parts connect, the interactive graph; refreshed after each coding task.",
+  "categories": ["other"],
+  "contracts": { "tools": ["codemap_build", "codemap_ask", "codemap_show"] },
+  "activation": { "onStartup": true },
+  "configSchema": { "type": "object", "additionalProperties": false, "properties": { "command": { "type": "string" } } }
+}

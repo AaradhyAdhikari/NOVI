@@ -20,6 +20,18 @@ Last updated: 2026-10-22.
 - Novi's ChatGPT / Gemini / claude.ai work stays in one minimized Chrome window (no tab pile-up).
 - No more freezes; "open my github profile" is instant; "where is my resume" ≈ 3.5 s.
 
+## Code map with graphify (2026-10-24, checked by Claude on the test copy)
+
+Needs graphify installed once (`pip install graphifyy` — already done on this laptop). No AI, no credits.
+- [x] "map the Novi code" → "Mapping Novi's code…", then ~40 s later "Mapped Novi: 2179 parts and 4170 links…".
+- [x] "how does the orchestrator connect to the task manager in Novi" → the chain of calls/imports (0.1 s).
+- [x] "explain the ApprovalQueue class in Novi", "where is the TaskManager class in Novi" → file, line, what it links to.
+- [x] "what uses the vocabulary module in Novi" → vocabulary.js and the three files that import it.
+- [ ] "show me the Novi code map" → the interactive graph opens in the browser (on the phone: a link).
+- [ ] Map your tip calculator ("map my tip calculator project"): asks nothing (your words are the yes), adds graphify-out/ to its .gitignore.
+- [ ] After Claude finishes a task on a mapped project, the map refreshes by itself (nothing is said).
+- [ ] Watch whether Claude opens fewer files on Novi now (its prompt says: read graphify-out/GRAPH_REPORT.md first).
+
 ## New tonight (2026-10-22, checked by Claude on the test copy)
 
 - [x] "what does my FLEXR / SignSync project do", "medikiosk kya karta hai" → from the README / GitHub.

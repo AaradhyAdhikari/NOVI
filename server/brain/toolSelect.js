@@ -27,6 +27,8 @@ const WORDS = {
   // "claude" is in both ide and code: "open X in Claude and do Y" may open it and start a task.
   code: 'code html css javascript jsx fix bug bugs build implement refactor tests coding coder feature claude back takeover sambhal add bana banao karwa karwao change mode page button',
   memory: 'remember forget memory memories told yesterday earlier talked said ago',
+  // codemap_build / codemap_ask / codemap_show (plugins/codemap: graphify, no AI).
+  codemap: 'map graph graphify connect connects connected class function method module architecture structure codebase',
   backup: 'backup backups drive',
   sheets: 'study studied studying log logged hours sheet sheets spreadsheet',
   clock: 'announce announcement',

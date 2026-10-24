@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseSame, mainName, isContainerName } from './same.js';
+import { loadGraph, summary } from '../codemap/graph.js'; // pure reader of graphify's graph.json
 
 const EXCERPT = 200;
 const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -144,10 +145,29 @@ export function buildGraph(vault) {
 }
 
 const IMAGE = /\.(png|jpe?g|svg|webp|gif|ico)$/i;
-const SKIP = new Set(['node_modules', '.git', 'dist', 'build', 'data', '.next', 'coverage', 'vendor', '.venv', 'venv']);
+const SKIP = new Set(['node_modules', '.git', 'dist', 'build', 'data', '.next', 'coverage', 'vendor', '.venv', 'venv', 'graphify-out']);
 
-// A project's folder as at most 3 simple dots (user, 2026-10-18: "why so many different icons… make
-// everything simple"): Context (the README), Pictures (one dot; icon-32/icon-192/… count once), Files.
+// plugins/codemap's map (graphify-out/graph.json), summed up the way the codemap plugin says it
+// (graphify's own report counts tests, packages and doc headings — live, "vitest" topped it).
+// Read again only when the map changes.
+const mapSummaries = new Map(); // folder → { mtime, s }
+function codeMapDot(folder, name) {
+  const file = path.join(folder, 'graphify-out', 'graph.json');
+  const mtime = safeStat(file);
+  if (mtime == null) return null;
+  let s = mapSummaries.get(folder)?.mtime === mtime ? mapSummaries.get(folder).s : null;
+  if (!s) {
+    try { s = summary(loadGraph(JSON.parse(fs.readFileSync(file, 'utf8')))); } catch { return null; }
+    mapSummaries.set(folder, { mtime, s });
+  }
+  const list = s.hubs.length < 2 ? s.hubs.join('') : `${s.hubs.slice(0, -1).join(', ')} and ${s.hubs.at(-1)}`;
+  const said = `${s.parts} parts and ${s.links} links.${s.hubs.length ? ` The most connected: ${list}.` : ''}`;
+  return { id: `codemap:${folder}`, title: 'Code map', updated: day(mtime), excerpt: `${said} Say "show me the ${name} code map" to open it, or ask "how does X connect to Y".` };
+}
+
+// A project's folder as a few simple dots (user, 2026-10-18: "why so many different icons… make
+// everything simple"): Context (the README), Pictures (one dot; icon-32/icon-192/… count once), Files,
+// and Code map once plugins/codemap mapped it (2026-10-24).
 export function projectDots(folder, name) {
   if (!folder) return [];
   const dots = [];
@@ -181,6 +201,8 @@ export function projectDots(folder, name) {
     dots.push({ id: `pictures:${folder}`, title: 'Pictures', updated: null, excerpt: `${names.length} picture${names.length === 1 ? '' : 's'} in ${name}: ${names.slice(0, 8).join(', ')}` });
   }
   dots.push({ id: `files:${folder}`, title: 'Files', updated: null, excerpt: `${files} file${files === 1 ? '' : 's'} in ${folder}` });
+  const map = codeMapDot(folder, name);
+  if (map) dots.push(map);
   return dots;
 }
 const isDirectory = (f) => { try { return fs.statSync(f).isDirectory(); } catch { return false; } };

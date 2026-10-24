@@ -42,6 +42,8 @@ describe('claudeArgs', () => {
   it('asks Claude to keep a short step-by-step plan (Novi reads it for "what\'s the progress" / "what\'s next")', () => {
     const args = claudeArgs();
     expect(args[args.indexOf('--append-system-prompt') + 1]).toMatch(/TodoWrite/);
+    // A project with a code map (plugins/codemap): Claude starts from it instead of opening many files.
+    expect(args[args.indexOf('--append-system-prompt') + 1]).toMatch(/graphify-out\/GRAPH_REPORT\.md exists, read it first/);
   });
 });
 

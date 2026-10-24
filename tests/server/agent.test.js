@@ -1617,6 +1617,11 @@ describe('a picture promised but never taken counts as a claimed action (2026-10
     expect(claimsAction("Here's a screenshot of your laptop screen.")).toBe(true);
     expect(claimsAction('Here is the picture you asked for.')).toBe(true);
     expect(claimsAction('Here is what I found about Rust.')).toBe(false);
+    // Live (2026-10-24): "where is it? open now" → this, with nothing run.
+    expect(claimsAction('The Novi code map is now open in a browser tab.')).toBe(true);
+    expect(claimsAction('Your folder has been opened.')).toBe(true);
+    expect(claimsAction('The video is playing now.')).toBe(true);
+    expect(claimsAction('The store is open now until 9 pm.')).toBe(false);
   });
 });
 
@@ -1658,5 +1663,36 @@ describe("a card's own words for a spoken no", () => {
     const pending = approvals.decide({ title: 'Send this brief to Claude?', tier: 'medium', source: 'orchestrator', changeable: true, speaksOnDeny: true });
     expect(await agent.handle('no')).toBe('');
     expect(await pending).toMatchObject({ allow: false });
+  });
+});
+
+describe('the code map by voice (plugins/codemap, 2026-10-24)', () => {
+  const mk = (ask = { note: 'TaskManager is in server/claude/taskManager.js.' }) => {
+    const ran = [];
+    const tool = (name, out) => ({ name, description: name, parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => name, run: async (a) => { ran.push([name, a]); return out; } });
+    const tools = new ToolRegistry()
+      .add(tool('codemap_ask', ask))
+      .add(tool('codemap_build', { note: "Mapping Novi's code." }))
+      .add(tool('codemap_show', { note: "Opened Novi's code map in the browser." }))
+      .add(tool('code_show', { note: 'code' }));
+    const ai = [];
+    const agent = new Agent({ router: { chat: async () => { ai.push(1); return { message: { role: 'assistant', content: 'From the AI.' }, provider: 'groq', model: 'm' }; } }, tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
+    return { agent, ran, ai };
+  };
+
+  it('answers from the map without the AI, before "show me the code"', async () => {
+    const s = mk();
+    expect(await s.agent.handle('explain the task manager class')).toBe('TaskManager is in server/claude/taskManager.js.');
+    expect(await s.agent.handle('show me the Novi code map')).toBe("Opened Novi's code map in the browser.");
+    expect(await s.agent.handle('map the Novi code')).toBe("Mapping Novi's code.");
+    expect(s.ran.map(([n]) => n)).toEqual(['codemap_ask', 'codemap_show', 'codemap_build']);
+    expect(s.ai).toEqual([]);
+    expect((await s.agent.firstStep('how does the agent connect to the router')).calls).toEqual([{ name: 'codemap_ask', args: { part: 'agent', to: 'router' } }]);
+  });
+
+  it('something the map doesn\'t know goes on to the AI', async () => {
+    const s = mk({ unknown: true, error: 'I couldn\'t find "less battery" in Novi\'s code map.' });
+    expect(await s.agent.handle('what uses less battery')).toBe('From the AI.');
+    expect(s.ai).toHaveLength(1);
   });
 });
