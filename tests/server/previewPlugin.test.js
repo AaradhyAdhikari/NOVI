@@ -35,10 +35,18 @@ function setup({ project = { name: 'portfolio', path: folder({ '.novi/run.json':
     check: answers,
     followEveryMs,
   }));
-  return { project, host: h, started, shots, shown, links, opened, stoppedAll: () => stopped, show: h.get('preview_show'), open: h.get('preview_open'), stop: h.get('preview_stop'), status: h.get('preview_status') };
+  return { runtime, project, host: h, started, shots, shown, links, opened, stoppedAll: () => stopped, show: h.get('preview_show'), open: h.get('preview_open'), stop: h.get('preview_stop'), status: h.get('preview_status') };
 }
 
 describe('preview plugin', () => {
+  // plugins/donecheck starts the site to check it (the brief's yes or the user's "check it" was the OK).
+  it('runtime.previewSite starts a project site without a card', async () => {
+    const s = setup();
+    expect(await s.runtime.previewSite('portfolio')).toEqual({ name: 'portfolio', path: s.project.path, port: 4321 });
+    expect(s.started).toEqual([['portfolio', 'command']]);
+    expect(await s.runtime.previewSite('nope')).toHaveProperty('error');
+  });
+
   it('no project → asks which one', async () => {
     const s = setup({ project: null });
     expect((await s.show.run({})).error).toBe('Which project? Say "show me the homepage of portfolio".');

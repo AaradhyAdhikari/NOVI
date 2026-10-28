@@ -17,6 +17,7 @@ import { briefCommand, changeCommand } from './briefCommand.js';
 import { dictationCommand } from './dictationCommand.js';
 import { claudeLinkCommand, linkFolderCommand, projectStatusCommand, projectAboutCommand } from './claudeLinkCommand.js';
 import { codemapCommand } from './codemapCommand.js';
+import { doneCheckCommand } from './doneCheckCommand.js';
 import { parseApproval } from './approvalIntent.js';
 import { describeTurn } from '../activity.js';
 import { learningCommand } from './learning.js';
@@ -29,7 +30,7 @@ import fs from 'node:fs';
 // "What went wrong?" (the activity log) and "what's running?" — answered without the AI.
 const WRONG_RE = /^(?:what went wrong|what happened(?: last time| just now| there)?|why didn'?t (?:that|it|this) work|why did (?:that|it) fail|kya (?:galat )?hua(?: tha)?|kya gadbad hui)$/i;
 const RUNNING_RE = /^(?:what(?:'s| is) (?:running|going on|happening)(?: right now)?|what are you (?:doing|working on)(?: right now)?|(?:sab )?kya (?:kya )?chal raha hai|anything running)$/i;
-const DIRECT_OK = new Set(['code_start_task', 'code_send_message', 'rename_project', 'file_new_folder', 'open_project', 'file_open', 'file_rename', 'note_write', 'notes_ask', 'note_open', 'whatsapp_send', 'claude_project_make', 'remember_project', 'codemap_build']); // whatsapp_send: the user's decision 2026-10-17 — their command is the yes
+const DIRECT_OK = new Set(['code_start_task', 'code_send_message', 'rename_project', 'file_new_folder', 'open_project', 'file_open', 'file_rename', 'note_write', 'notes_ask', 'note_open', 'whatsapp_send', 'claude_project_make', 'remember_project', 'codemap_build', 'donecheck_run', 'donecheck_fix']); // whatsapp_send: the user's decision 2026-10-17 — their command is the yes
 const ASK_ANYWAY = new Set(['file_gather', 'file_undo_move', 'laptop_run', 'preview_show', 'preview_open']); // preview_show/open: only its first start of a project's own command asks
 const MAX_ROUNDS = 10; // screen tasks: open the app, look, click, type, …
 const MAX_HISTORY = 40;
@@ -397,6 +398,12 @@ export class Agent {
     // "Map the Novi code" / "how does X connect to Y" / "explain the X class" (plugins/codemap), no AI.
     // Before the other routes ("show me the … code map" isn't "show me the code"); what the map
     // doesn't know goes on to the AI.
+    // "Check it" / "is it done" / "fix it" (plugins/donecheck), no AI: the user's words are the yes.
+    const check = doneCheckCommand(text);
+    if (check && this.tools.get(check.tool)) {
+      const { output } = await this._runTool({ id: `check-${Date.now()}`, function: { name: check.tool, arguments: JSON.stringify(check.args) } }, { direct: true });
+      return this._remember(text, output?.error || output?.note || 'Done.');
+    }
     const map = codemapCommand(text);
     if (map && this.tools.get(map.tool)) {
       const { output } = await this._runTool({ id: `map-${Date.now()}`, function: { name: map.tool, arguments: JSON.stringify(map.args) } }, { direct: true });
@@ -641,6 +648,8 @@ export class Agent {
     const mem = this.tools.get('wiki_recent') ? await this._memoryCommand(text) : null;
     if (mem?.reply) return { quick: null, calls: [], reply: mem.reply, provider: 'direct' };
     if (mem && this.tools.get(mem.tool)) return { quick: null, calls: [{ name: mem.tool, args: mem.args }], reply: null, provider: 'direct' };
+    const check = doneCheckCommand(text);
+    if (check && this.tools.get(check.tool)) return { quick: null, calls: [{ name: check.tool, args: check.args }], reply: null, provider: 'direct' };
     const map = codemapCommand(text);
     if (map && this.tools.get(map.tool)) return { quick: null, calls: [{ name: map.tool, args: map.args }], reply: null, provider: 'direct' };
     const ctl = controlCommand(text);

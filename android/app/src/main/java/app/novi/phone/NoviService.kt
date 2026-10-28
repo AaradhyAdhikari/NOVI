@@ -306,40 +306,72 @@ class NoviService : Service() {
         status(card.id, if (card.question != null) "Listening… say the option, or \"other, …\"." else "Listening… say yes, no or the option.")
         say(line, pause = true, call = true) { speakingNow = false }
         Thread {
-            val heard = runCatching {
+            val over = { stopListening || listeningFor != card.id }
+            // 1. While Novi reads (call mode): an answer that interrupts her. Ends with the read-out when
+            //    nobody spoke.
+            var barged = false
+            val during = runCatching {
                 Recorder.capture(
-                    giveUpMs = if (card.question != null) 10000 else 5000,
+                    giveUpMs = Int.MAX_VALUE,
                     maxMs = if (card.question != null) 60000 else 30000,
                     echo = true,
                     speaking = { speakingNow },
-                    onSpeech = { if (speakingNow) main.post { tts?.stop(); speakingNow = false } },
-                ) { stopListening || listeningFor != card.id }
+                    onSpeech = {
+                        barged = true
+                        if (speakingNow) main.post { tts?.stop(); speakingNow = false }
+                    },
+                ) { over() || (!speakingNow && !barged) }
             }.getOrNull()
-            val stopped = stopListening
+            callMode(false)
+            if (over()) {
+                main.post { endListening() }
+                return@Thread
+            }
+            val early = if (barged && during != null && during.pcm.isNotEmpty()) heardText(during.pcm, line) else null
+            if (early != null) {
+                sendHeard(card, early)
+                return@Thread
+            }
+            // 2. Nothing usable while she read (live 2026-10-28: on the S24+ call mode heard nothing): listen
+            //    the plain way after the read-out, as before.
             main.post {
                 if (speakingNow) tts?.stop()
                 speakingNow = false
-                callMode(false)
-                endListening()
             }
+            val after = runCatching {
+                Recorder.capture(
+                    giveUpMs = if (card.question != null) 10000 else 5000,
+                    maxMs = if (card.question != null) 20000 else 8000,
+                ) { over() }
+            }.getOrNull()
+            val stopped = over()
+            main.post { endListening() }
             if (stopped) return@Thread
             when {
-                heard == null || heard.blocked -> main.post { status(card.id, "Android didn't let me listen: tap a button.") }
-                heard.pcm.isEmpty() -> main.post { status(card.id, "Didn't hear an answer: tap a button.") }
+                after == null || after.blocked -> main.post { status(card.id, "Android didn't let me listen: tap a button.") }
+                after.pcm.isEmpty() -> main.post { status(card.id, "Didn't hear an answer: tap a button.") }
                 else -> {
                     main.post { status(card.id, "Got it…") }
-                    val text = runCatching { transcribe(Recorder.wav(heard.pcm)) }.getOrNull().orEmpty()
-                    main.post {
-                        // Only Novi's own voice got through: never an answer.
-                        if (text.isBlank() || echoOnly(text, line)) status(card.id, "Didn't hear an answer: tap a button.")
-                        else {
-                            lastAsk = System.currentTimeMillis()
-                            socket?.send(JSONObject().put("type", "card_voice").put("id", card.id).put("text", text).toString())
-                        }
-                    }
+                    val text = heardText(after.pcm, line)
+                    if (text == null) main.post { status(card.id, "Didn't catch that: tap a button.") } else sendHeard(card, text)
                 }
             }
         }.start()
+    }
+
+    /** Speech to text; null when nothing came back or it was only Novi's own voice (never an answer). */
+    private fun heardText(pcm: ByteArray, line: String): String? {
+        val text = runCatching { transcribe(Recorder.wav(pcm)) }.getOrNull().orEmpty().trim()
+        return if (text.isEmpty() || echoOnly(text, line)) null else text
+    }
+
+    private fun sendHeard(card: Card, text: String) {
+        main.post {
+            endListening()
+            status(card.id, "Got it…")
+            lastAsk = System.currentTimeMillis()
+            socket?.send(JSONObject().put("type", "card_voice").put("id", card.id).put("text", text).toString())
+        }
     }
 
     /**

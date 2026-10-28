@@ -374,9 +374,16 @@ export function createNovi(config, overrides = {}) {
       laptopState.speaking(false);
     });
   };
+  // One page per device speaks (live 2026-10-28: a tab + the app window on the laptop said every line
+  // twice): the page used last, else the newest. Every page still shows everything.
+  let pageUse = 0;
+  const speakingPage = (key) => [...clients].filter((ws) => viewerKey(ws) === key).sort((a, b) => (b.usedAt || 0) - (a.usedAt || 0))[0];
   const broadcast = (msg) => {
     laptopState.feed(msg);
-    for (const ws of clients) send(ws, msg);
+    if (msg.type === 'speak') {
+      const keys = new Set([...clients].map(viewerKey));
+      for (const key of keys) send(speakingPage(key), msg);
+    } else for (const ws of clients) send(ws, msg);
     if (msg.type === 'speak' && clients.size === 0 && msg.text && !quiet.isOn()) speakLocal(msg.text);
   };
   // Replies go only to the device that asked: 'local' = the laptop (its pages, else its speakers),
@@ -394,7 +401,10 @@ export function createNovi(config, overrides = {}) {
     const key = deviceKey(from);
     if (key === 'local') laptopState.feed(msg);
     let reached = 0;
-    for (const ws of clients) if (viewerKey(ws) === key) { send(ws, msg); reached += 1; }
+    if (msg.type === 'speak') {
+      const one = speakingPage(key);
+      if (one) { send(one, msg); reached = 1; }
+    } else for (const ws of clients) if (viewerKey(ws) === key) { send(ws, msg); reached += 1; }
     if (msg.type === 'speak' && msg.text && !reached && key === 'local') speakLocal(msg.text);
     // A phone that doesn't have Novi open hears it later (and gets a notification, see notify()).
     if (msg.type === 'speak' && msg.text && !reached && key !== 'local') missed.add(key, msg.text);
@@ -1067,6 +1077,7 @@ export function createNovi(config, overrides = {}) {
       let authed = local;
       let token = null;
       const admit = () => {
+        ws.usedAt = ++pageUse; // the newest page wins until one is used
         clients.add(ws);
         send(ws, snapshot(viewerKey(ws)));
         // What this phone missed while Novi wasn't open on it, spoken in order.
@@ -1075,6 +1086,7 @@ export function createNovi(config, overrides = {}) {
       };
       if (authed) admit();
       ws.on('message', async (data) => {
+        ws.usedAt = ++pageUse;
         let msg;
         try { msg = JSON.parse(data); } catch { return; }
         if (!authed) {

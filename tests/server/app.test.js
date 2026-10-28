@@ -119,6 +119,29 @@ describe('Novi server', () => {
     c.ws.close();
   });
 
+  // Live 2026-10-28: two Novi pages open on the laptop (a tab + the app window) said every line twice.
+  it('speaks on only one laptop page: the one used last, else the newest', async () => {
+    const { ws, novi } = await start();
+    const c1 = connect(ws);
+    await c1.waitFor((m) => m.type === 'snapshot');
+    const c2 = connect(ws);
+    await c2.waitFor((m) => m.type === 'snapshot');
+    const spoken = (c) => c.messages.filter((m) => m.type === 'speak').length;
+    novi.plugins.runtime.say('First line');
+    await c2.waitFor((m) => m.type === 'speak');
+    await new Promise((r) => setTimeout(r, 50));
+    expect([spoken(c1), spoken(c2)]).toEqual([0, 1]);
+    c1.ws.send(JSON.stringify({ type: 'allow_edits', allow: false })); // the user uses the first page
+    await new Promise((r) => setTimeout(r, 50));
+    novi.plugins.runtime.say('Second line');
+    await c1.waitFor((m) => m.type === 'speak');
+    await new Promise((r) => setTimeout(r, 50));
+    expect([spoken(c1), spoken(c2)]).toEqual([1, 1]);
+    // Both pages still show it.
+    expect(c1.messages.some((m) => m.type === 'chat' && m.entry.text === 'Second line')).toBe(true);
+    c1.ws.close(); c2.ws.close();
+  });
+
   it('lets plugins say things in the chat and out loud, and gives them a data folder', async () => {
     const { ws, novi } = await start();
     const c = connect(ws);

@@ -101,6 +101,15 @@ export function createPreviewPlugin({ sites = createSites(), proxy = null, shot 
         } catch (err) { return { error: String(err.message || err) }; }
       }
 
+      // plugins/donecheck: start a project's site to check it, without this plugin's card (the brief's
+      // yes, or the user's own "check it", was the OK). Exact project name only.
+      runtime.previewSite = async (name) => {
+        const p = runtime.codingProject?.(name);
+        if (!p) return { error: NO_PROJECT };
+        const s = await start(p.name);
+        return s.error ? { error: s.error } : { name: s.p.name, path: s.p.path, port: s.site.port };
+      };
+
       api.registerTool({
         name: 'preview_show',
         description: "Show the user a page of the coding project's website (picture + live link on their device). page: home, contact, about…",

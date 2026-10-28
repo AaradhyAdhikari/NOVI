@@ -12,7 +12,7 @@ const EDGE = path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // Hidden Edge with a DevTools port (its own empty profile, not signed in anywhere) → its page's socket.
-async function launchEdge({ retry = false, edge = EDGE } = {}) {
+export async function launchEdge({ retry = false, edge = EDGE } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'novi-phone-'));
   const profile = path.join(dir, 'profile');
   const child = spawn(edge, [
@@ -48,7 +48,8 @@ async function launchEdge({ retry = false, edge = EDGE } = {}) {
   }
 }
 
-function connect(wsUrl) {
+// Also used by plugins/donecheck (its hidden test page).
+export function connect(wsUrl) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(wsUrl);
     const waiting = new Map();
@@ -70,6 +71,7 @@ function connect(wsUrl) {
         waiting.set(id, { ok, fail });
         ws.send(JSON.stringify({ id, method, params }));
       }),
+      on: (method, fn) => { listeners.set(method, [...(listeners.get(method) || []), fn]); },
       once: (method, ms) => new Promise((ok, fail) => {
         const timer = setTimeout(() => fail(new Error(`${method} timed out`)), ms);
         listeners.set(method, [...(listeners.get(method) || []), (p) => { clearTimeout(timer); ok(p); }]);

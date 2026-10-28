@@ -20,6 +20,20 @@ Last updated: 2026-10-22.
 - Novi's ChatGPT / Gemini / claude.ai work stays in one minimized Chrome window (no tab pile-up).
 - No more freezes; "open my github profile" is instant; "where is my resume" ≈ 3.5 s.
 
+## Done-check: Novi checks Claude's work against the brief (2026-10-28)
+- [x] Live on the Tip calculator (checklist made from its brief note): "check my tip calculator app" → 128 s → 4 of 6 passed (both "type and click" checks really ran in a hidden browser), 2 "not sure" with honest reasons (keyboard focus can't be judged from a picture). Nothing outside the project's own site can be reached from the test page.
+- [ ] A new brief → "yes" → when Claude finishes, Novi checks by itself and says "N of M checks passed…".
+- [ ] "fix it" → Claude gets only the failed / unsure checks → Novi checks again ("round 2").
+- [ ] "is it done" / "check it" (current project), "run the checks on X".
+- Results: `<project>/.novi/check-results.jsonl`, pictures `.novi/check-shots/`, research log `data/donecheck/runs.jsonl`; the brief note gets "Checked <date>".
+
+## Brief card "change X" (2026-10-28, live)
+- [x] "let's build a tiny unit converter app" → card in 24 s → "change it to also convert currencies" → new card in 10 s with "Your changes: also convert currencies" → "no" → "Okay, I won't send the brief."
+
+## Laptop voice (2026-10-28)
+- [x] Female Edge voice back (msedge-tts 2.1.1 — Microsoft changed its service; the laptop had fallen back to the male Windows voice).
+- [x] Two Novi pages open on the laptop no longer read every line twice: only the page used last speaks.
+
 ## Answer any card by voice (2026-10-28, checked by Claude on the test copy)
 
 - [x] "approve" with nothing waiting → "There's nothing waiting for approval right now." (a plain "yes" still goes on as usual).

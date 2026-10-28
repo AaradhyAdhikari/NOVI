@@ -1,0 +1,9 @@
+{
+  "id": "donecheck",
+  "name": "Done-check",
+  "description": "Checks Claude's work against the brief's Done-when list in a hidden browser (only the project's own site is reachable), says the result, and sends only the failed checks back to Claude.",
+  "categories": ["other"],
+  "contracts": { "tools": ["donecheck_run", "donecheck_fix"] },
+  "activation": { "onStartup": true },
+  "configSchema": { "type": "object", "additionalProperties": false, "properties": {} }
+}

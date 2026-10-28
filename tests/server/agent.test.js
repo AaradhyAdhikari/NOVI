@@ -1785,3 +1785,20 @@ describe('universal voice answers for every card', async () => {
     expect(handled).toEqual(['yes']);
   });
 });
+
+describe('the done-check by voice (plugins/donecheck, 2026-10-28)', () => {
+  it('"check it" / "fix it" go straight to the done-check, no AI', async () => {
+    const ran = [];
+    const tool = (name, out) => ({ name, description: name, parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => name, run: async (a) => { ran.push([name, a]); return out; } });
+    const tools = new ToolRegistry()
+      .add(tool('donecheck_run', { note: 'Checking Tip calculator against its brief (5 checks).' }))
+      .add(tool('donecheck_fix', { note: 'Sent 2 checks to Claude to fix.' }));
+    const ai = [];
+    const agent = new Agent({ router: { chat: async () => { ai.push(1); return { message: { role: 'assistant', content: 'AI' }, provider: 'groq', model: 'm' }; } }, tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
+    expect(await agent.handle('check my tip calculator app')).toBe('Checking Tip calculator against its brief (5 checks).');
+    expect(await agent.handle('fix it')).toBe('Sent 2 checks to Claude to fix.');
+    expect(ran).toEqual([['donecheck_run', { project: 'tip calculator' }], ['donecheck_fix', {}]]);
+    expect(ai).toEqual([]);
+    expect((await agent.firstStep('is it done')).calls).toEqual([{ name: 'donecheck_run', args: {} }]);
+  });
+});
