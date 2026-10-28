@@ -61,6 +61,13 @@ class LogicTest {
         assertEquals(1000L, b.next())
     }
 
+    @Test fun blockedMicRecordsOnlyZeros() {
+        assertTrue(isSilent(ByteArray(3200)))
+        assertTrue(isSilent(byteArrayOf(1, 0, -1, -1)))
+        assertEquals(false, isSilent(byteArrayOf(0, 0, 0x40, 0x10)))
+        assertTrue(isSilent(ByteArray(0)))
+    }
+
     @Test fun fingerprintLooksLikeColonHex() {
         assertEquals("01:AB:FF", fingerprintText(byteArrayOf(1, 0xAB.toByte(), 0xFF.toByte())))
     }

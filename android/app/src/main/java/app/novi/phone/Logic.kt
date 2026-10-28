@@ -62,6 +62,17 @@ fun parseCard(msg: JSONObject): Card? {
     return Card(id, title, "", listOf(CardAction("approve", if (proof) "Approve (PIN)" else "Approve"), CardAction("deny", "Deny")), proof, a.optString("prompt"))
 }
 
+/** 16-bit little-endian audio that is all (near) zero: Android blocked the mic, nobody was just quiet. */
+fun isSilent(pcm: ByteArray): Boolean {
+    var i = 0
+    while (i + 1 < pcm.size) {
+        val s = (pcm[i].toInt() and 0xFF) or (pcm[i + 1].toInt() shl 8)
+        if (s > 2 || s < -2) return false
+        i += 2
+    }
+    return true
+}
+
 /** "01:AB:FF" — how a certificate's SHA-256 is shown at pairing. */
 fun fingerprintText(bytes: ByteArray): String = bytes.joinToString(":") { "%02X".format(it.toInt() and 0xFF) }
 

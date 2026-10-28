@@ -181,8 +181,13 @@ class NoviService : Service() {
                 if (announced.add(card.id)) announce(card)
                 showTop()
             }
+            // The words heard for a card weren't an answer to it (or it was already answered).
+            "card_voice" -> if (!msg.optBoolean("ok") && msg.optString("reason") == "unclear") {
+                overlay.status(msg.optString("id"), "Didn't catch that: tap a button.")
+            }
             "approval_resolved" -> {
                 val id = msg.optString("id")
+                if (listeningFor == id) stopListening = true
                 cards.remove(id)
                 overlay.answered(id)
                 main.postDelayed({ showTop() }, 1500)
@@ -220,7 +225,62 @@ class NoviService : Service() {
         }
         getSystemService(Vibrator::class.java)?.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 180, 120, 180), -1))
         runCatching { RingtoneManager.getRingtone(this, RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))?.play() }
-        main.postDelayed({ say(card.spoken.ifEmpty { card.title }) }, 900)
+        // The video / music pauses while Novi reads the card out and listens for the answer.
+        // A short gap after speaking: the mic shouldn't catch the end of Novi's own voice.
+        main.postDelayed({ say(card.spoken.ifEmpty { card.title }, pause = true) { main.postDelayed({ autoListen(card) }, 500) } }, 900)
+    }
+
+    // ---- the answer by voice, right after the card is read out (user, 2026-10-28: "it should
+    // automatically first check for my answer via voice, then if not I will tap the button") ----
+
+    @Volatile private var listeningFor: String? = null
+    @Volatile private var stopListening = false
+
+    private fun autoListen(card: Card) {
+        if (cards.top()?.id != card.id || checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            endListening()
+            return
+        }
+        // Android lets a background app record only as a microphone foreground service.
+        val micOk = runCatching {
+            ServiceCompat.startForeground(this, 1, connNotice(stateText), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+        }.isSuccess
+        if (!micOk) {
+            overlay.status(card.id, "Tap a button to answer.")
+            endListening()
+            return
+        }
+        stopListening = false
+        listeningFor = card.id
+        overlay.status(card.id, "Listening… say yes, no or the option.")
+        Thread {
+            val heard = runCatching { Recorder.capture(giveUpMs = 5000, maxMs = 8000) { stopListening || listeningFor != card.id } }.getOrNull()
+            val stopped = stopListening
+            main.post { endListening() }
+            if (stopped) return@Thread
+            when {
+                heard == null || heard.blocked -> main.post { overlay.status(card.id, "Android didn't let me listen: tap a button.") }
+                heard.pcm.isEmpty() -> main.post { overlay.status(card.id, "Didn't hear an answer: tap a button.") }
+                else -> {
+                    main.post { overlay.status(card.id, "Got it…") }
+                    val text = runCatching { transcribe(Recorder.wav(heard.pcm)) }.getOrNull().orEmpty()
+                    main.post {
+                        if (text.isBlank()) overlay.status(card.id, "Didn't catch that: tap a button.")
+                        else {
+                            lastAsk = System.currentTimeMillis()
+                            socket?.send(JSONObject().put("type", "card_voice").put("id", card.id).put("text", text).toString())
+                        }
+                    }
+                }
+            }
+        }.start()
+    }
+
+    /** Back to the plain connection service (no mic), and the video / music plays again. */
+    private fun endListening() {
+        listeningFor = null
+        runCatching { ServiceCompat.startForeground(this, 1, connNotice(stateText), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE) }
+        getSystemService(AudioManager::class.java).abandonAudioFocusRequest(pauseFocus)
     }
 
     private val speech = AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANT)
@@ -228,23 +288,34 @@ class NoviService : Service() {
     private val focus by lazy {
         AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK).setAudioAttributes(speech).build()
     }
+    private val pauseFocus by lazy {
+        AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT).setAudioAttributes(speech).build()
+    }
 
-    /** Out loud, with the video or music turned down meanwhile. */
-    fun say(text: String) {
-        val t = tts ?: return
-        if (text.isBlank()) return
+    /**
+     * Out loud, with the video or music turned down meanwhile — or paused (`pause`, a card: it stays
+     * paused while the answer is listened for; `endListening` lets it play again). `then` runs after.
+     */
+    fun say(text: String, pause: Boolean = false, then: (() -> Unit)? = null) {
+        val t = tts
+        if (t == null || text.isBlank()) {
+            then?.invoke()
+            return
+        }
         val audio = getSystemService(AudioManager::class.java)
-        audio.requestAudioFocus(focus)
+        audio.requestAudioFocus(if (pause) pauseFocus else focus)
         t.setAudioAttributes(speech)
         t.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(id: String?) {}
             override fun onDone(id: String?) {
-                audio.abandonAudioFocusRequest(focus)
+                if (!pause) audio.abandonAudioFocusRequest(focus)
+                main.post { then?.invoke() }
             }
 
             @Deprecated("old API")
             override fun onError(id: String?) {
-                audio.abandonAudioFocusRequest(focus)
+                if (!pause) audio.abandonAudioFocusRequest(focus)
+                main.post { then?.invoke() }
             }
         })
         t.speak(text, TextToSpeech.QUEUE_FLUSH, null, "novi")
@@ -265,6 +336,7 @@ class NoviService : Service() {
 
     /** A card button: approve / deny / opt:N / choice:ID, through the same route as the phone popups. */
     fun answer(card: Card, action: String) {
+        stopListening = true
         val n = net ?: return
         overlay.status(card.id, "Sending…")
         work.execute {

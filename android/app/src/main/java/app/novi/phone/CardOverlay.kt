@@ -236,10 +236,7 @@ class CardOverlay(private val svc: NoviService) {
         for (a in c.actions) row.addView(button(a.title) { svc.answer(c, a.action) })
         // Claude's question with more options than fit, or a card with no buttons: open Novi for the rest.
         if (c.actions.isEmpty() || c.actions.none { it.action == "deny" }) row.addView(button("More…") { svc.openNovi(c.id) })
-        row.addView(button("🎤") { svc.listen(c.id, c.title, pin = false) }.apply {
-            layoutParams = LinearLayout.LayoutParams(dp(56), ViewGroup.LayoutParams.WRAP_CONTENT)
-            contentDescription = "Answer by voice"
-        })
+        // No mic button: the card listens for the answer by itself right after it is read out.
         buttons = row
         root.addView(row)
 

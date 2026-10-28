@@ -31,6 +31,7 @@ import { addLaptopTools } from './laptop/laptopTools.js';
 import { Pairing, isLocalAddress } from './auth.js';
 import { createSpeechEngine } from './voice/speechEngine.js';
 import { answerHint, spokenApproval } from './brain/answers.js';
+import { parseApproval } from './brain/approvalIntent.js';
 import { cardAlert } from './cardAlerts.js';
 import { createGroqWhisperStt } from './voice/providers/groqWhisper.js';
 import { createGeminiStt } from './voice/providers/geminiStt.js';
@@ -946,6 +947,24 @@ export function createNovi(config, overrides = {}) {
     return proof;
   }
 
+  // Words the phone app heard by itself right after reading a card out. A video or music may be playing
+  // nearby, so they count only if they clearly answer that card (yes / no / an option / "yes, but…" /
+  // "change…" / the PIN); never Claude-question free text, never a new request.
+  const VOICE_ANSWERS = new Set(['approve', 'deny', 'skip', 'option', 'ambiguous', 'approve_with_note', 'addition', 'change']);
+  async function cardVoice(id, said, from) {
+    const text = said.trim().slice(0, 300);
+    const card = approvals.pending().find((a) => a.id === id);
+    if (!card) return sendTo(from, { type: 'card_voice', id, ok: false, reason: 'gone' });
+    const pin = agent.wantsPin?.(from) ? parseSpokenPin(text) : null;
+    // Stray words often come first (live: "I am a man. Nome. Approve. Approve."): the whole phrase, else
+    // the last sentence that is a clear answer.
+    const sentences = text.match(/[^.!?।]+[.!?।]*/g)?.map((s) => s.trim()).filter(Boolean) || [];
+    const answer = pin ? text : [text, ...sentences.reverse()].find((s) => VOICE_ANSWERS.has(parseApproval(s, card).intent));
+    if (!answer) return sendTo(from, { type: 'card_voice', id, ok: false, reason: 'unclear' });
+    sendTo(from, { type: 'card_voice', id, ok: true });
+    return handleMessage({ type: 'user_message', text: answer }, from);
+  }
+
   async function handleMessage(msg, from = 'local') {
     if (msg.type === 'user_message' && typeof msg.text === 'string' && msg.text.trim()) {
       const text = msg.text.trim().slice(0, 4000);
@@ -983,6 +1002,8 @@ export function createNovi(config, overrides = {}) {
       }
     } else if (msg.type === 'approval') {
       approvals.resolve(msg.id, Boolean(msg.allow), 'screen', typeof msg.choice === 'string' ? msg.choice : null, { always: msg.always === true, from, proof: await approvalProof(msg, from), ...(typeof msg.answer === 'string' ? { answer: msg.answer.slice(0, 500) } : {}) });
+    } else if (msg.type === 'card_voice' && typeof msg.id === 'string' && typeof msg.text === 'string') {
+      return cardVoice(msg.id, msg.text, from);
     } else if (msg.type === 'code_save' && typeof msg.id === 'string' && typeof msg.text === 'string') {
       // Approve on a code card: the user's version goes into the project now; a running coder is told.
       try {

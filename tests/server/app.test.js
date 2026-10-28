@@ -1164,3 +1164,63 @@ describe('cards for the Android app', () => {
     c.ws.close(); c2.ws.close();
   });
 });
+
+// The phone app listens by itself after reading a card out (user, 2026-10-28: "it should automatically first
+// check for my answer via voice, then if not I will tap"). What it hears may only answer that card: words
+// from a video playing nearby must never become a request.
+describe('card answers heard by the phone app', () => {
+  async function setup() {
+    const approvals = new ApprovalQueue();
+    const heard = [];
+    const env = await start({ approvals, agent: { handle: async (text) => { heard.push(text); return 'ok'; } } });
+    const c = connect(env.ws);
+    await c.waitFor((m) => m.type === 'snapshot');
+    return { approvals, heard, c };
+  }
+
+  it('passes a clear answer on as a request, and drops anything else', async () => {
+    const { approvals, heard, c } = await setup();
+    approvals.decide({ title: 'Start the site?', tier: 'medium', source: 'novi', timeoutMs: 60_000 }).catch(() => {});
+    const id = (await c.waitFor((m) => m.type === 'approval_added')).approval.id;
+    c.ws.send(JSON.stringify({ type: 'card_voice', id, text: "and that's why you should smash that subscribe button" }));
+    await c.waitFor((m) => m.type === 'card_voice' && m.ok === false && m.reason === 'unclear');
+    expect(heard).toEqual([]);
+    c.ws.send(JSON.stringify({ type: 'card_voice', id, text: 'Yes.' }));
+    await c.waitFor((m) => m.type === 'card_voice' && m.ok === true);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(heard).toEqual(['Yes.']);
+    c.ws.close();
+  });
+
+  // Live 2026-10-28: "I am a man. Nome. Approve. Approve." — stray words before the answer.
+  it('finds the answer at the end of what was heard', async () => {
+    const { approvals, heard, c } = await setup();
+    approvals.decide({ title: 'Start the site?', tier: 'medium', source: 'novi', timeoutMs: 60_000 }).catch(() => {});
+    const id = (await c.waitFor((m) => m.type === 'approval_added')).approval.id;
+    c.ws.send(JSON.stringify({ type: 'card_voice', id, text: 'I am a man. Nome. Approve. Approve.' }));
+    await c.waitFor((m) => m.type === 'card_voice' && m.ok === true);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(heard).toEqual(['Approve.']);
+    c.ws.close();
+  });
+
+  it("takes only an option or skip for Claude's question, never free words", async () => {
+    const { approvals, heard, c } = await setup();
+    approvals.decide({ title: 'Claude asks: Which theme?', tier: 'medium', source: 'claude', question: { text: 'Which theme?', options: [{ label: 'Light' }, { label: 'Dark' }] }, timeoutMs: null }).catch(() => {});
+    const id = (await c.waitFor((m) => m.type === 'approval_added')).approval.id;
+    c.ws.send(JSON.stringify({ type: 'card_voice', id, text: 'welcome back to the channel everyone' }));
+    await c.waitFor((m) => m.type === 'card_voice' && m.ok === false);
+    c.ws.send(JSON.stringify({ type: 'card_voice', id, text: 'option 2' }));
+    await c.waitFor((m) => m.type === 'card_voice' && m.ok === true);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(heard).toEqual(['option 2']);
+    c.ws.close();
+  });
+
+  it('says when the card is already answered', async () => {
+    const { c } = await setup();
+    c.ws.send(JSON.stringify({ type: 'card_voice', id: 'nope', text: 'yes' }));
+    await c.waitFor((m) => m.type === 'card_voice' && m.ok === false && m.reason === 'gone');
+    c.ws.close();
+  });
+});
