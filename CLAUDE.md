@@ -2,7 +2,7 @@
 
 Novi is a voice-first personal AI companion that runs on the user's Windows laptop (vision: `NOVI CONTEXT.txt`, user-facing docs: `README.md`).
 
-**Where Novi lives (moved 2026-10-28, user's choice): `C:\dev\NOVI`**: plain ASCII, outside OneDrive, so every tool and terminal works. The old `OneDrive\ドキュメント\NOVI CONTEXT` folder is a leftover copy; never work there.
+**Where Novi lives (moved 2026-10-28, user's choice): `C:\dev\NOVI`**: plain ASCII, outside OneDrive, so every tool and terminal works. The old `OneDrive\ドキュメント\NOVI CONTEXT` folder is a leftover copy; never work there. The user's projects live next to it in `C:\dev\<Project>` (Portfolio, Tip calculator, SIH_proto_5th; `.env` `NOVI_PROJECTS_DIR=C:\dev`, so new projects go there too) and Novi Memory is `C:\dev\Novi Memory` (`NOVI_MEMORY_DIR`). MediKiosk, FLEXR, TraceBites etc. are claude.ai-only (no folder).
 
 ## Hard rules
 - **Claude only for coding (user's decision 2026-10-08).** Novi's brain (chat, tools) runs on free Groq/Gemini keys. Coding tasks default to Claude Code on the user's logged-in Pro plan when it's installed (`NOVI_CODER=free` turns that off); the brain picks Novi Coder (free) for small edits and Claude for bigger work, and the user's named choice always wins. Never run the real `claude` CLI in tests; use `tests/fixtures/fake-claude.mjs`.
