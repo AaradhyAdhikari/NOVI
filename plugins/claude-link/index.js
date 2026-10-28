@@ -3,6 +3,7 @@ import path from 'node:path';
 import { definePluginEntry } from '#plugin-sdk';
 import { listClaudeCodeProjects, CONTAINER } from './codeProjects.js';
 import { createClaudeWeb } from './claudeWeb.js';
+import { activeSessions, activityLine } from './activity.js';
 
 // Novi ⇄ Claude (user, 2026-10-18): every folder Claude Code has worked in becomes one of Novi's
 // projects (with a note in Novi Memory), so old projects can be driven by voice like new ones; and
@@ -134,6 +135,24 @@ export function createClaudeLinkPlugin({ driver = null, listCode = () => listCla
             if (on && !wasConnected && Object.keys(state.toMake || {}).length) retryMakes().catch((err) => log(`[claude-link] ${err.message}`));
             wasConnected = on;
           }, 60_000).unref?.();
+        },
+      });
+
+      // "What is Claude working on?": every Claude Code session busy on this laptop, the Claude app's
+      // included, not only tasks Novi started (live 2026-10-29). `skip`: a folder already described
+      // (Novi's own running task).
+      api.registerTool({
+        name: 'claude_activity',
+        description: 'What Claude Code is working on right now in any session on the laptop (the Claude app, a terminal, or Novi): project, the last request, the current step. "what is Claude working on", "is Claude working".',
+        parameters: { type: 'object', properties: { skip: { type: 'string' } }, required: [] },
+        async execute(_id, { skip } = {}) {
+          const norm = (f) => String(f || '').replace(/\\/g, '/').replace(/\/$/, '').toLowerCase();
+          const known = rt.projects?.list?.() || [];
+          const nameOf = (folder) => known.find((p) => norm(p.path) === norm(folder))?.name || path.basename(String(folder || '').replace(/\\/g, '/')) || 'a project';
+          const busy = activeSessions().filter((s) => !skip || norm(s.folder) !== norm(skip));
+          if (!busy.length) return { content: [], details: { note: 'No Claude Code session is busy right now.', sensitive: true } };
+          const lines = busy.slice(0, 3).map((s) => activityLine(s, nameOf(s.folder)));
+          return { content: [], details: { note: lines.join(' '), sensitive: true } };
         },
       });
 

@@ -92,3 +92,15 @@ export function projectStatusCommand(text) {
   if (!project || NOT_A_PROJECT.test(project) || project.split(/\s+/).length > 4) return null;
   return { tool: 'project_status', args: { project } };
 }
+
+// "What is Claude working on?" / "what's Claude doing" / "is Claude working" / "Claude kya kar raha hai"
+// → every busy Claude Code session (plugins/claude-link claude_activity), no AI.
+export function claudeActivityCommand(text) {
+  const t = String(text || '').trim().replace(LEAD, '').replace(/[.!?]+$/, '').trim();
+  if (/^what(?:'s| is| are)\s+claude(?: code)?\s+(?:working on|doing|up to|busy with)(?:\s+(?:right now|now))?$/i.test(t)
+    || /^is\s+claude(?: code)?\s+(?:working|busy|doing (?:something|anything))(?:\s+on (?:something|anything))?(?:\s+(?:right now|now))?$/i.test(t)
+    || /^claude(?: code)?\s+(?:kya kar raha hai|kya kar rahi hai|kis pe kaam kar raha hai)$/i.test(t)) {
+    return { tool: 'claude_activity', args: {} };
+  }
+  return null;
+}

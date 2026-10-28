@@ -20,6 +20,13 @@ Last updated: 2026-10-22.
 - Novi's ChatGPT / Gemini / claude.ai work stays in one minimized Chrome window (no tab pile-up).
 - No more freezes; "open my github profile" is instant; "where is my resume" ≈ 3.5 s.
 
+## Changes, tests and "what is Claude working on" (2026-10-29)
+- [x] "What is Claude working on?" now sees any Claude Code session on the laptop (the Claude app too): live → "Claude Code is working on novi. Right now it is running a command: …". It was "isn't working on any task".
+- [x] "What changed in Novi" → the changed files with +/− lines (live, 12 files).
+- [ ] "show me the changes in App.jsx" → the changed lines.
+- [ ] "run the tests" / "did the tests pass" on a project with tests → "N passed, M failed: …".
+- [ ] When Claude finishes a task → "Claude changed N files: …".
+
 ## Done-check: Novi checks Claude's work against the brief (2026-10-28)
 - [x] Live on the Tip calculator (checklist made from its brief note): "check my tip calculator app" → 128 s → 4 of 6 passed (both "type and click" checks really ran in a hidden browser), 2 "not sure" with honest reasons (keyboard focus can't be judged from a picture). Nothing outside the project's own site can be reached from the test page.
 - [ ] A new brief → "yes" → when Claude finishes, Novi checks by itself and says "N of M checks passed…".

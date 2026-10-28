@@ -1,0 +1,9 @@
+{
+  "id": "changes",
+  "name": "Changes and tests",
+  "description": "What Claude changed in a project (git or the files it wrote) and the project own test results, from anywhere. No AI.",
+  "categories": ["other"],
+  "contracts": { "tools": ["code_changes", "code_tests"] },
+  "activation": { "onStartup": true },
+  "configSchema": { "type": "object", "additionalProperties": false, "properties": {} }
+}

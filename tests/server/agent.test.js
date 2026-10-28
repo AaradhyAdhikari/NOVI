@@ -1802,3 +1802,39 @@ describe('the done-check by voice (plugins/donecheck, 2026-10-28)', () => {
     expect((await agent.firstStep('is it done')).calls).toEqual([{ name: 'donecheck_run', args: {} }]);
   });
 });
+
+describe('what Claude is working on + changes and tests by voice (2026-10-29)', () => {
+  const mk = (status = { active: false }) => {
+    const ran = [];
+    const tool = (name, out) => ({ name, description: name, parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => name, run: async (a) => { ran.push([name, a]); return out; } });
+    const tools = new ToolRegistry()
+      .add(tool('claude_activity', { note: 'Claude Code is working on NOVI: "fix the voice". Right now it is editing app.js.' }))
+      .add(tool('code_changes', { note: 'Claude changed 1 file: App.jsx (+20 −3).' }))
+      .add(tool('code_tests', { note: "Running Tip calculator's tests (npm test). I'll tell you the result." }));
+    const ai = [];
+    const agent = new Agent({ router: { chat: async () => { ai.push(1); return { message: { role: 'assistant', content: 'AI' }, provider: 'groq', model: 'm' }; } }, tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => status } });
+    return { agent, ran, ai };
+  };
+
+  it('"what is Claude working on" sees any Claude Code session, not only Novi\'s tasks', async () => {
+    const s = mk();
+    expect(await s.agent.handle('What is Claude working on?')).toBe('Claude Code is working on NOVI: "fix the voice". Right now it is editing app.js.');
+    expect(s.ran).toEqual([['claude_activity', {}]]);
+    expect(s.ai).toEqual([]);
+  });
+
+  it("Novi's own running task comes first; its folder isn't said twice", async () => {
+    const s = mk({ active: true, status: 'running', agent: 'Claude', project: 'portfolio', path: 'C:\dev\Portfolio', plan: [] });
+    const reply = await s.agent.handle("what's claude doing");
+    expect(s.ran).toEqual([['claude_activity', { skip: 'C:\dev\Portfolio' }]]);
+    expect(reply).toMatch(/Claude Code is working on NOVI/);
+  });
+
+  it('"what did Claude change" / "run the tests" go straight to the tools', async () => {
+    const s = mk();
+    expect(await s.agent.handle('what did Claude change')).toBe('Claude changed 1 file: App.jsx (+20 −3).');
+    expect(await s.agent.handle('run the tests on tip calculator')).toBe("Running Tip calculator's tests (npm test). I'll tell you the result.");
+    expect(s.ran.map(([n]) => n)).toEqual(['code_changes', 'code_tests']);
+    expect(s.ai).toEqual([]);
+  });
+});
