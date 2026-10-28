@@ -1192,6 +1192,40 @@ describe('card answers heard by the phone app', () => {
     c.ws.close();
   });
 
+  // User, 2026-10-28: Claude's question on the phone like Claude Code shows it — every option with its
+  // description, then "Other" (own words, typed or said).
+  it("sends the whole question with Claude's question cards", async () => {
+    const { approvals, c } = await setup();
+    const options = [{ label: 'BHASHINI', description: 'Indian languages' }, { label: 'Whisper', description: 'Accurate' }, { label: 'Hybrid', description: 'Both' }];
+    approvals.decide({ title: 'Claude asks: Which voice system?', tier: 'medium', source: 'claude', question: { text: 'Which voice system?', options, multiSelect: false }, timeoutMs: null }).catch(() => {});
+    const added = await c.waitFor((m) => m.type === 'approval_added');
+    expect(added.alert.question).toEqual({ text: 'Which voice system?', options, multiSelect: false });
+    expect(added.alert.spoken).toMatch(/Or say: other, and your own answer\.$/);
+    c.ws.close();
+  });
+
+  // User, 2026-10-28: "no mic button … I will just say 'in other I want …'" — own words by voice, only
+  // after the word "other" (anything else heard stays dropped).
+  it('takes your own answer to Claude\'s question after "other"', async () => {
+    const { approvals, heard, c } = await setup();
+    const decision = approvals.decide({ title: 'Claude asks: Which voice system?', tier: 'medium', source: 'claude', question: { text: 'Which voice system?', options: [{ label: 'BHASHINI' }, { label: 'Whisper' }] }, timeoutMs: null });
+    const id = (await c.waitFor((m) => m.type === 'approval_added')).approval.id;
+    c.ws.send(JSON.stringify({ type: 'card_voice', id, text: 'Novi test. In other, I want IndicConformer for Indian languages.' }));
+    await expect(decision).resolves.toMatchObject({ allow: true, answer: 'I want IndicConformer for Indian languages.' });
+    await c.waitFor((m) => m.type === 'card_voice' && m.ok === true);
+    expect(heard).toEqual([]);
+    c.ws.close();
+  });
+
+  it('raises a test question like Claude asks', async () => {
+    const env = await start();
+    const res = await fetch(`${env.base}/api/test-card`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: true }) });
+    expect(await res.json()).toEqual({ sent: true });
+    const card = env.novi.approvals.pending()[0];
+    expect(card.question.options.length).toBe(3);
+    expect(card.question.options[0]).toMatchObject({ label: expect.any(String), description: expect.any(String) });
+  });
+
   // Live 2026-10-28: "I am a man. Nome. Approve. Approve." — stray words before the answer.
   it('finds the answer at the end of what was heard', async () => {
     const { approvals, heard, c } = await setup();

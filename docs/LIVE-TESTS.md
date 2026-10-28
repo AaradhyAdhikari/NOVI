@@ -51,7 +51,10 @@ Rebuild after a change: double-click `android\build-apk.cmd` (APK: `android\Novi
 - [x] No mic button: right after reading the card out, Novi listens by itself (video paused) → said "approve" → approved (live; heard "Novi, Tex, Car. Approve." — the last clear answer counts). Nothing said in 5 s → "Didn't hear an answer: tap a button."
 - [ ] Same over full-screen YouTube (the video pauses while Novi speaks and listens, then plays again) and with the screen off (it wakes up).
 - [ ] Answer on the laptop instead → the card on the phone says "Answered" and goes away.
-- [ ] Claude's question card → say "option 2" / "the second one"; a permission card → "yes, but X" / "change it to X" → Novi's answer is spoken on the phone. Words from a video never count (only clear answers to that card).
+- [x] **Lock-screen card (app 1.2.0, live 2026-10-28)**: allow "Cards on the lock screen" in the app (full-screen notifications) → lock the phone / screen off → a card: the screen lights up with a big Novi card over the lock screen, read out, listens → "approve" works without unlocking. A PIN card shows "Unlock to approve" (never approved from the lock screen); Deny works. "Later" leaves it waiting as the pop-up after unlocking.
+- [x] **Claude's question in full (app 1.3.x, live 2026-10-28)**: every option with its description + Other + Skip/Submit, on the pop-up and the lock screen; on the lock screen "one" picked option 1 by voice. Test: POST /api/test-card {question:true}.
+- [ ] Screen on: voice answer to a question (first try missed — likely spoken during the read-out; 1.3.1 waits 10 s and hears a quieter voice). Say "in other, I want …" → goes to Claude as your own answer. Typing: tap Other → type → Submit.
+- [ ] A permission card → "yes, but X" / "change it to X" → Novi's answer is spoken on the phone. Words from a video never count (only clear answers to that card).
 - [ ] A PIN card (e.g. Claude wants to git push) → "Approve (PIN)" → PIN pad (only if Settings allow typed PINs) or "🎤 Say PIN" → approved; a wrong PIN says "PIN not accepted".
 - [ ] "Later" shrinks the card to a small "Novi · 1 card" pill; tap it to open again.
 - [ ] Phone restarted → the "Novi is connected" notification comes back by itself. Laptop off/on → it reconnects.

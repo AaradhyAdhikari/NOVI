@@ -61,6 +61,30 @@ class LogicTest {
         assertEquals(1000L, b.next())
     }
 
+    @Test fun claudesQuestionArrivesWhole() {
+        val c = parseCard(JSONObject("""{"alert":{"id":"q1","title":"Claude asks: Which voice?","actions":[],"question":{"text":"Which voice?","multiSelect":false,"options":[{"label":"BHASHINI","description":"Indian languages"},{"label":"Whisper","description":""}]}}}"""))!!
+        assertEquals("Which voice?", c.question!!.text)
+        assertEquals(listOf("BHASHINI", "Whisper"), c.question!!.options.map { it.label })
+        assertEquals("Indian languages", c.question!!.options[0].description)
+        assertNull(parseCard(JSONObject("""{"alert":{"id":"a","title":"Start?","actions":[]}}"""))!!.question)
+    }
+
+    @Test fun questionAnswerIsTheOptionOrYourOwnWords() {
+        val opts = listOf(QuestionOption("Light"), QuestionOption("Dark"), QuestionOption("Auto"))
+        assertEquals("Dark", questionAnswer(opts, setOf(1), ""))
+        assertEquals("Light, Auto", questionAnswer(opts, setOf(2, 0), ""))
+        assertEquals("Use the system theme", questionAnswer(opts, setOf(1), "  Use the system theme "))
+        assertNull(questionAnswer(opts, emptySet(), " "))
+    }
+
+    @Test fun lockScreenNeverApprovesAPinCard() {
+        val pin = Card("a", "Delete logs", actions = listOf(CardAction("approve", "Approve (PIN)"), CardAction("deny", "Deny")), proof = true)
+        assertEquals(listOf("unlock", "deny"), lockScreenActions(pin).map { it.action })
+        assertEquals("Unlock to approve", lockScreenActions(pin)[0].title)
+        val plain = Card("b", "Start the site?", actions = listOf(CardAction("approve", "Approve"), CardAction("deny", "Deny")))
+        assertEquals(listOf("approve", "deny"), lockScreenActions(plain).map { it.action })
+    }
+
     @Test fun blockedMicRecordsOnlyZeros() {
         assertTrue(isSilent(ByteArray(3200)))
         assertTrue(isSilent(byteArrayOf(1, 0, -1, -1)))

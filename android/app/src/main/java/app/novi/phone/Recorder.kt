@@ -44,7 +44,8 @@ object Recorder {
                     bytes.putShort(buf[i])
                 }
                 out.write(bytes.array())
-                if (sqrt(sum / n) > 900) {
+                // Speech level: a little lower than before (900), so a quieter voice also counts.
+                if (sqrt(sum / n) > 700) {
                     spoke = true
                     quiet = 0
                 } else if (spoke) quiet++

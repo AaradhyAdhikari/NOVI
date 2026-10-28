@@ -28,11 +28,14 @@ class CardOverlay(private val svc: NoviService) {
     private var statusView: TextView? = null
     private var pinArea: LinearLayout? = null
     private var buttons: LinearLayout? = null
+    private var form: View? = null
+    private var params: WindowManager.LayoutParams? = null
 
     private fun dp(v: Int) = (v * svc.resources.displayMetrics.density).toInt()
 
     fun show(top: Card, total: Int) {
-        val same = card?.id == top.id && view != null && count == total
+        // Same card: keep the view as it is (a half-typed answer is never lost).
+        val same = card?.id == top.id && view != null
         if (card?.id != top.id) collapsed = false
         card = top
         count = total
@@ -60,6 +63,8 @@ class CardOverlay(private val svc: NoviService) {
         if (statusView?.visibility != View.VISIBLE) status(id, "Answered")
         buttons?.visibility = View.GONE
         pinArea?.visibility = View.GONE
+        form?.visibility = View.GONE
+        typing(false)
     }
 
     /** A card this phone can't approve by itself (fingerprint, at the laptop…): open Novi for it. */
@@ -144,6 +149,7 @@ class CardOverlay(private val svc: NoviService) {
             x = if (collapsed) dp(12) else 0
         }
         wm.addView(v, params)
+        this.params = params
         view = v
         if (slide) {
             v.translationY = dp(400).toFloat()
@@ -207,13 +213,13 @@ class CardOverlay(private val svc: NoviService) {
         root.addView(head)
 
         root.addView(TextView(ctx).apply {
-            text = c.title
+            text = if (c.question != null) "Claude asks" else c.title
             textSize = 17f
             setTextColor(Color.BLACK)
             setTypeface(typeface, Typeface.BOLD)
             setPadding(0, dp(4), 0, dp(2))
         })
-        if (c.body.isNotBlank()) {
+        if (c.body.isNotBlank() && c.question == null) {
             root.addView(TextView(ctx).apply {
                 text = c.body.replace("Tap to open Novi.", "").replace("Tap to answer in Novi.", "").trim()
                 textSize = 14f
@@ -228,6 +234,18 @@ class CardOverlay(private val svc: NoviService) {
             visibility = View.GONE
         }
         root.addView(statusView)
+
+        // Claude's question: the whole form (every option, "Other"), scrolling when it is long.
+        c.question?.let { q ->
+            val f = QuestionForm(ctx, q, dark = false, onSubmit = { svc.answerQuestion(c, it) }, onSkip = { svc.answer(c, "deny") }, onTyping = ::typing).view
+            val scroll = MaxScroll(ctx, (svc.resources.displayMetrics.heightPixels * 0.6).toInt())
+            scroll.addView(f)
+            form = scroll
+            buttons = null
+            root.addView(scroll)
+            return outer
+        }
+        form = null
 
         val row = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -247,4 +265,29 @@ class CardOverlay(private val svc: NoviService) {
         root.addView(pinArea)
         return outer
     }
+
+    /**
+     * Typing an "Other" answer: the card takes the keyboard for a moment (it never does otherwise) and moves
+     * to the top of the screen, so the keyboard doesn't cover it.
+     */
+    private fun typing(on: Boolean) {
+        val v = view ?: return
+        val p = params ?: return
+        val focusable = p.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE == 0
+        if (focusable == on) return
+        p.flags = if (on) p.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv() else p.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+        p.gravity = (if (on) Gravity.TOP else Gravity.BOTTOM) or Gravity.CENTER_HORIZONTAL
+        p.y = dp(if (on) 48 else 24)
+        p.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE
+        runCatching { wm.updateViewLayout(v, p) }
+        val imm = svc.getSystemService(android.view.inputmethod.InputMethodManager::class.java)
+        if (on) v.postDelayed({ v.findFocus()?.let { imm.showSoftInput(it, 0) } }, 150)
+        else imm.hideSoftInputFromWindow(v.windowToken, 0)
+    }
+}
+
+/** A ScrollView that stops growing at `max` pixels (a long list of options scrolls inside the card). */
+private class MaxScroll(ctx: android.content.Context, private val max: Int) : android.widget.ScrollView(ctx) {
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) =
+        super.onMeasure(widthMeasureSpec, View.MeasureSpec.makeMeasureSpec(max, View.MeasureSpec.AT_MOST))
 }

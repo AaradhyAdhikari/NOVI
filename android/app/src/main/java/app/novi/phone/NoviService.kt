@@ -83,6 +83,12 @@ class NoviService : Service() {
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel("conn", "Connection to Novi", NotificationManager.IMPORTANCE_LOW))
         nm.createNotificationChannel(NotificationChannel("cards", "Novi cards", NotificationManager.IMPORTANCE_HIGH))
+        // The lock-screen card: a full-screen notification (like a call or an alarm). Silent: the app
+        // already buzzes, chimes and reads the card out.
+        nm.createNotificationChannel(NotificationChannel("lockcard", "Cards on the lock screen", NotificationManager.IMPORTANCE_HIGH).apply {
+            setSound(null, null)
+            enableVibration(false)
+        })
         ServiceCompat.startForeground(this, 1, connNotice("Connecting to Novi…"), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         overlay = CardOverlay(this)
         tts = TextToSpeech(this) { }
@@ -183,16 +189,16 @@ class NoviService : Service() {
             }
             // The words heard for a card weren't an answer to it (or it was already answered).
             "card_voice" -> if (!msg.optBoolean("ok") && msg.optString("reason") == "unclear") {
-                overlay.status(msg.optString("id"), "Didn't catch that: tap a button.")
+                status(msg.optString("id"), "Didn't catch that: tap a button.")
             }
             "approval_resolved" -> {
                 val id = msg.optString("id")
                 if (listeningFor == id) stopListening = true
                 cards.remove(id)
-                overlay.answered(id)
+                answered(id)
                 main.postDelayed({ showTop() }, 1500)
             }
-            "approval_needs_proof" -> overlay.status(
+            "approval_needs_proof" -> status(
                 msg.optString("id"),
                 when (msg.optString("need")) {
                     "pin" -> "PIN not accepted. Try again."
@@ -204,6 +210,34 @@ class NoviService : Service() {
             // Novi's spoken answer to something said through this app's mic.
             "speak" -> if (System.currentTimeMillis() - lastAsk < 30_000) say(msg.optString("text"))
         }
+    }
+
+    fun cardById(id: String): Card? = cards.all().find { it.id == id }
+
+    /** A short line on the card, on the pop-up and on the lock-screen card alike. */
+    private fun status(id: String, text: String) {
+        overlay.status(id, text)
+        LockCardActivity.current?.status(id, text)
+    }
+
+    private fun answered(id: String) {
+        overlay.answered(id)
+        LockCardActivity.current?.answered(id)
+        getSystemService(NotificationManager::class.java).cancel(3)
+    }
+
+    /** Phone locked or screen off: the card opens over the lock screen and lights it up. */
+    private fun lockCard(card: Card) {
+        val open = android.content.Intent(this, LockCardActivity::class.java).putExtra("card", card.id)
+            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        val pi = PendingIntent.getActivity(this, 3, open, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val n = NotificationCompat.Builder(this, "lockcard").setSmallIcon(R.drawable.ic_novi).setContentTitle(card.title)
+            .setContentText("Novi needs your answer").setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_CALL).setFullScreenIntent(pi, true).setContentIntent(pi).setOngoing(true).build()
+        val nm = getSystemService(NotificationManager::class.java)
+        nm.notify(3, n)
+        // Without the full-screen permission: an app allowed over other apps may open it directly.
+        if (android.os.Build.VERSION.SDK_INT >= 34 && !nm.canUseFullScreenIntent()) runCatching { startActivity(open) }
     }
 
     private fun showTop() {
@@ -220,6 +254,7 @@ class NoviService : Service() {
     @Suppress("DEPRECATION")
     private fun announce(card: Card) {
         val pm = getSystemService(PowerManager::class.java)
+        if (!pm.isInteractive || getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked) lockCard(card)
         if (!pm.isInteractive) {
             pm.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP, "novi:card").acquire(15_000)
         }
@@ -246,26 +281,26 @@ class NoviService : Service() {
             ServiceCompat.startForeground(this, 1, connNotice(stateText), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
         }.isSuccess
         if (!micOk) {
-            overlay.status(card.id, "Tap a button to answer.")
+            status(card.id, "Tap a button to answer.")
             endListening()
             return
         }
         stopListening = false
         listeningFor = card.id
-        overlay.status(card.id, "Listening… say yes, no or the option.")
+        status(card.id, if (card.question != null) "Listening… say the option, or \"other, …\"." else "Listening… say yes, no or the option.")
         Thread {
-            val heard = runCatching { Recorder.capture(giveUpMs = 5000, maxMs = 8000) { stopListening || listeningFor != card.id } }.getOrNull()
+            val heard = runCatching { Recorder.capture(giveUpMs = if (card.question != null) 10000 else 5000, maxMs = if (card.question != null) 20000 else 8000) { stopListening || listeningFor != card.id } }.getOrNull()
             val stopped = stopListening
             main.post { endListening() }
             if (stopped) return@Thread
             when {
-                heard == null || heard.blocked -> main.post { overlay.status(card.id, "Android didn't let me listen: tap a button.") }
-                heard.pcm.isEmpty() -> main.post { overlay.status(card.id, "Didn't hear an answer: tap a button.") }
+                heard == null || heard.blocked -> main.post { status(card.id, "Android didn't let me listen: tap a button.") }
+                heard.pcm.isEmpty() -> main.post { status(card.id, "Didn't hear an answer: tap a button.") }
                 else -> {
-                    main.post { overlay.status(card.id, "Got it…") }
+                    main.post { status(card.id, "Got it…") }
                     val text = runCatching { transcribe(Recorder.wav(heard.pcm)) }.getOrNull().orEmpty()
                     main.post {
-                        if (text.isBlank()) overlay.status(card.id, "Didn't catch that: tap a button.")
+                        if (text.isBlank()) status(card.id, "Didn't catch that: tap a button.")
                         else {
                             lastAsk = System.currentTimeMillis()
                             socket?.send(JSONObject().put("type", "card_voice").put("id", card.id).put("text", text).toString())
@@ -338,25 +373,32 @@ class NoviService : Service() {
     fun answer(card: Card, action: String) {
         stopListening = true
         val n = net ?: return
-        overlay.status(card.id, "Sending…")
+        status(card.id, "Sending…")
         work.execute {
             val result = runCatching { n.post("/api/card-answer", JSONObject().put("id", card.id).put("action", action)) }
             main.post {
-                result.onFailure { overlay.status(card.id, it.message ?: "Couldn't reach Novi.") }
+                result.onFailure { status(card.id, it.message ?: "Couldn't reach Novi.") }
                 result.onSuccess { r ->
                     when {
                         r.optBoolean("gone") -> {
                             cards.remove(card.id)
-                            overlay.answered(card.id)
+                            answered(card.id)
                             main.postDelayed({ showTop() }, 1200)
                         }
-                        r.optBoolean("done") -> overlay.status(card.id, r.optString("text"))
+                        r.optBoolean("done") -> status(card.id, r.optString("text"))
                         r.optString("need") == "pin" -> askPin(card)
                         else -> overlay.needsNovi(card.id, r.optString("text").ifEmpty { "Open Novi to answer." })
                     }
                 }
             }
         }
+    }
+
+    /** Claude's question answered on the card: the picked option(s) or your own words. */
+    fun answerQuestion(card: Card, answer: String) {
+        stopListening = true
+        val msg = JSONObject().put("type", "approval").put("id", card.id).put("allow", true).put("answer", answer)
+        status(card.id, if (socket?.send(msg.toString()) == true) "Sent: $answer" else "Not connected to Novi.")
     }
 
     /** The PIN pad when typed PINs are allowed in Novi Settings, else only "say your PIN". */
@@ -372,7 +414,7 @@ class NoviService : Service() {
         val msg = JSONObject().put("type", "approval").put("id", cardId).put("allow", true)
         if (typed != null) msg.put("pinTyped", typed)
         if (spoken != null) msg.put("pinSpoken", spoken)
-        overlay.status(cardId, if (socket?.send(msg.toString()) == true) "Checking the PIN…" else "Not connected to Novi.")
+        status(cardId, if (socket?.send(msg.toString()) == true) "Checking the PIN…" else "Not connected to Novi.")
     }
 
     /** Words said through the mic button: Novi reads them like any request ("option 2", "yes, but…"). */

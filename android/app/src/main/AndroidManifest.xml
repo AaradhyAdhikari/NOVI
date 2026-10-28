@@ -12,6 +12,7 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <application
@@ -38,6 +39,16 @@
             android:exported="false"
             android:taskAffinity=""
             android:theme="@android:style/Theme.Material.Light.Dialog" />
+
+        <!-- The card over the lock screen (opened by a full-screen notification, lights the screen up). -->
+        <activity
+            android:name=".LockCardActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:showWhenLocked="true"
+            android:taskAffinity=""
+            android:turnScreenOn="true" />
 
         <service
             android:name=".NoviService"

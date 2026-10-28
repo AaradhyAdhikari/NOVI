@@ -9,6 +9,11 @@ data class PairLink(val base: String, val code: String?)
 
 data class CardAction(val action: String, val title: String)
 
+data class QuestionOption(val label: String, val description: String = "")
+
+/** Claude's question (AskUserQuestion), whole: the phone shows every option and an "Other" box. */
+data class Question(val text: String, val options: List<QuestionOption>, val multiSelect: Boolean = false)
+
 /** A waiting card as the server's cardAlert() builds it, plus the line Novi speaks. */
 data class Card(
     val id: String,
@@ -17,7 +22,24 @@ data class Card(
     val actions: List<CardAction> = emptyList(),
     val proof: Boolean = false,
     val spoken: String = "",
+    val question: Question? = null,
 )
+
+/** The answer sent for Claude's question: your own words win, else the picked labels (", " like the laptop). */
+fun questionAnswer(options: List<QuestionOption>, picked: Set<Int>, other: String): String? {
+    if (other.isNotBlank()) return other.trim()
+    val labels = picked.sorted().mapNotNull { options.getOrNull(it)?.label }
+    return labels.joinToString(", ").ifEmpty { null }
+}
+
+private fun parseQuestion(q: JSONObject?): Question? {
+    if (q == null) return null
+    val list = q.optJSONArray("options")
+    val options = (0 until (list?.length() ?: 0)).mapNotNull { i ->
+        list!!.optJSONObject(i)?.let { QuestionOption(it.optString("label"), it.optString("description")) }
+    }
+    return Question(q.optString("text"), options, q.optBoolean("multiSelect"))
+}
 
 private val HOST = Regex("""^[A-Za-z0-9.-]+(:\d{1,5})?$""")
 
@@ -52,7 +74,7 @@ fun parseCard(msg: JSONObject): Card? {
         val actions = (0 until (list?.length() ?: 0)).mapNotNull { i ->
             list!!.optJSONObject(i)?.let { CardAction(it.optString("action"), it.optString("title")) }
         }
-        return Card(id, alert.optString("title"), alert.optString("body"), actions, alert.optBoolean("proof"), alert.optString("spoken"))
+        return Card(id, alert.optString("title"), alert.optString("body"), actions, alert.optBoolean("proof"), alert.optString("spoken"), parseQuestion(alert.optJSONObject("question")))
     }
     val a = msg.optJSONObject("approval") ?: return null
     val id = a.optString("id")
@@ -61,6 +83,13 @@ fun parseCard(msg: JSONObject): Card? {
     val title = a.optString("title").ifEmpty { a.optString("prompt") }
     return Card(id, title, "", listOf(CardAction("approve", if (proof) "Approve (PIN)" else "Approve"), CardAction("deny", "Deny")), proof, a.optString("prompt"))
 }
+
+/**
+ * The buttons on the lock-screen card. A card that needs the PIN is never approved from the lock screen
+ * (that would get round the phone's own lock): "Unlock to approve" opens the phone, the pop-up takes over.
+ */
+fun lockScreenActions(card: Card): List<CardAction> =
+    card.actions.map { if (card.proof && it.action == "approve") CardAction("unlock", "Unlock to approve") else it }
 
 /** 16-bit little-endian audio that is all (near) zero: Android blocked the mic, nobody was just quiet. */
 fun isSilent(pcm: ByteArray): Boolean {

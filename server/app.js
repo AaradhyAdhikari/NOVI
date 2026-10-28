@@ -434,6 +434,13 @@ export function createNovi(config, overrides = {}) {
   };
   // 'server' when the laptop-mic wake word is running (the browser then doesn't listen too).
   let wakeWord = 'browser';
+  // The card as the Android app draws it: the popup's short card, the line Novi speaks, and for Claude's
+  // questions the whole question (every option with its description) so the phone can show it in full.
+  const appCard = (a) => ({
+    ...cardAlert(a),
+    spoken: a.question ? `${spokenApproval(a)} Or say: other, and your own answer.` : spokenApproval(a),
+    ...(a.question ? { question: { text: a.question.text, options: (a.question.options || []).map((o) => ({ label: o.label, description: o.description || '' })), multiSelect: Boolean(a.question.multiSelect) } } : {}),
+  });
   const snapshot = (viewer = 'local') => ({
     type: 'snapshot',
     quiet: quiet.state(),
@@ -443,7 +450,7 @@ export function createNovi(config, overrides = {}) {
     task: tasks.status(),
     approvals: approvals.pending(),
     // The same cards, short (Android app: the ones already waiting when it connects).
-    cards: approvals.pending().map((a) => ({ ...cardAlert(a), spoken: spokenApproval(a) })),
+    cards: approvals.pending().map(appCard),
     providers: router.status(),
     projects: memory.listProjects(),
     devices: pairing.listDevices(),
@@ -473,7 +480,7 @@ export function createNovi(config, overrides = {}) {
   approvals.on('added', (approval) => {
     const text = spokenApproval(approval);
     // `alert` = the short card the Android app draws over other apps (and reads out: `spoken`).
-    broadcast({ type: 'approval_added', approval, alert: { ...cardAlert(approval), spoken: text } });
+    broadcast({ type: 'approval_added', approval, alert: appCard(approval) });
     // A popup everywhere (user, 2026-10-28): every phone (Web Push) and the laptop (a Windows
     // notification from the Novi extension), with the short task and buttons that answer it.
     const alert = cardAlert(approval);
@@ -739,6 +746,18 @@ export function createNovi(config, overrides = {}) {
   // A real, harmless card for trying the popups (live 2026-10-28: a fake test popup had no card behind
   // it, so tapping it showed nothing). It pops up everywhere like any card; its answer is said back.
   app.post('/api/test-card', (req, res) => {
+    // { question: true }: a test of Claude's question card (every option, "Other").
+    if (req.body?.question) {
+      const options = [
+        { label: 'BHASHINI', description: 'Indian languages, free tier.' },
+        { label: 'Whisper', description: 'Very accurate for English and many languages.' },
+        { label: 'Both', description: 'BHASHINI for Indian languages, Whisper for the rest.' },
+      ];
+      approvals.decide({ title: 'Claude asks: Which voice system should Novi use? (test)', tier: 'medium', source: 'novi', prompt: 'Test question. Which voice system should Novi use? One, BHASHINI. Two, Whisper. Three, both.', question: { text: 'Which voice system should Novi use? (test)', options, multiSelect: false }, timeoutMs: 10 * 60_000 })
+        .then((d) => say('novi', d.allow && d.answer ? `Test question answered: ${d.answer}` : 'Test question skipped.', req.from))
+        .catch(() => {});
+      return res.json({ sent: true });
+    }
     approvals.decide({ title: 'Novi test card: tap Approve or Deny', prompt: 'Novi test card. Approve or deny?', tier: 'medium', source: 'novi', grantable: false, timeoutMs: 10 * 60_000 })
       .then((d) => say('novi', d.allow ? 'Test card approved — popups and buttons work.' : 'Test card denied — popups and buttons work.', req.from))
       .catch(() => {});
@@ -955,6 +974,15 @@ export function createNovi(config, overrides = {}) {
     const text = said.trim().slice(0, 300);
     const card = approvals.pending().find((a) => a.id === id);
     if (!card) return sendTo(from, { type: 'card_voice', id, ok: false, reason: 'gone' });
+    // Claude's question: your own words only after "other" ("in other, I want …", "other: …").
+    const own = card.question && /\b(?:in\s+)?(?:the\s+)?other(?:\s+option)?\b\s*[,:.-]?\s*(.{2,})$/i.exec(text)?.[1]?.trim();
+    if (own) {
+      sendTo(from, { type: 'card_voice', id, ok: true });
+      approvals.resolve(id, true, 'voice', null, { from, answer: own.slice(0, 500) });
+      say('novi', `Told Claude: ${own}`, from);
+      sendTo(from, { type: 'speak', text: 'Sent your answer to Claude.' });
+      return;
+    }
     const pin = agent.wantsPin?.(from) ? parseSpokenPin(text) : null;
     // Stray words often come first (live: "I am a man. Nome. Approve. Approve."): the whole phrase, else
     // the last sentence that is a clear answer.
