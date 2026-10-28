@@ -74,7 +74,7 @@ function fakeChrome({ cards = ['Novi\nVoice assistant', 'Old notes'], later = []
     if (cmd === 'clickSel') { if (/submit/.test(args.selector)) url = makeUrl; return {}; }
     return {};
   };
-  return { request, calls, url: () => url };
+  return { request, calls, url: () => url, page };
 }
 
 describe('claude.ai Projects through Chrome', () => {
@@ -112,7 +112,38 @@ describe('claude.ai Projects through Chrome', () => {
     expect(out).toEqual({ url: 'https://claude.ai/project/0193-abc' });
     const typed = c.calls.filter(([cmd]) => cmd === 'typeSel').map(([, a]) => a.text);
     expect(typed).toEqual(['Portfolio', 'My portfolio site', 'Code is in C:\\Projects\\Portfolio.']);
-    expect(c.calls.some(([cmd, a]) => cmd === 'clickSel' && /instructions/i.test(a.text || ''))).toBe(true);
+    expect(c.page.instructions).toBe('Code is in C:\\Projects\\Portfolio.');
+    // Live 2026-10-28: a plain "Add" is Context's file uploader, never the instructions.
+    expect(c.calls.some(([cmd, a]) => cmd === 'clickSel' && a.text === 'Add')).toBe(false);
+  });
+
+  it('make: the instructions button never shows → the project is made, the instructions are missed (tried again later)', async () => {
+    const web = createClaudeWeb({ request: fakeChrome({ noButton: true }).request, ...quick });
+    expect(await web.make({ name: 'X', description: 'x', instructions: 'x' })).toEqual({ url: 'https://claude.ai/project/0193-abc', instructionsMissed: true });
+  });
+
+  it('instruct: a project with empty instructions gets them', async () => {
+    const c = fakeChrome();
+    const web = createClaudeWeb({ request: c.request, ...quick });
+    expect(await web.instruct({ url: 'https://claude.ai/project/p1', instructions: 'Code is in /p/Portfolio.' })).toEqual({ done: true });
+    expect(c.calls[0]).toEqual(['open', { url: 'https://claude.ai/project/p1', slot: 'claude-link', newTab: true, background: true }]);
+    expect(c.page.instructions).toBe('Code is in /p/Portfolio.');
+  });
+
+  it('instruct: instructions already there (yours) → left alone, the dialog closed', async () => {
+    const c = fakeChrome({ instructions: 'My own rules' });
+    const web = createClaudeWeb({ request: c.request, ...quick });
+    expect(await web.instruct({ url: 'https://claude.ai/project/p1', instructions: 'Novi text' })).toEqual({ already: true });
+    expect(c.page.instructions).toBe('My own rules');
+    expect(c.calls.some(([cmd, a]) => cmd === 'typeSel' && a.selector === CLAUDE.instructionsBox)).toBe(false);
+    expect(c.calls.some(([cmd, a]) => cmd === 'clickSel' && a.text === 'Cancel')).toBe(true);
+  });
+
+  it('instruct: not logged in → says so; no instructions button → missed', async () => {
+    const out = await createClaudeWeb({ request: fakeChrome({ loggedIn: false }).request, ...quick }).instruct({ url: 'https://claude.ai/project/p1', instructions: 'x' });
+    expect(out).toMatchObject({ login: true });
+    const missed = await createClaudeWeb({ request: fakeChrome({ noButton: true }).request, ...quick }).instruct({ url: 'https://claude.ai/project/p1', instructions: 'x' });
+    expect(missed).toEqual({ instructionsMissed: true });
   });
 
   it('not logged in → says so', async () => {
