@@ -1200,7 +1200,8 @@ describe('card answers heard by the phone app', () => {
     approvals.decide({ title: 'Claude asks: Which voice system?', tier: 'medium', source: 'claude', question: { text: 'Which voice system?', options, multiSelect: false }, timeoutMs: null }).catch(() => {});
     const added = await c.waitFor((m) => m.type === 'approval_added');
     expect(added.alert.question).toEqual({ text: 'Which voice system?', options, multiSelect: false });
-    expect(added.alert.spoken).toMatch(/Or say: other, and your own answer\.$/);
+    // User, 2026-10-28: the options are read out too (the phone listens meanwhile, so an early answer counts).
+    expect(added.alert.spoken).toMatch(/^Claude asks: Which voice system\? One, BHASHINI\..* Or say other, and your answer\.$/);
     c.ws.close();
   });
 

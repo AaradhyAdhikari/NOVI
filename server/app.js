@@ -32,6 +32,7 @@ import { Pairing, isLocalAddress } from './auth.js';
 import { createSpeechEngine } from './voice/speechEngine.js';
 import { answerHint, spokenApproval } from './brain/answers.js';
 import { parseApproval } from './brain/approvalIntent.js';
+import { spokenQuestion } from './claude/questions.js';
 import { cardAlert } from './cardAlerts.js';
 import { createGroqWhisperStt } from './voice/providers/groqWhisper.js';
 import { createGeminiStt } from './voice/providers/geminiStt.js';
@@ -438,7 +439,9 @@ export function createNovi(config, overrides = {}) {
   // questions the whole question (every option with its description) so the phone can show it in full.
   const appCard = (a) => ({
     ...cardAlert(a),
-    spoken: a.question ? `${spokenApproval(a)} Or say: other, and your own answer.` : spokenApproval(a),
+    // Claude's question: the question and its options are read out; the phone listens meanwhile, so an
+    // early answer counts (user, 2026-10-28).
+    spoken: a.question ? `${spokenQuestion({ question: a.question.text, options: a.question.options })} Or say other, and your answer.` : spokenApproval(a),
     ...(a.question ? { question: { text: a.question.text, options: (a.question.options || []).map((o) => ({ label: o.label, description: o.description || '' })), multiSelect: Boolean(a.question.multiSelect) } } : {}),
   });
   const snapshot = (viewer = 'local') => ({

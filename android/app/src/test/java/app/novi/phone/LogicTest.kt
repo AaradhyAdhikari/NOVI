@@ -61,6 +61,14 @@ class LogicTest {
         assertEquals(1000L, b.next())
     }
 
+    @Test fun novisOwnVoiceIsNotAnAnswer() {
+        val spoken = "Claude asks: Which voice system? One, BHASHINI. Two, Whisper. Three, Both. Or say other, and your answer."
+        assertTrue(echoOnly("Which voice system? One Bhashini, two whisper", spoken))
+        assertEquals(false, echoOnly("option two", spoken))
+        assertEquals(false, echoOnly("Whisper", spoken))
+        assertEquals(false, echoOnly("in other I want IndicConformer for Indian languages", spoken))
+    }
+
     @Test fun claudesQuestionArrivesWhole() {
         val c = parseCard(JSONObject("""{"alert":{"id":"q1","title":"Claude asks: Which voice?","actions":[],"question":{"text":"Which voice?","multiSelect":false,"options":[{"label":"BHASHINI","description":"Indian languages"},{"label":"Whisper","description":""}]}}}"""))!!
         assertEquals("Which voice?", c.question!!.text)

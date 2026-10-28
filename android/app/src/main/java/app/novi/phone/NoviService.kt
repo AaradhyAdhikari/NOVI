@@ -261,8 +261,7 @@ class NoviService : Service() {
         getSystemService(Vibrator::class.java)?.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 180, 120, 180), -1))
         runCatching { RingtoneManager.getRingtone(this, RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))?.play() }
         // The video / music pauses while Novi reads the card out and listens for the answer.
-        // A short gap after speaking: the mic shouldn't catch the end of Novi's own voice.
-        main.postDelayed({ say(card.spoken.ifEmpty { card.title }, pause = true) { main.postDelayed({ autoListen(card) }, 500) } }, 900)
+        main.postDelayed({ speakAndListen(card) }, 900)
     }
 
     // ---- the answer by voice, right after the card is read out (user, 2026-10-28: "it should
@@ -271,27 +270,49 @@ class NoviService : Service() {
     @Volatile private var listeningFor: String? = null
     @Volatile private var stopListening = false
 
-    private fun autoListen(card: Card) {
-        if (cards.top()?.id != card.id || checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-            endListening()
-            return
-        }
+    @Volatile private var speakingNow = false
+
+    /**
+     * Novi reads the card out with the mic already on (user, 2026-10-28: "keep the mic on in case I give an
+     * immediate answer"). Call mode cancels Novi's own voice from the mic; when the user starts talking Novi
+     * stops. After the read-out it keeps listening a little (10 s for Claude's questions, else 5 s).
+     */
+    private fun speakAndListen(card: Card) {
+        val line = card.spoken.ifEmpty { card.title }
+        val allowed = cards.top()?.id == card.id &&
+            checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
         // Android lets a background app record only as a microphone foreground service.
-        val micOk = runCatching {
+        val micOk = allowed && runCatching {
             ServiceCompat.startForeground(this, 1, connNotice(stateText), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
         }.isSuccess
         if (!micOk) {
-            status(card.id, "Tap a button to answer.")
-            endListening()
+            say(line, pause = true) { endListening() }
+            if (allowed) status(card.id, "Tap a button to answer.")
             return
         }
         stopListening = false
         listeningFor = card.id
+        speakingNow = true
+        callMode(true)
         status(card.id, if (card.question != null) "Listening… say the option, or \"other, …\"." else "Listening… say yes, no or the option.")
+        say(line, pause = true, call = true) { speakingNow = false }
         Thread {
-            val heard = runCatching { Recorder.capture(giveUpMs = if (card.question != null) 10000 else 5000, maxMs = if (card.question != null) 20000 else 8000) { stopListening || listeningFor != card.id } }.getOrNull()
+            val heard = runCatching {
+                Recorder.capture(
+                    giveUpMs = if (card.question != null) 10000 else 5000,
+                    maxMs = if (card.question != null) 60000 else 30000,
+                    echo = true,
+                    speaking = { speakingNow },
+                    onSpeech = { if (speakingNow) main.post { tts?.stop(); speakingNow = false } },
+                ) { stopListening || listeningFor != card.id }
+            }.getOrNull()
             val stopped = stopListening
-            main.post { endListening() }
+            main.post {
+                if (speakingNow) tts?.stop()
+                speakingNow = false
+                callMode(false)
+                endListening()
+            }
             if (stopped) return@Thread
             when {
                 heard == null || heard.blocked -> main.post { status(card.id, "Android didn't let me listen: tap a button.") }
@@ -300,7 +321,8 @@ class NoviService : Service() {
                     main.post { status(card.id, "Got it…") }
                     val text = runCatching { transcribe(Recorder.wav(heard.pcm)) }.getOrNull().orEmpty()
                     main.post {
-                        if (text.isBlank()) status(card.id, "Didn't catch that: tap a button.")
+                        // Only Novi's own voice got through: never an answer.
+                        if (text.isBlank() || echoOnly(text, line)) status(card.id, "Didn't hear an answer: tap a button.")
                         else {
                             lastAsk = System.currentTimeMillis()
                             socket?.send(JSONObject().put("type", "card_voice").put("id", card.id).put("text", text).toString())
@@ -311,6 +333,43 @@ class NoviService : Service() {
         }.start()
     }
 
+    /**
+     * Call mode: the phone's echo cancelling then removes Novi's voice from the mic, like on a call. The
+     * loudspeaker is used unless earphones / a headset are connected (then those).
+     */
+    private fun callMode(on: Boolean) {
+        val am = getSystemService(AudioManager::class.java)
+        runCatching {
+            if (on) {
+                am.mode = AudioManager.MODE_IN_COMMUNICATION
+                if (android.os.Build.VERSION.SDK_INT >= 31) {
+                    val devices = am.availableCommunicationDevices
+                    val headset = devices.any { it.type in HEADSETS }
+                    if (!headset) devices.firstOrNull { it.type == android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }?.let { am.setCommunicationDevice(it) }
+                } else {
+                    @Suppress("DEPRECATION")
+                    am.isSpeakerphoneOn = true
+                }
+            } else {
+                if (android.os.Build.VERSION.SDK_INT >= 31) {
+                    am.clearCommunicationDevice()
+                } else {
+                    @Suppress("DEPRECATION")
+                    am.isSpeakerphoneOn = false
+                }
+                am.mode = AudioManager.MODE_NORMAL
+            }
+        }
+    }
+
+    private val HEADSETS = setOf(
+        android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+        android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET,
+        android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+        android.media.AudioDeviceInfo.TYPE_USB_HEADSET,
+        26, // TYPE_BLE_HEADSET (API 31)
+    )
+
     /** Back to the plain connection service (no mic), and the video / music plays again. */
     private fun endListening() {
         listeningFor = null
@@ -319,6 +378,8 @@ class NoviService : Service() {
     }
 
     private val speech = AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANT)
+        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build()
+    private val callVoice = AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
         .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build()
     private val focus by lazy {
         AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK).setAudioAttributes(speech).build()
@@ -331,7 +392,7 @@ class NoviService : Service() {
      * Out loud, with the video or music turned down meanwhile — or paused (`pause`, a card: it stays
      * paused while the answer is listened for; `endListening` lets it play again). `then` runs after.
      */
-    fun say(text: String, pause: Boolean = false, then: (() -> Unit)? = null) {
+    fun say(text: String, pause: Boolean = false, call: Boolean = false, then: (() -> Unit)? = null) {
         val t = tts
         if (t == null || text.isBlank()) {
             then?.invoke()
@@ -339,7 +400,8 @@ class NoviService : Service() {
         }
         val audio = getSystemService(AudioManager::class.java)
         audio.requestAudioFocus(if (pause) pauseFocus else focus)
-        t.setAudioAttributes(speech)
+        // In call mode Novi speaks as a call voice, so the echo cancelling knows it and removes it from the mic.
+        t.setAudioAttributes(if (call) callVoice else speech)
         t.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(id: String?) {}
             override fun onDone(id: String?) {

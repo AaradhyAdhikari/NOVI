@@ -91,6 +91,19 @@ fun parseCard(msg: JSONObject): Card? {
 fun lockScreenActions(card: Card): List<CardAction> =
     card.actions.map { if (card.proof && it.action == "approve") CardAction("unlock", "Unlock to approve") else it }
 
+private fun words(s: String) = s.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.isNotEmpty() }
+
+/**
+ * What the mic heard is only Novi's own voice reading the card (the echo got through): 4+ words, nearly
+ * all of them from the line Novi spoke. A short answer ("Whisper", "option two") is never judged echo.
+ */
+fun echoOnly(heard: String, spoken: String): Boolean {
+    val h = words(heard)
+    if (h.size < 4) return false
+    val said = words(spoken).toSet()
+    return h.count { it in said } >= h.size * 0.8
+}
+
 /** 16-bit little-endian audio that is all (near) zero: Android blocked the mic, nobody was just quiet. */
 fun isSilent(pcm: ByteArray): Boolean {
     var i = 0
