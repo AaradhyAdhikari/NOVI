@@ -39,10 +39,11 @@ function QuestionCard({ a, onAnswer }) {
   );
 }
 
-export default function ApprovalCards({ approvals, onAnswer, api }) {
-  if (!approvals.length) return null;
+export default function ApprovalCards({ approvals, onAnswer, api, resolved = null }) {
+  if (!approvals.length && !resolved) return null;
   return (
     <div className="approvals" role="region" aria-label="Approvals needed">
+      {resolved && <div className="approval-status" role="status">{resolved.text}</div>}
       {approvals.map((a) => a.question ? <QuestionCard key={a.id} a={a} onAnswer={onAnswer} /> : (
         <ApprovalCard key={a.id} a={a} onAnswer={onAnswer} api={api} />
       ))}

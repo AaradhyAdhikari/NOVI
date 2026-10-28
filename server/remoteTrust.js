@@ -18,6 +18,10 @@ export function requiredProof(approval, from, { hasPasskey = false } = {}) {
 // Missing verifiers mean that proof can't be given yet (refused).
 export function createRemoteTrust(verifiers = {}) {
   return {
+    // A spoken PIN for a card whose rules don't ask for one from this device (a high-risk card at the
+    // laptop, approved by voice — user's choice 2026-10-28). Never logged or kept.
+    pinOk: (pin, from) => Boolean(verifiers.pin?.({ pin }, from)),
+    hasPin: () => Boolean(verifiers.hasPin?.()),
     check(approval, from, proof) {
       const need = requiredProof(approval, from, { hasPasskey: Boolean(from !== 'local' && verifiers.hasPasskey?.(from)) });
       if (!need) return { ok: true };

@@ -38,6 +38,20 @@ function pickOne(part, options) {
   return owners.length === 1 ? owners[0] : null;
 }
 
+// The option the words name — { index } — or the options a word fits ("dark" → Dark mode, Dark blue):
+// { ambiguous: [i, …] }; null when the words don't point at an option. Used for every card
+// (server/brain/approvalIntent.js).
+export function optionMatch(text, options = []) {
+  const t = norm(text);
+  if (!t || !options.length) return null;
+  const one = pickOne(t, options);
+  if (one !== null) return { index: one };
+  const said = t.split(' ').filter((w) => w && !FILLER.has(w) && !NUMBER.has(w));
+  if (!said.length || said.some((w) => w.length < 3)) return null;
+  const owners = options.map((o, i) => (said.every((w) => norm(o.label).split(' ').includes(w)) ? i : -1)).filter((i) => i >= 0);
+  return owners.length > 1 ? { ambiguous: owners } : null;
+}
+
 export function matchAnswer(text, options = [], { multiSelect = false } = {}) {
   const t = norm(text);
   if (SKIP.test(t)) return { kind: 'skip' };

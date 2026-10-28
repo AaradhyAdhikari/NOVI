@@ -150,7 +150,8 @@ describe('coding agent and plugins pass categories', () => {
   it('coder edits inside the project are "files"; risky shell commands stay high and ask', async () => {
     const { TaskManager } = await import('../../server/claude/taskManager.js');
     const seen = [];
-    const approvals = { request: async (o) => { seen.push(o); return true; } };
+    // Claude's cards use decide() (they can carry a change or a note, 2026-10-28).
+    const approvals = { decide: async (o) => { seen.push(o); return { allow: true }; } };
     const tm = new TaskManager({ memory: { listProjects: () => [] }, approvals, createSession: () => ({}) });
     const task = { path: 'C:\proj', agentName: 'Novi Coder' };
     await tm._onPermission(task, { toolName: 'Edit', input: { file_path: 'C:\proj\a.js' } });

@@ -39,6 +39,14 @@ describe('spokenApproval (only the task, in a few words)', async () => {
     expect(spokenApproval({ title: 'Claude wants to run: npm install --save express cors dotenv nodemon jest supertest', tier: 'medium' }))
       .toBe('Claude wants to run: npm install --save express cors dotenv.');
     expect(spokenApproval({ title: 'Click "New Project" in Claude', tier: 'medium' })).toBe('Click "New Project" in Claude.');
-    expect(spokenApproval({ title: 'Delete the repo', tier: 'high' })).toBe('High risk: Delete the repo. Please confirm on screen.');
+    // User's choice (2026-10-28): high risk can be approved by saying the PIN (or a tap on the card).
+    expect(spokenApproval({ title: 'Delete the repo', tier: 'high' })).toBe('High risk: Delete the repo. Say your PIN to approve, or say no.');
+    // Deletes / payments still need the screen (fingerprint or the laptop).
+    expect(spokenApproval({ title: 'Delete the repo', tier: 'high', kind: 'delete' })).toBe('High risk: Delete the repo. Please confirm on screen.');
+  });
+
+  it('a card with choices reads them out by number', () => {
+    expect(spokenApproval({ title: 'Who should build it?', tier: 'medium', choices: [{ id: 'novi-coder', label: 'Novi Coder' }, { id: 'claude', label: 'Claude Code' }] }))
+      .toBe('Who should build it. Option 1, Novi Coder. Option 2, Claude Code.');
   });
 });

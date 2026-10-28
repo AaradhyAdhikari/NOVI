@@ -276,7 +276,8 @@ describe('plan first', async () => {
     expect(opened[0].permissionMode).toBe('plan');
     expect(await tm._onPermission(tm.task, { toolName: 'ExitPlanMode', input: { plan: PLAN } })).toEqual({ allow: true });
     expect(cards[0]).toMatchObject({ title: "Claude's plan for portfolio", source: 'claude', changeable: true, addable: true, tier: 'medium' });
-    expect(cards[0].prompt).toBe("Claude's plan for portfolio: add a blog page, then add two sample posts, and 2 more steps. Go ahead?");
+    // User (2026-10-28): "it read everything — just make the note short". The steps stay on the card.
+    expect(cards[0].prompt).toBe("Claude's plan for portfolio is ready: 4 steps. Go ahead?");
     expect(cards[0].detail).toBe(PLAN);
     expect(tm.task.allowEdits).toBe(true);
   });
@@ -300,5 +301,39 @@ describe('plan first', async () => {
     tm.task.status = 'done';
     tm.start('portfolio', 'fix a typo', { agent: 'novi-coder' });
     expect(opened.map((o) => o.permissionMode)).toEqual([undefined, undefined]);
+  });
+});
+
+// User's plan (2026-10-28): every Claude card answerable the same way — "change X" = no, do X instead;
+// "yes, but X" = yes + X told to Claude.
+describe("Claude's permission cards: change / yes-but", async () => {
+  const { EventEmitter } = await import('node:events');
+  const setup = (answer) => {
+    const q = new ApprovalQueue();
+    const cards = [];
+    q.on('added', (a) => { cards.push(a); answer(q, a); });
+    const sent = [];
+    const tm = new TaskManager({ memory, approvals: q, createSession: () => Object.assign(new EventEmitter(), { exited: false, send: (t) => sent.push(t), stop: async () => {}, close: () => {} }) });
+    tm.start('portfolio', 'add a blog', { agent: 'claude', planFirst: false });
+    return { tm, cards, sent };
+  };
+  const outside = { toolName: 'Write', input: { file_path: '/etc/hosts' } };
+
+  it('the card can be changed and can take a note', async () => {
+    const s = setup((q, a) => q.resolve(a.id, true));
+    expect(await s.tm._onPermission({ ...s.tm.task, path: '/tmp/portfolio' }, outside)).toEqual({ allow: true });
+    expect(s.cards[0]).toMatchObject({ source: 'claude', changeable: true, addable: true });
+  });
+
+  it('"change X" says no and tells Claude to do X instead', async () => {
+    const s = setup((q, a) => q.resolve(a.id, false, 'voice', null, { change: 'write it inside the project' }));
+    expect(await s.tm._onPermission({ ...s.tm.task, path: '/tmp/portfolio' }, outside))
+      .toEqual({ allow: false, message: 'The user said no to this and wants this instead: write it inside the project.' });
+  });
+
+  it('"yes, but X" allows it and tells Claude X right away', async () => {
+    const s = setup((q, a) => q.resolve(a.id, true, 'voice', null, { addition: "don't delete the old files" }));
+    expect(await s.tm._onPermission({ ...s.tm.task, path: '/tmp/portfolio' }, outside)).toEqual({ allow: true });
+    expect(s.sent.at(-1)).toBe("About that last step, the user says: don't delete the old files.");
   });
 });

@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { execFile } from 'node:child_process';
+import { cdpShot } from './cdpShot.js';
 
 const EDGE = path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'Microsoft', 'Edge', 'Application', 'msedge.exe');
 
@@ -39,7 +40,9 @@ async function edgeShot(url, { width = 1280, height = 1400, retry = false } = {}
   }
 }
 
-export async function pageShot(url, { width = 1280, height = 1400, shoot = edgeShot, retryDelayMs = 3000 } = {}) {
+// Phone-sized (narrower than Edge's 496 px window minimum): real phone mode over DevTools (cdpShot.js).
+export async function pageShot(url, { width = 1280, height = 1400, shoot: windowShoot = edgeShot, phoneShoot = cdpShot, retryDelayMs = 3000 } = {}) {
+  const shoot = width < 500 ? phoneShoot : windowShoot;
   const first = await shoot(url, { width, height });
   if (!isBlankPicture(first)) return { png: first };
   await new Promise((r) => setTimeout(r, retryDelayMs)); // a dev server may still be building the page

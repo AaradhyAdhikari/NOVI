@@ -13,6 +13,16 @@ export function installHint({ userAgent = '', standalone = false } = {}) {
 
 export const isStandalone = () => window.matchMedia?.('(display-mode: standalone)').matches || window.navigator.standalone === true;
 
+// The service worker answers a card from a notification button (2026-10-28) with this phone's own
+// pairing token: kept where it can read it (same origin only), removed when the phone is unpaired.
+export async function shareToken(token, { caches: store = globalThis.caches, Response: Res = globalThis.Response } = {}) {
+  try {
+    const cache = await store.open('novi-auth');
+    if (token) await cache.put('/novi-token', new Res(token));
+    else await cache.delete('/novi-token');
+  } catch { /* no Cache Storage here (old browser, http): buttons then open Novi */ }
+}
+
 export function registerServiceWorker() {
   if (!('serviceWorker' in navigator)) return Promise.resolve(null);
   return navigator.serviceWorker.register('/sw.js').catch(() => null);

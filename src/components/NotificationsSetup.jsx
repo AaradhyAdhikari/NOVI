@@ -15,7 +15,9 @@ export default function NotificationsSetup({ api }) {
     try {
       await enableNotifications(api);
       setSubscribed(true);
-      setMessage('Notifications are on for this phone.');
+      // A test popup right away (live 2026-10-28: a card reached the laptop but not the phone).
+      const test = await api('/api/push/test', { method: 'POST' }).then((r) => r.ok).catch(() => false);
+      setMessage(test ? 'Notifications are on. A test popup is on its way — if it doesn’t show in a few seconds, check that Chrome may show notifications for Novi in your phone’s settings.' : 'Notifications are on for this phone.');
     } catch (err) {
       setMessage(err.message);
     }

@@ -31,6 +31,7 @@ import { addLaptopTools } from './laptop/laptopTools.js';
 import { Pairing, isLocalAddress } from './auth.js';
 import { createSpeechEngine } from './voice/speechEngine.js';
 import { answerHint, spokenApproval } from './brain/answers.js';
+import { cardAlert } from './cardAlerts.js';
 import { createGroqWhisperStt } from './voice/providers/groqWhisper.js';
 import { createGeminiStt } from './voice/providers/geminiStt.js';
 import { createSarvamStt } from './voice/providers/sarvamStt.js';
@@ -329,7 +330,9 @@ export function createNovi(config, overrides = {}) {
     // Your word fixes, then near-misses of your project / tech names ("tracebytes" → TraceBites).
     const text = fixNames(vocabulary.apply(heard), projectWords());
     let id = null;
-    if (heard && heard !== '.') {
+    // A PIN said while a card waits is never kept in the voice log (text or recording).
+    const maybePin = approvals.pending().length > 0 && parseSpokenPin(text);
+    if (heard && heard !== '.' && !maybePin) {
       try { id = voiceLog.add({ heard, text, audio, mimeType, source }); } catch (err) { console.warn(`[voice] log failed: ${err.message}`); }
     }
     return { text, id, confidence };
@@ -466,15 +469,55 @@ export function createNovi(config, overrides = {}) {
   });
   approvals.on('added', (approval) => {
     broadcast({ type: 'approval_added', approval });
-    notify('approval');
+    // A popup everywhere (user, 2026-10-28): every phone (Web Push) and the laptop (a Windows
+    // notification from the Novi extension), with the short task and buttons that answer it.
+    const alert = cardAlert(approval);
+    for (const device of push.devices?.() || []) push.sendCard(device, alert).catch(() => {});
+    Promise.resolve(plugins.runtime.laptopNotify?.(alert)).catch(() => {});
     const text = spokenApproval(approval);
     // A yes / no by voice is possible: the device that asked listens for it right after the question
     // (its page through `listen`, the laptop mic without "Hey Novi").
-    const listen = approval.tier !== 'high' && !approval.kind;
+    // High-risk cards too: the answer can be the voice PIN (user's choice 2026-10-28).
+    const listen = !approval.kind;
     sendTo(active, { type: 'speak', text, ...(listen ? { listen: true } : {}) });
     if (listen && deviceKey(active) === 'local') wakeTools?.listen?.({ deafMs: isOpen('local') ? 1500 + 70 * text.length : 0, waitMs: 10000 });
   });
-  approvals.on('resolved', (r) => broadcast({ type: 'approval_resolved', ...r }));
+  approvals.on('resolved', (r) => {
+    broadcast({ type: 'approval_resolved', ...r });
+    Promise.resolve(plugins.runtime.laptopNotifyClear?.(r.id)).catch(() => {});
+  });
+  // A notification's button (a phone's, through /api/card-answer, or the laptop's, through the
+  // extension): approve / deny / 'opt:N' (Claude's question) / 'choice:ID'. Proof rules stay: a PIN or
+  // fingerprint card isn't approved here — the caller opens Novi on it.
+  const NEED_WORDS = { pin: 'Needs your PIN', 'no-pin': 'Set a voice PIN in Settings first', passkey: 'Needs your fingerprint', laptop: 'Needs you at the laptop' };
+  function answerCard(id, action, from = 'local') {
+    const card = approvals.pending().find((a) => a.id === id);
+    if (!card) return { done: false, gone: true, text: 'Already answered' };
+    const act = String(action || '');
+    if (act === 'deny') {
+      approvals.resolve(id, false, 'notification', null, { from });
+      return { done: true, text: 'Denied' };
+    }
+    let ok;
+    let text = 'Approved';
+    if (act.startsWith('opt:') && card.question) {
+      const option = card.question.options?.[Number(act.slice(4))];
+      if (!option) return { done: false, text: 'Open Novi to answer' };
+      ok = approvals.resolve(id, true, 'notification', null, { from, answer: option.label });
+      text = `Sent: ${option.label}`;
+    } else if (act.startsWith('choice:') && card.choices?.length) {
+      ok = approvals.resolve(id, true, 'notification', act.slice(7), { from });
+      text = 'Option sent';
+    } else if (act === 'approve' && !card.question) {
+      ok = approvals.resolve(id, true, 'notification', null, { from });
+    } else {
+      return { done: false, text: 'Open Novi to answer' };
+    }
+    if (ok) return { done: true, text };
+    const need = trust.check(card, from, null).need || 'pin';
+    return { done: false, need, text: NEED_WORDS[need] || 'Open Novi to answer' };
+  }
+  plugins.runtime.answerCard = (id, action) => answerCard(id, action, 'local');
   // Only the phone that tried hears what is missing.
   const NEED_TEXT = { 'no-pin': 'Set a voice PIN in Settings first.', pin: 'Say your PIN to confirm.', passkey: 'Confirm with your fingerprint or face.', laptop: 'This one needs you at the laptop.' };
   remotePin.on('locked', () => {
@@ -684,7 +727,18 @@ export function createNovi(config, overrides = {}) {
   });
 
   // Phone notifications: the phone subscribes once (Settings → Enable notifications).
+  // A phone notification's button (public/sw.js) — the paired phone's own token, like every /api call.
+  app.post('/api/card-answer', (req, res) => {
+    res.json(answerCard(String(req.body?.id || ''), String(req.body?.action || ''), req.from));
+  });
   app.get('/api/push/key', (req, res) => res.json({ publicKey: push.publicKey, subscribed: req.from !== 'local' && Boolean(push.has?.(req.from.deviceId)) }));
+  // A test popup to the phone that asked (live 2026-10-28: a card reached the laptop, not the phone) —
+  // sent right after "Turn on again", so it shows at once whether popups work there.
+  app.post('/api/push/test', (req, res) => {
+    if (req.from === 'local') return res.status(400).json({ error: 'Ask for a test popup from your phone.' });
+    push.sendCard(req.from.deviceId, { id: `test-${Date.now()}`, title: 'Novi test popup', body: 'Popups work on this phone. Cards will show here.', actions: [], always: true }).catch(() => {});
+    res.json({ sent: true });
+  });
   app.post('/api/push/subscribe', (req, res) => {
     if (req.from === 'local') return res.status(400).json({ error: 'Turn on notifications from your phone.' });
     try { push.subscribe(req.from.deviceId, req.body); res.json({ subscribed: true }); } catch (err) { res.status(400).json({ error: err.message }); }
@@ -885,6 +939,17 @@ export function createNovi(config, overrides = {}) {
     if (msg.type === 'user_message' && typeof msg.text === 'string' && msg.text.trim()) {
       const text = msg.text.trim().slice(0, 4000);
       active = from;
+      // A card is waiting for the voice PIN (agent.wantsPin): the PIN goes only to the approval — never
+      // into the chat, the activity log, the learning loop or the AI.
+      const pin = agent.wantsPin?.(from) ? parseSpokenPin(text) : null;
+      if (pin) {
+        say('user', '•••• (your PIN)', from);
+        const reply = agent.answerPin(pin, from);
+        say('novi', reply, from);
+        sendTo(from, { type: 'speak', text: reply });
+        refresh();
+        return reply;
+      }
       working += 1;
       say('user', text, from);
       sendTo(from, { type: 'thinking', on: true });
@@ -971,7 +1036,8 @@ export function createNovi(config, overrides = {}) {
   async function runVoiceCommand(wav, { followUp = false } = {}) {
     const { text, id, confidence } = await hear(wav, 'audio/wav', 'wake');
     if (!text || text === '.') return null;
-    const drop = judgeHeard({ text, confidence, followUp });
+    // A PIN said for a waiting card is never "noise" (it is often one word: "4829").
+    const drop = agent.wantsPin?.('local') && parseSpokenPin(text) ? null : judgeHeard({ text, confidence, followUp });
     if (drop) {
       console.log(`[wake] ignored ${followUp ? 'follow-up' : 'command'} (${drop}, ${text.split(/s+/).length} words)`);
       if (id) voiceLog.setReply(id, `(ignored: ${drop})`);

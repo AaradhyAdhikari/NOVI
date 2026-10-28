@@ -56,6 +56,26 @@ describe('ApprovalQueue', () => {
     expect(q.resolve(added[0].id, true)).toBe(false);
   });
 
+  // The card's short status after it's answered (2026-10-28): what went along with the answer.
+  it('the resolved event says whether a note, an answer or a change went along', () => {
+    const q = new ApprovalQueue();
+    const resolved = [];
+    q.on('resolved', (r) => resolved.push(r));
+    const ids = [];
+    q.on('added', (a) => ids.push(a.id));
+    q.decide({ title: 'a', tier: 'medium', source: 'claude', addable: true, changeable: true });
+    q.decide({ title: 'b', tier: 'medium', source: 'claude', addable: true, changeable: true });
+    q.decide({ title: 'c', tier: 'medium', source: 'claude', question: { text: 'q', options: [] }, timeoutMs: null });
+    q.resolve(ids[0], true, 'voice', null, { addition: 'keep the old files' });
+    q.resolve(ids[1], false, 'voice', null, { change: 'use blue' });
+    q.resolve(ids[2], true, 'voice', null, { answer: 'Dark' });
+    expect(resolved.map(({ noted, changed, answered }) => ({ noted, changed, answered }))).toEqual([
+      { noted: true, changed: undefined, answered: undefined },
+      { noted: undefined, changed: true, answered: undefined },
+      { noted: undefined, changed: undefined, answered: true },
+    ]);
+  });
+
   it('denies on timeout', async () => {
     vi.useFakeTimers();
     const q = new ApprovalQueue({ timeoutMs: 1000 });

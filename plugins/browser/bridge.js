@@ -21,7 +21,9 @@ const older = (a, b) => {
 
 // wantVersion: the extension version in Novi's folder. An older one is told to reload itself (Chrome then
 // reads the new files) — once per old version, so a reload that didn't help can't go round and round.
-export function createBridge({ port = 3003, host = '127.0.0.1', code, timeoutMs = 15_000, helloMs = 5_000, logger = console, wantVersion = null } = {}) {
+// onEvent: something the extension reports by itself (a tap on a card's Windows notification,
+// 2026-10-28) → its result goes back as { type: 'event_result', ref }.
+export function createBridge({ port = 3003, host = '127.0.0.1', code, timeoutMs = 15_000, helloMs = 5_000, logger = console, wantVersion = null, onEvent = null } = {}) {
   const reloadAsked = new Set();
   let server = null;
   let ext = null; // the paired extension socket
@@ -58,6 +60,13 @@ export function createBridge({ port = 3003, host = '127.0.0.1', code, timeoutMs 
               logger.info?.(`[browser] the Novi extension is ${this.version}, Novi has ${wantVersion}: asking it to reload`);
               ws.send(JSON.stringify({ type: 'reload' }));
             }
+            return;
+          }
+          if (msg.type === 'event') {
+            const { type: _t, ref, ...event } = msg;
+            Promise.resolve(onEvent ? onEvent(event) : null)
+              .then((result) => ws.send(JSON.stringify({ type: 'event_result', ref, ...(result || {}) })))
+              .catch((err) => ws.send(JSON.stringify({ type: 'event_result', ref, done: false, text: err.message })));
             return;
           }
           const p = pending.get(msg.id);

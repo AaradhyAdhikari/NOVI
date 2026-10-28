@@ -33,6 +33,7 @@ async function connect() {
     try { msg = JSON.parse(e.data); } catch { return; }
     if (msg.type === 'welcome') { status = 'connected'; return; }
     if (msg.type === 'reload') return chrome.runtime.reload();
+    if (msg.type === 'event_result') { waitingEvents.get(msg.ref)?.(msg); waitingEvents.delete(msg.ref); return; }
     const { id, cmd, args = {} } = msg;
     try {
       const result = await handle(cmd, args);
@@ -178,7 +179,61 @@ async function inPage(tabId, name, args) {
   return r?.result || {};
 }
 
+// Novi's cards as Windows notifications (user, 2026-10-28: "the popup should come … on both"): the short
+// task and up to two buttons; a tap answers the card in Novi, or opens Novi when it needs the PIN.
+const NOVI_PAGE = 'https://localhost:3001';
+const waitingEvents = new Map(); // ref → resolve(result)
+let nextRef = 1;
+function tellNovi(event) {
+  if (!ws || ws.readyState !== 1) return Promise.resolve({ done: false });
+  const ref = nextRef++;
+  return new Promise((resolve) => {
+    waitingEvents.set(ref, resolve);
+    setTimeout(() => { if (waitingEvents.delete(ref)) resolve({ done: false }); }, 10_000);
+    ws.send(JSON.stringify({ type: 'event', ref, ...event }));
+  });
+}
+async function openNovi(cardId) {
+  const [tab] = await chrome.tabs.query({ url: `${NOVI_PAGE}/*` });
+  if (tab) {
+    await chrome.tabs.update(tab.id, { active: true });
+    await chrome.windows.update(tab.windowId, { focused: true });
+  } else {
+    await chrome.tabs.create({ url: `${NOVI_PAGE}/${cardId ? `?card=${encodeURIComponent(cardId)}` : ''}` });
+  }
+}
+chrome.notifications?.onButtonClicked.addListener(async (nid, index) => {
+  if (!nid.startsWith('card-')) return;
+  const id = nid.slice(5);
+  const key = `card:${id}`;
+  const actions = (await chrome.storage.session.get(key))[key] || [];
+  const action = actions[index]?.action;
+  chrome.notifications.clear(nid);
+  if (!action) return openNovi(id);
+  const result = await tellNovi({ event: 'card', id, action });
+  if (!result.done && !result.gone) await openNovi(id); // the PIN / more options: on the card in Novi
+});
+chrome.notifications?.onClicked.addListener((nid) => {
+  if (!nid.startsWith('card-')) return;
+  chrome.notifications.clear(nid);
+  openNovi(nid.slice(5));
+});
+
 async function handle(cmd, args) {
+  if (cmd === 'notify') {
+    const nid = `card-${args.id}`;
+    await chrome.storage.session.set({ [`card:${args.id}`]: args.actions || [] });
+    await chrome.notifications.create(nid, {
+      type: 'basic', iconUrl: 'icon.png', title: String(args.title || 'Novi'), message: String(args.body || ''),
+      buttons: (args.actions || []).slice(0, 2).map((a) => ({ title: String(a.title) })), requireInteraction: true, priority: 2,
+    });
+    return {};
+  }
+  if (cmd === 'notify_clear') {
+    await chrome.notifications.clear(`card-${args.id}`);
+    await chrome.storage.session.remove(`card:${args.id}`);
+    return {};
+  }
   if (cmd === 'open' && args.slot) {
     const tab = await openJob(args.url, args.slot);
     await loaded(tab.id);

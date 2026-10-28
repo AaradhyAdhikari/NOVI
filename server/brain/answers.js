@@ -46,8 +46,13 @@ const cut = (text, max = 10) => {
   const words = String(text || '').trim().replace(/\s+/g, ' ').replace(/[.!?]+$/, '').split(' ');
   return words.length > max ? words.slice(0, max).join(' ') : words.join(' ');
 };
-export function spokenApproval({ title, prompt, tier }) {
-  if (tier === 'high') return `High risk: ${cut(title)}. Please confirm on screen.`;
+export function spokenApproval({ title, prompt, tier, kind, choices }) {
+  // Deletes / payments: a fingerprint or the laptop. Other high-risk cards: the voice PIN (user, 2026-10-28).
+  if (tier === 'high') return `High risk: ${cut(title)}. ${kind ? 'Please confirm on screen.' : 'Say your PIN to approve, or say no.'}`;
   // Only the task: the mic opens right after, so no "OK?" / "say yes or no".
-  return `${(prompt || cut(title)).replace(/\s*(?:okay|ok)\?(?:\s*say yes,? no or cancel\.?)?\s*$/i, '').replace(/[.!?]*$/, '')}.`;
+  const task = `${(prompt || cut(title)).replace(/\s*(?:okay|ok)\?(?:\s*say yes,? no or cancel\.?)?\s*$/i, '').replace(/[.!?]*$/, '')}.`;
+  // The options by number — unless the card's own line already names them ("…or use Claude instead").
+  const named = (choices || []).some((c) => String(prompt || '').toLowerCase().includes(String(c.label).toLowerCase()));
+  const list = named ? '' : (choices || []).slice(0, 4).map((c, i) => ` Option ${i + 1}, ${String(c.label).trim()}.`).join('');
+  return `${task}${list}`;
 }

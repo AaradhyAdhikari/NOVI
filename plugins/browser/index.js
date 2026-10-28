@@ -40,9 +40,14 @@ export function createBrowserPlugin({ bridge = null, showImage = null, webDriver
       let link = bridge;
       if (!link) {
         const file = path.join(api.runtime?.dataDir || 'data', 'browser.json');
-        link = createBridge({ port: Number(api.pluginConfig?.port) || 3003, code: loadCode(file), logger: api.logger, wantVersion: extensionVersion() });
+        // A tap on a card's Windows notification (the extension shows it) answers the card (app.js answerCard).
+        const onEvent = (e) => (e.event === 'card' ? api.runtime?.answerCard?.(String(e.id || ''), String(e.action || '')) : null);
+        link = createBridge({ port: Number(api.pluginConfig?.port) || 3003, code: loadCode(file), logger: api.logger, wantVersion: extensionVersion(), onEvent });
         // Settings → Browser (laptop-only routes in app.js) read and rotate the pairing code here.
         if (api.runtime) {
+          // Every waiting card as a Windows notification on the laptop (user, 2026-10-28), cleared once answered.
+          api.runtime.laptopNotify = async (alert) => { if (link.connected()) await link.request('notify', alert); };
+          api.runtime.laptopNotifyClear = async (id) => { if (link.connected()) await link.request('notify_clear', { id }); };
           api.runtime.browserStatus = () => ({ connected: link.connected(), code: loadCode(file), version: link.version || null });
           api.runtime.browserNewCode = () => { const c = newCode(file); link.setCode(c); return c; };
         }

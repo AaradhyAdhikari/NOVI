@@ -17,7 +17,8 @@ describe('page pictures', () => {
   it('a blank picture is taken again, with more time and reduced motion', async () => {
     const calls = [];
     const shoot = async (url, opts) => { calls.push(opts); return calls.length === 1 ? blank : page; };
-    const { png } = await pageShot('http://localhost:1/', { width: 390, height: 844, shoot, retryDelayMs: 0 });
+    // 390 px = a phone picture (real phone mode, cdpShot.js); the retry works the same way there.
+    const { png } = await pageShot('http://localhost:1/', { width: 390, height: 844, phoneShoot: shoot, retryDelayMs: 0 });
     expect(png).toBe(page);
     expect(calls).toHaveLength(2);
     expect(calls[1].retry).toBe(true);

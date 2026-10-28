@@ -217,8 +217,15 @@ export class TaskManager extends EventEmitter {
     // "Always allow" categories: edits inside the project and ordinary commands (high-risk ones never).
     const category = EDIT_TOOLS.has(toolName) ? 'files' : /^(Bash|PowerShell)$/.test(toolName) ? 'commands' : null;
     const ask = claudeAsk(toolName, input, description, task.agentName || this.agentName);
-    const allow = await this.approvals.request({ title: ask.title, detail: ask.detail, ...(ask.prompt ? { prompt: ask.prompt } : {}), tier, source: 'claude', category, grantable: Boolean(category) && tier === 'medium' });
-    return allow ? { allow: true } : { allow: false, message: 'The user denied this action. Do not retry it; continue without it or explain what you need.' };
+    // Answerable like every Claude card (user's plan, 2026-10-28): "change X" = no, do X instead;
+    // "yes, but X" = yes, and Claude is told X right away.
+    const d = await this.approvals.decide({ title: ask.title, detail: ask.detail, ...(ask.prompt ? { prompt: ask.prompt } : {}), tier, source: 'claude', category, grantable: Boolean(category) && tier === 'medium', changeable: true, addable: true });
+    if (d.allow) {
+      if (d.addition) this.session?.send(`About that last step, the user says: ${String(d.addition).replace(/[.!]+$/, '')}.`);
+      return { allow: true };
+    }
+    if (d.change) return { allow: false, message: `The user said no to this and wants this instead: ${String(d.change).replace(/[.!]+$/, '')}.` };
+    return { allow: false, message: 'The user denied this action. Do not retry it; continue without it or explain what you need.' };
   }
 
   // Claude's plan (plan mode's ExitPlanMode) as a card + a short spoken line. Yes → it builds
@@ -226,12 +233,11 @@ export class TaskManager extends EventEmitter {
   async _planCard(task, input = {}) {
     const plan = String(input.plan || '').trim();
     const steps = plan.split('\n').map((l) => /^\s*(?:\d+[.)]|[-*•])\s+(.+)$/.exec(l)?.[1]?.trim()).filter(Boolean);
-    const low = (s) => s.replace(/[.!]+$/, '').replace(/^./, (c) => c.toLowerCase());
-    const said = steps.length > 2 ? `${low(steps[0])}, then ${low(steps[1])}, and ${steps.length - 2} more step${steps.length - 2 === 1 ? '' : 's'}`
-      : steps.length ? steps.map(low).join(', then ') : 'the plan is on the card';
+    // Said short (user, 2026-10-28: "it read everything — make it short"); the steps are on the card.
+    const said = steps.length ? `${steps.length} step${steps.length === 1 ? '' : 's'}` : 'the plan is on the card';
     const name = task.agentName || this.agentName;
     const d = await this.approvals.decide({
-      title: `${name}'s plan for ${task.project}`, detail: plan, prompt: `${name}'s plan for ${task.project}: ${said}. Go ahead?`,
+      title: `${name}'s plan for ${task.project}`, detail: plan, prompt: `${name}'s plan for ${task.project} is ready: ${said}. Go ahead?`,
       tier: 'medium', source: 'claude', changeable: true, addable: true, grantable: false, timeoutMs: 30 * 60_000,
     });
     if (d.allow) {

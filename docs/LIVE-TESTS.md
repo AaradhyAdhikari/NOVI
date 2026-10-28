@@ -20,6 +20,26 @@ Last updated: 2026-10-22.
 - Novi's ChatGPT / Gemini / claude.ai work stays in one minimized Chrome window (no tab pile-up).
 - No more freezes; "open my github profile" is instant; "where is my resume" ≈ 3.5 s.
 
+## Answer any card by voice (2026-10-28, checked by Claude on the test copy)
+
+- [x] "approve" with nothing waiting → "There's nothing waiting for approval right now." (a plain "yes" still goes on as usual).
+- [x] A card that can't take a note ("Start the tip calculator site?") + "yes but quickly" → "That one can't take a note. Say yes or no."
+- [x] "actually what's the time" on that card → it says no to the card, then tells the time.
+- [ ] Claude asks a question → "option 2" / "the second one" / "doosra" / the option's name; "dark" when two options say dark → "Did you mean option 2 … or option 3 …?"
+- [ ] A Claude permission card → "approve but don't touch the tests" (Claude gets the note), "change it to X" (Claude does X instead).
+- [ ] A card with choices (Novi Coder or Claude) → "option 2". Novi now reads the options out by number.
+- [ ] A high-risk card at the laptop (e.g. Claude wants to git push) → Novi says "Say your PIN to approve, or say no" → say your PIN → approved. The chat shows "•••• (your PIN)", never the digits.
+- [ ] On the phone, cards now sit at the top of the screen; after an answer a short status shows ("Approved", "Change sent", "Option sent").
+
+### Cards pop up everywhere (2026-10-28)
+- [x] Laptop: a card → Windows notification (Novi extension 1.10.0) with Approve / Deny → tapping Approve answered it (live, "Start the tip calculator site?").
+- [ ] Phone, Novi closed: a card → phone notification with the short task + Approve / Deny (Claude's questions: the first two options). Tap Approve → answered without opening Novi.
+- [ ] Phone, a PIN / high-risk / delete card → "Approve (PIN)" opens Novi on the card for the PIN; Deny works from the notification.
+- [ ] Tapping the notification itself opens Novi. Answering on one device clears the laptop popup.
+- If the phone shows nothing: open Novi on the phone → Settings → turn notifications on again (it re-subscribes; needs Novi opened through its https Tailscale address). It now sends a **test popup** right away; no popup → allow notifications for Chrome / the Novi site in the phone's settings.
+- [x] Live 2026-10-28: "tell Claude to add dark mode to the tip calculator" → plan card popped up on the laptop (not the phone) → approved → Claude built it. Fixes after: cards go out at high push priority, the test popup, and the spoken plan line is short ("Claude's plan for X is ready: N steps. Go ahead?").
+- [ ] Phone preview pictures are now the whole page in real phone mode (390 px, sharp): "show me the homepage of tip calculator".
+
 ## Code map with graphify (2026-10-24, checked by Claude on the test copy)
 
 Needs graphify installed once (`pip install graphifyy` — already done on this laptop). No AI, no credits.

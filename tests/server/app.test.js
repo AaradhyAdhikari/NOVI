@@ -566,6 +566,22 @@ describe('Novi server', () => {
     c.ws.close();
   });
 
+  // User's choice (2026-10-28): at the laptop too, a high-risk card can be approved by saying the PIN.
+  it('the laptop: saying the PIN approves a waiting high-risk card; the PIN never reaches the chat, logs or AI', async () => {
+    const pins = [];
+    let wanting = true;
+    const env = await start({ agent: { handle: async (t) => `echo: ${t}`, wantsPin: () => wanting, answerPin: (pin, from) => { pins.push([pin, from]); return 'Approved.'; } } });
+    expect(await env.novi.handleMessage({ type: 'user_message', text: 'four eight two nine' })).toBe('Approved.');
+    expect(pins).toEqual([['4829', 'local']]);
+    const snap = JSON.stringify(env.novi.snapshot());
+    expect(snap).not.toMatch(/4829|four eight/);
+    expect(snap).toMatch(/your PIN/);
+    // Words that aren't a PIN go on as usual; no card waiting → digits are ordinary words.
+    expect(await env.novi.handleMessage({ type: 'user_message', text: 'hello' })).toBe('echo: hello');
+    wanting = false;
+    expect(await env.novi.handleMessage({ type: 'user_message', text: '1234' })).toBe('echo: 1234');
+  });
+
   it('refuses a typed PIN while PIN input is voice only', async () => {
     const env = await start({ isLocalAddress: () => false });
     env.novi.remotePin.set('4829');
@@ -750,8 +766,11 @@ describe('Novi server', () => {
     expect(listened[0].waitMs).toBeGreaterThanOrEqual(10000);
     novi.approvals.resolve(novi.approvals.pending()[0].id, true);
     await pending;
-    novi.approvals.request({ title: 'Delete it', tier: 'high', source: 'novi' });
-    expect(listened).toHaveLength(1); // high risk is confirmed on screen
+    // High risk: the answer can be the voice PIN (2026-10-28); deletes / payments stay on screen.
+    novi.approvals.request({ title: 'git push', tier: 'high', source: 'novi' });
+    expect(listened).toHaveLength(2);
+    novi.approvals.request({ title: 'Delete it', tier: 'high', source: 'novi', kind: 'delete' });
+    expect(listened).toHaveLength(2);
   });
 
   it('runtime.say can speak a short version while the chat gets the whole text (file summaries)', async () => {
@@ -793,7 +812,7 @@ describe('Novi server', () => {
     const sent = [];
     const subs = new Set();
     const removed = [];
-    return { sent, removed, publicKey: 'PUB', subscribe: (id) => { subs.add(id); return true; }, has: (id) => subs.has(id), removeDevice: (id) => { removed.push(id); subs.delete(id); }, send: async (id, m) => { sent.push([id, m.kind]); } };
+    return { sent, removed, publicKey: 'PUB', subscribe: (id) => { subs.add(id); return true; }, has: (id) => subs.has(id), removeDevice: (id) => { removed.push(id); subs.delete(id); }, send: async (id, m) => { sent.push([id, m.kind]); }, devices: () => [...subs], sendCard: async (id) => { sent.push([id, 'card']); } };
   }
 
   it('a phone without Novi open gets a notification, and hears what it missed when it comes back', async () => {
@@ -813,7 +832,8 @@ describe('Novi server', () => {
     env.novi.tasks.emit('task', { active: true, id: 't1', status: 'done' });
     env.novi.tasks.emit('task', { active: true, id: 't1', status: 'done' });
     await new Promise((r) => setTimeout(r, 50));
-    expect(push.sent).toEqual([[phone.deviceId, 'approval'], [phone.deviceId, 'task_done']]);
+    // A card goes to every phone as a card notification (task + buttons, 2026-10-28).
+    expect(push.sent).toEqual([[phone.deviceId, 'card'], [phone.deviceId, 'task_done']]);
 
     const back = connect(env.ws);
     await back.opened;
@@ -830,7 +850,9 @@ describe('Novi server', () => {
     again.ws.close();
   });
 
-  it('a phone with Novi open gets no notification', async () => {
+  // A card is always sent (a phone's page "open" in the background would otherwise miss it; the phone
+  // hides it itself while Novi is on screen, public/sw.js). Other notifications stay quiet while open.
+  it('a phone with Novi open still gets cards, but no other notifications', async () => {
     const push = fakePush();
     const env = await start({ isLocalAddress: () => false, push });
     const phone = await pairedPhone(env);
@@ -838,8 +860,9 @@ describe('Novi server', () => {
     phone.c.ws.send(JSON.stringify({ type: 'user_message', text: 'hi' }));
     await phone.c.waitFor((m) => m.type === 'speak');
     env.novi.approvals.request({ title: 'Edit app.js', tier: 'medium', source: 'test' });
+    env.novi.tasks.emit('task', { active: true, id: 't9', status: 'done' });
     await new Promise((r) => setTimeout(r, 50));
-    expect(push.sent).toEqual([]);
+    expect(push.sent).toEqual([[phone.deviceId, 'card']]);
     phone.c.ws.close();
   });
 
@@ -1036,5 +1059,69 @@ describe('runtime for the orb and dictation', () => {
     rt.wake.listen();
     expect(held.map(([w]) => w)).toEqual(['hold', 'release', 'listen']);
     expect(await rt.hear(Buffer.from('wav'))).toBe('okay C language notes');
+  });
+});
+
+// User (2026-10-28): every card pops up on every phone and on the laptop (Windows notification via the
+// Novi extension), with buttons that answer it.
+describe('cards as notifications', () => {
+  const fakePush = () => {
+    const cards = [];
+    return { cards, publicKey: 'PUB', has: () => true, subscribe: () => true, removeDevice: () => {}, send: async () => {}, devices: () => ['d1', 'd2'], sendCard: async (d, a) => { cards.push([d, a.id, a.title]); } };
+  };
+
+  it('a new card goes to every phone and the laptop; answering it clears the laptop one', async () => {
+    const push = fakePush();
+    const { novi } = await start({ push });
+    const laptop = [];
+    novi.plugins.runtime.laptopNotify = async (a) => { laptop.push(['show', a.id, a.actions.length]); };
+    novi.plugins.runtime.laptopNotifyClear = async (id) => { laptop.push(['clear', id]); };
+    const answer = novi.approvals.request({ title: 'Claude wants to run: npm test', tier: 'medium', source: 'claude' });
+    const id = novi.approvals.pending()[0].id;
+    expect(push.cards).toEqual([['d1', id, 'Claude wants to run: npm test'], ['d2', id, 'Claude wants to run: npm test']]);
+    expect(laptop).toEqual([['show', id, 2]]);
+    novi.approvals.resolve(id, true);
+    await answer;
+    expect(laptop.at(-1)).toEqual(['clear', id]);
+  });
+
+  it("the notification's buttons answer the card: approve, deny, an option; a PIN card on a phone opens Novi", async () => {
+    const env = await start({ push: fakePush() });
+    const post = (body) => fetch(`${env.base}/api/card-answer`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const a = env.novi.approvals.request({ title: 'edit a.js', tier: 'medium', source: 'claude' });
+    let res = await post({ id: env.novi.approvals.pending()[0].id, action: 'approve' });
+    expect(await res.json()).toEqual({ done: true, text: 'Approved' });
+    await expect(a).resolves.toBe(true);
+    const d = env.novi.approvals.request({ title: 'edit b.js', tier: 'medium', source: 'claude' });
+    await post({ id: env.novi.approvals.pending()[0].id, action: 'deny' });
+    await expect(d).resolves.toBe(false);
+    const q = env.novi.approvals.decide({ title: 'Claude asks: Which theme?', tier: 'medium', source: 'claude', question: { text: 'Which theme?', options: [{ label: 'Light' }, { label: 'Dark' }] }, timeoutMs: null });
+    res = await post({ id: env.novi.approvals.pending()[0].id, action: 'opt:1' });
+    expect(await res.json()).toEqual({ done: true, text: 'Sent: Dark' });
+    expect(await q).toMatchObject({ allow: true, answer: 'Dark' });
+    res = await post({ id: 'nope', action: 'approve' });
+    expect(await res.json()).toEqual({ done: false, gone: true, text: 'Already answered' });
+    // The laptop's own buttons use the same answers (a dangerous command still needs the PIN).
+    const pin = env.novi.approvals.decide({ title: 'Delete the test folder', tier: 'medium', source: 'files', pin: true });
+    env.novi.remotePin.set('4829');
+    expect(await env.novi.plugins.runtime.answerCard(env.novi.approvals.pending()[0].id, 'approve')).toEqual({ done: false, need: 'pin', text: 'Needs your PIN' });
+    expect(env.novi.approvals.pending()).toHaveLength(1);
+    void pin;
+  });
+});
+
+// Live (2026-10-28): a card reached the laptop but not the phone. "Turn on again" on the phone now also
+// sends that phone a test popup, so it shows at once whether notifications work there.
+describe('test popup', () => {
+  it('a phone asks for a test popup and gets one; the laptop is told to use the phone', async () => {
+    const cards = [];
+    const push = { publicKey: 'PUB', has: () => true, subscribe: () => true, removeDevice: () => {}, send: async () => {}, devices: () => [], sendCard: async (d, a) => { cards.push([d, a]); } };
+    const env = await start({ isLocalAddress: () => false, push });
+    const { token, deviceId } = env.novi.pairing.pair(env.novi.pairing.currentCode().code, 'S24+');
+    const res = await fetch(`${env.base}/api/push/test`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+    expect(await res.json()).toEqual({ sent: true });
+    expect(cards).toHaveLength(1);
+    expect(cards[0][0]).toBe(deviceId);
+    expect(cards[0][1]).toMatchObject({ title: 'Novi test popup', body: 'Popups work on this phone. Cards will show here.', actions: [] });
   });
 });

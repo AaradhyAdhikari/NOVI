@@ -119,7 +119,11 @@ export class ApprovalQueue extends EventEmitter {
     if (allow && always && item.approval.grant && this.grants) this.grants.grant(item.approval.grant.category, by);
     const picked = choice && item.approval.choices?.some((c) => c.id === choice) ? choice : null;
     item.resolve({ allow: Boolean(allow), choice: picked, ...(allow && addition && item.approval.addable ? { addition: String(addition) } : {}), ...(allow && answer !== null && item.approval.question ? { answer: String(answer) } : {}), ...(!allow && change && item.approval.changeable ? { change: String(change) } : {}) });
-    this.emit('resolved', { id, allow: Boolean(allow), by, ...(picked ? { choice: picked } : {}) });
+    // What went along with the answer, for the card's short status ("Approved, with your note", "Change sent").
+    const noted = Boolean(allow && addition && item.approval.addable);
+    const answered = Boolean(allow && answer !== null && item.approval.question);
+    const changed = Boolean(!allow && change && item.approval.changeable);
+    this.emit('resolved', { id, allow: Boolean(allow), by, ...(picked ? { choice: picked } : {}), ...(noted ? { noted } : {}), ...(answered ? { answered } : {}), ...(changed ? { changed } : {}) });
     return true;
   }
 

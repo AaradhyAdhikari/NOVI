@@ -17,6 +17,7 @@ import { briefCommand, changeCommand } from './briefCommand.js';
 import { dictationCommand } from './dictationCommand.js';
 import { claudeLinkCommand, linkFolderCommand, projectStatusCommand, projectAboutCommand } from './claudeLinkCommand.js';
 import { codemapCommand } from './codemapCommand.js';
+import { parseApproval } from './approvalIntent.js';
 import { describeTurn } from '../activity.js';
 import { learningCommand } from './learning.js';
 import { quietCommand } from '../quiet.js';
@@ -172,6 +173,14 @@ export function fileCommand(text) {
 }
 
 const QUESTION = /^(?:what|whats|what's|how|why|who|when|where|which|is|are|can|could|do|does|kya|kaise|kab|kaun|kahan|kitna)\b/i;
+
+// Voice answers to cards (_answerCard). Only these words say "nothing is waiting" — a plain "yes" may
+// answer something Novi asked in the chat, so it goes on as usual.
+const NOTHING_RE = /^(?:approve|approved|deny|denied|allow|option\s+\S+|(?:the\s+)?(?:first|second|third|fourth|last)\s+one)$/i;
+const ANSWERISH = /^(?:option|number|approve|deny|allow)\b/i;
+const clarify = (candidates) => `Did you mean ${candidates.map((c) => `option ${c.optionIndex + 1}, ${c.optionLabel}`).join(', or ')}?`;
+const deviceOf = (from) => (!from || from === 'local' ? 'local' : from.deviceId);
+const sameDevice = (a, b) => deviceOf(a) === deviceOf(b);
 
 // The AI saying it did something ("Opened the folder", "Playing it now") — only true if a tool ran.
 export function claimsAction(text) {
@@ -361,15 +370,11 @@ export class Agent {
     }
     const running = await this._runningCommand(text);
     if (running) return this._remember(text, running);
-    const answered = this._answerQuestion(text, from);
-    if (answered) return this._remember(text, answered);
-    // The brief card waits: "change it to X" sends X back to ChatGPT (plugins/orchestrator).
-    const changeCard = this.approvals.pending?.().filter((a) => a.changeable).at(-1);
-    const change = changeCard ? changeCommand(text) : null;
-    if (change) {
-      this.approvals.resolve(changeCard.id, false, 'voice', null, { from, change });
-      return this._remember(text, "Okay, I'm asking for that change.");
-    }
+    // Any waiting card answered by voice (user's plan, 2026-10-28): Claude's questions ("option 2",
+    // "dark mode", own words), yes / no / "yes, always", "approve but X", "also X", "change X", the
+    // choice on a card ("the second one"), and the voice PIN for high-risk cards.
+    const answered = await this._answerCard(text, from);
+    if (answered != null) return this._remember(text, answered);
     const also = alsoCommand(text);
     if (also) {
       const reply = await this._also(also, from);
@@ -747,22 +752,145 @@ export class Agent {
     return `Playing ${output?.playing?.title || query}.`;
   }
 
-  // While Claude waits on one of its questions, what the user says answers it ("doosra", "dark",
-  // "make it purple", "skip"). A yes/no for another waiting card, and "progress" / "what's next" /
-  // "stop", keep their usual meaning.
-  _answerQuestion(text, from) {
-    const q = this.approvals.waitingQuestion?.();
-    if (!q) return null;
-    const match = matchAnswer(text, q.question.options, { multiSelect: q.question.multiSelect });
-    if (match.kind === 'skip') {
+  // The newest waiting card gets the words; a plain yes / no goes past Claude's question to a yes/no
+  // card ("never answer a question with yes"), and words the card can't use go on as a normal
+  // request. null = not an answer.
+  async _answerCard(text, from) {
+    const said = String(text || '').trim().replace(/[.!?।]+$/, '');
+    const pending = this.approvals.pending?.() || [];
+    if (!pending.length) return NOTHING_RE.test(said) ? "There's nothing waiting for approval right now." : null;
+    const quick = quickCommand(text);
+    // "progress" / "what's next" keep their meaning; "use Claude instead" is the coder choice (_quick).
+    if (quick === 'status' || quick === 'next' || quick?.startsWith('choose:')) return null;
+    const question = pending.filter((a) => a.question).at(-1);
+    const card = pending.filter((a) => !a.question).at(-1);
+    let target = pending.at(-1);
+    let intent = parseApproval(said, target);
+    if (target.question) {
+      const plainNo = intent.intent === 'skip' && answerKind(said) === 'deny';
+      if (card && (intent.intent === 'unknown' || plainNo)) {
+        target = card;
+        intent = parseApproval(said, card);
+      } else if (intent.intent === 'unknown') {
+        return "That's Claude's question. Say the option number or your own answer.";
+      }
+    } else if (intent.intent === 'unknown' && question) {
+      target = question;
+      intent = parseApproval(said, question);
+    }
+    if (target.question) return this._answerQuestionCard(target, intent, text, from);
+    // "cancel" / "stop" on a card: the usual path (no, then "what do you want instead?").
+    if (quick === 'stop' && intent.intent === 'deny') return null;
+    return this._answerApprovalCard(target, intent, said, from);
+  }
+
+  _answerQuestionCard(q, intent, text, from) {
+    if (intent.intent === 'skip') {
       this.approvals.resolve(q.id, false, 'voice', null, { from });
       return 'Okay, Claude will choose.';
     }
-    if (this.approvals.latest?.({ excludeTier: 'high' }) && answerKind(text)) return null;
-    if (match.kind === 'own' && ['stop', 'status', 'next'].includes(quickCommand(text))) return null;
-    const answer = answerFor(match);
+    if (intent.intent === 'ambiguous') return clarify(intent.candidates);
+    if (intent.intent === 'answer' && ['stop', 'status', 'next'].includes(quickCommand(text))) return null;
+    let answer;
+    if (intent.intent === 'option') answer = intent.optionLabel;
+    else if (intent.intent === 'change') answer = intent.change;
+    else answer = answerFor(matchAnswer(text, q.question.options, { multiSelect: q.question.multiSelect }));
     this.approvals.resolve(q.id, true, 'voice', null, { from, answer });
     return `Okay, I told Claude: ${answer}.`;
+  }
+
+  async _answerApprovalCard(card, intent, said, from) {
+    const resolve = (allow, choice = null, extra = {}) => this.approvals.resolve(card.id, allow, 'voice', choice, { from, ...extra });
+    switch (intent.intent) {
+      case 'ambiguous': return clarify(intent.candidates);
+      case 'deny':
+        resolve(false);
+        return card.speaksOnDeny ? '' : 'Okay, denied.';
+      case 'change': {
+        // Never an approval, so no PIN. Claude's cards (and the brief) take the change; any other card
+        // is a no, and the change is done as its own request.
+        if (card.changeable) {
+          resolve(false, null, { change: intent.change });
+          return card.source === 'claude' && !/'s plan for /.test(card.title || '') ? 'Change sent to Claude.' : "Okay, I'm asking for that change.";
+        }
+        resolve(false);
+        return `Okay, not that. ${await this._handle(intent.change, { from })}`.trim();
+      }
+      case 'option': {
+        const choice = card.choices?.[intent.optionIndex];
+        if (!choice) return null;
+        return this._approveCard(card, from, { choice: choice.id, done: `Okay, using ${choice.label}.` });
+      }
+      case 'approve':
+        return this._approveCard(card, from, { always: Boolean(intent.always) });
+      case 'approve_with_note':
+        if (!card.addable) return "That one can't take a note. Say yes or no.";
+        return this._approveCard(card, from, { addition: intent.note, done: 'Approved, with your note.' });
+      case 'addition': {
+        if (card.addable) return this._approveCard(card, from, { addition: intent.note, done: "Okay, I'll add that too." });
+        const approved = await this._approveCard(card, from, {});
+        if (approved !== 'Approved.') return approved;
+        return `Approved. ${await this._handle(intent.note, { from })}`; // same request in the activity log
+      }
+      default:
+        return ANSWERISH.test(said) ? "I didn't catch that. Say approve, deny, option 1, option 2, or change X." : null;
+    }
+  }
+
+  // What a voice yes still needs: 'pin' (asked for next), 'no-pin', 'passkey', 'laptop', 'screen'
+  // (high risk without a way to check a PIN), 'kind' (deletes / payments: on screen), or null.
+  _proofNeeded(card, from) {
+    if (card.kind) return 'kind';
+    const trust = this.approvals.trust;
+    if (!trust) return card.tier === 'high' ? 'screen' : null;
+    const verdict = trust.check(card, from, null);
+    if (!verdict.ok) return verdict.need;
+    // A high-risk card at the laptop: the voice PIN (a tap on the card still works without it).
+    if (card.tier === 'high') return trust.hasPin?.() ? 'pin' : 'no-pin';
+    return null;
+  }
+
+  async _approveCard(card, from, { always = false, addition = null, choice = null, done = 'Approved.' } = {}) {
+    const need = this._proofNeeded(card, from);
+    if (need === 'pin') {
+      this._pinWanted = { id: card.id, from, always, addition, choice, done, until: Date.now() + 2 * 60_000 };
+      return needsProof('pin');
+    }
+    if (need === 'kind') return 'That one deletes or pays for something, so please confirm it on screen.';
+    if (need === 'screen') return 'That one is high risk, so please confirm it on screen.';
+    if (need) return needsProof(need);
+    if (always && !card.grant) {
+      if (!this.approvals.resolve(card.id, true, 'voice', choice, { from, addition })) return needsProof(this.approvals.trust?.check?.(card, from, null)?.need);
+      return "Approved. I can't remember that kind of action, so I'll ask each time.";
+    }
+    if (!this.approvals.resolve(card.id, true, 'voice', choice, { from, always, addition })) return needsProof(this.approvals.trust?.check?.(card, from, null)?.need);
+    return always ? `Approved. I'll always allow ${card.grant.label} from now on.` : done;
+  }
+
+  // The next thing said is the PIN for a waiting card (asked for, or a high-risk card is the newest):
+  // app.js then sends the PIN here, never to the chat, logs or the AI.
+  wantsPin(from) {
+    const pending = this.approvals.pending?.() || [];
+    const p = this._pinWanted;
+    if (p && p.until > Date.now() && sameDevice(p.from, from) && pending.some((a) => a.id === p.id)) return true;
+    const newest = pending.filter((a) => !a.question).at(-1);
+    return Boolean(newest && this._proofNeeded(newest, from) === 'pin');
+  }
+
+  answerPin(pin, from) {
+    const pending = this.approvals.pending?.() || [];
+    const p = this._pinWanted && sameDevice(this._pinWanted.from, from) && pending.some((a) => a.id === this._pinWanted.id) ? this._pinWanted : null;
+    const card = p ? pending.find((a) => a.id === p.id) : pending.filter((a) => !a.question).at(-1);
+    if (!card) return "There's nothing waiting for a PIN right now.";
+    const trust = this.approvals.trust;
+    // Cards whose rules want the PIN check it in resolve(); a high-risk card at the laptop checks it here.
+    const ok = trust?.check(card, from, null).ok ? trust.pinOk?.(pin, from) : trust?.check(card, from, { pin }).ok;
+    if (!ok) return "That PIN isn't right. Try again, or say no.";
+    if (!this.approvals.resolve(card.id, true, 'voice', p?.choice || null, { from, proof: { pin }, always: Boolean(p?.always), addition: p?.addition || null })) {
+      return "That PIN isn't right. Try again, or say no.";
+    }
+    this._pinWanted = null;
+    return p?.done || 'Approved.';
   }
 
   async _quick(kind, from = 'local') {

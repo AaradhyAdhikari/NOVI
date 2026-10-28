@@ -12,7 +12,8 @@ describe('Novi Chrome extension (static checks; it runs only in Chrome)', () => 
   it('manifest: MV3 with only the permissions it needs', () => {
     const m = JSON.parse(read('manifest.json'));
     expect(m.manifest_version).toBe(3);
-    expect([...m.permissions].sort()).toEqual(['alarms', 'scripting', 'storage', 'tabs']);
+    // notifications: Novi's cards as Windows notifications on the laptop (2026-10-28).
+    expect([...m.permissions].sort()).toEqual(['alarms', 'notifications', 'scripting', 'storage', 'tabs']);
     expect(m.host_permissions).toEqual(['<all_urls>']);
     expect(m.background.service_worker).toBe('background.js');
     expect(m.action.default_popup).toBe('popup.html');
@@ -99,7 +100,7 @@ describe('page.js numbering (fake page)', () => {
     expect(novi.textsOf({ selector: 'x', attrs: ['data-message-author-role', 'data-user-message-bubble'] }).items[0].attrs)
       .toEqual({ 'data-message-author-role': 'user', 'data-user-message-bubble': null });
     expect(read('background.js')).toMatch(/'textsOf'/);
-    expect(JSON.parse(read('manifest.json')).version).toBe('1.9.0');
+    expect(JSON.parse(read('manifest.json')).version).toBe('1.10.0');
   });
   // claude.ai's project list (2026-10-18): each card's name is its first line, its link the href.
   it('query: first line only and an attribute when asked; plain query as before', () => {

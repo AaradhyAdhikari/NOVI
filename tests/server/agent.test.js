@@ -1696,3 +1696,92 @@ describe('the code map by voice (plugins/codemap, 2026-10-24)', () => {
     expect(s.ai).toHaveLength(1);
   });
 });
+
+// User's plan (2026-10-28): every card answerable by voice — options, notes, changes, the PIN.
+describe('universal voice answers for every card', async () => {
+  const { createRemoteTrust } = await import('../../server/remoteTrust.js');
+  const mk = ({ pin = '4321' } = {}) => {
+    const trust = createRemoteTrust({ pin: (p) => p.pin === pin, hasPin: () => true });
+    const approvals = new ApprovalQueue({ trust });
+    const handled = [];
+    const agent = new Agent({ router: { chat: async (r) => { handled.push(r.messages.at(-1).content); return { message: { role: 'assistant', content: 'From the AI.' }, provider: 'groq', model: 'm' }; } }, tools: new ToolRegistry(), approvals, memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
+    return { approvals, agent, handled };
+  };
+  const theme = (approvals) => approvals.decide({ title: 'Claude asks: Which theme?', tier: 'medium', source: 'claude', question: { text: 'Which theme?', options: [{ label: 'Light mode' }, { label: 'Dark mode' }, { label: 'Dark blue' }], multiSelect: false }, timeoutMs: null });
+
+  it('"option 2" / "dark mode" answer a Claude question; "dark" asks which', async () => {
+    const { approvals, agent } = mk();
+    const q = theme(approvals);
+    expect(await agent.handle('dark')).toBe('Did you mean option 2, Dark mode, or option 3, Dark blue?');
+    expect(await agent.handle('option 2')).toBe('Okay, I told Claude: Dark mode.');
+    expect(await q).toMatchObject({ allow: true, answer: 'Dark mode' });
+    const q2 = theme(approvals);
+    expect(await agent.handle('dark mode')).toBe('Okay, I told Claude: Dark mode.');
+    expect(await q2).toMatchObject({ answer: 'Dark mode' });
+  });
+
+  it('"the second one" picks a choice on a card with choices', async () => {
+    const { approvals, agent } = mk();
+    const card = approvals.decide({ title: 'Who should build it?', tier: 'medium', source: 'novi', choices: [{ id: 'novi-coder', label: 'Novi Coder' }, { id: 'claude', label: 'Claude Code' }] });
+    expect(await agent.handle('the second one')).toBe('Okay, using Claude Code.');
+    expect(await card).toMatchObject({ allow: true, choice: 'claude' });
+  });
+
+  it('"approve but X" / "also X" approve with a note; a card that can\'t take one asks for yes or no', async () => {
+    const { approvals, agent } = mk();
+    const c = approvals.decide({ title: 'Claude wants to write hosts', tier: 'medium', source: 'claude', addable: true, changeable: true });
+    expect(await agent.handle("approve but don't delete old files")).toBe('Approved, with your note.');
+    expect(await c).toMatchObject({ allow: true, addition: "don't delete old files" });
+    const a = approvals.decide({ title: 'Claude wants to write hosts', tier: 'medium', source: 'claude', addable: true, changeable: true });
+    expect(await agent.handle('also add dark mode')).toBe("Okay, I'll add that too.");
+    expect(await a).toMatchObject({ allow: true, addition: 'add dark mode' });
+    approvals.decide({ title: 'Start the portfolio site?', tier: 'medium', source: 'preview' });
+    expect(await agent.handle('yes but quickly')).toBe("That one can't take a note. Say yes or no.");
+    expect(approvals.pending()).toHaveLength(1);
+  });
+
+  it('"change X": Claude\'s card says no and sends X; a card without Claude says no and does X as a new request', async () => {
+    const { approvals, agent, handled } = mk();
+    const c = approvals.decide({ title: 'Claude wants to write hosts', tier: 'medium', source: 'claude', addable: true, changeable: true });
+    expect(await agent.handle('change the button to blue')).toBe('Change sent to Claude.');
+    expect(await c).toMatchObject({ allow: false, change: 'the button to blue' });
+    const p = approvals.decide({ title: 'Start the portfolio site?', tier: 'medium', source: 'preview' });
+    expect(await agent.handle('actually open my resume')).toBe('Okay, not that. From the AI.');
+    expect((await p).allow).toBe(false);
+    expect(handled.at(-1)).toBe('open my resume');
+  });
+
+  it('approve / deny / yes, always', async () => {
+    const { approvals, agent } = mk();
+    const a = approvals.request({ title: 'edit a.js', tier: 'medium', source: 'claude' });
+    expect(await agent.handle('approve')).toBe('Approved.');
+    expect(await a).toBe(true);
+    const d = approvals.request({ title: 'edit a.js', tier: 'medium', source: 'claude' });
+    expect(await agent.handle('deny')).toBe('Okay, denied.');
+    expect(await d).toBe(false);
+  });
+
+  it('high risk: a yes asks for the PIN; the right PIN approves (with the note), a wrong one doesn\'t', async () => {
+    const { approvals, agent } = mk();
+    const h = approvals.decide({ title: 'git push', tier: 'high', source: 'claude', addable: true, changeable: true });
+    expect(await agent.handle('approve but only main')).toBe('That one needs your voice PIN. Say your PIN, or type it on the card.');
+    expect(agent.wantsPin('local')).toBe(true);
+    expect(await agent.answerPin('1111', 'local')).toBe("That PIN isn't right. Try again, or say no.");
+    expect(approvals.pending()).toHaveLength(1);
+    expect(await agent.answerPin('4321', 'local')).toBe('Approved, with your note.');
+    expect(await h).toMatchObject({ allow: true, addition: 'only main' });
+    expect(agent.wantsPin('local')).toBe(false);
+    // "change X" needs no PIN: it doesn't approve anything.
+    const h2 = approvals.decide({ title: 'git push', tier: 'high', source: 'claude', addable: true, changeable: true });
+    expect(await agent.handle('change it to a pull request')).toBe('Change sent to Claude.');
+    expect(await h2).toMatchObject({ allow: false, change: 'a pull request' });
+  });
+
+  it('nothing waiting: answer words say so; a plain "yes" still goes on as usual', async () => {
+    const { agent, handled } = mk();
+    expect(await agent.handle('option 2')).toBe("There's nothing waiting for approval right now.");
+    expect(await agent.handle('approve')).toBe("There's nothing waiting for approval right now.");
+    expect(await agent.handle('yes')).toBe('From the AI.');
+    expect(handled).toEqual(['yes']);
+  });
+});

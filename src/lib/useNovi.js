@@ -3,6 +3,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { getItem, setItem } from './storage.js';
 import { pairCodeFromHash, deviceName, tryAutoPair } from './pairing.js';
 import { stopSpeaking } from './voice.js';
+import { resolvedText } from './approvalText.js';
+import { shareToken } from './push.js';
 
 const isLocal = ['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname);
 const initialState = { transcript: [], task: { active: false }, approvals: [], providers: [], projects: [], devices: [], feed: [], thinking: false, accounts: [], googleConfigured: false };
@@ -15,6 +17,8 @@ export function useNovi({ onSpeak }) {
   const wsRef = useRef(null);
   const speakRef = useRef(onSpeak);
   speakRef.current = onSpeak;
+  // Notification buttons on this phone answer cards with its own token (public/sw.js).
+  useEffect(() => { if (!isLocal) shareToken(token); }, [token]);
 
   useEffect(() => {
     if (needsPairing) return undefined;
@@ -35,7 +39,13 @@ export function useNovi({ onSpeak }) {
         case 'code_saved': setState((s) => ({ ...s, codeSaved: { ...(s.codeSaved || {}), [msg.id]: { ok: msg.ok, changed: msg.changed, error: msg.error, at: Date.now() } } })); break;
         case 'approval_added': setState((s) => ({ ...s, approvals: [...s.approvals.filter((a) => a.id !== msg.approval.id), msg.approval] })); break;
         case 'approval_needs_proof': setState((s) => ({ ...s, approvals: s.approvals.map((a) => (a.id === msg.id ? { ...a, need: msg.need } : a)) })); break;
-        case 'approval_resolved': setState((s) => ({ ...s, approvals: s.approvals.filter((a) => a.id !== msg.id) })); break;
+        case 'approval_resolved': {
+          // The card goes; a short status ("Approved", "Change sent") shows for a moment (2026-10-28).
+          const at = Date.now();
+          setState((s) => ({ ...s, approvals: s.approvals.filter((a) => a.id !== msg.id), resolvedNote: { text: resolvedText(msg), at } }));
+          setTimeout(() => setState((s) => (s.resolvedNote?.at === at ? { ...s, resolvedNote: null } : s)), 2500);
+          break;
+        }
         case 'thinking': setState((s) => ({ ...s, thinking: msg.on, wakeHeardAt: msg.on ? 0 : s.wakeHeardAt })); break;
         case 'speak': speakRef.current?.(msg.text, msg); break;
         // Updates spoken while Novi wasn't open on this phone, in order.

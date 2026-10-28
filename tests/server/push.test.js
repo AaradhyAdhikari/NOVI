@@ -77,3 +77,21 @@ describe('push', () => {
     expect(lib.sent).toEqual([]);
   });
 });
+
+// User (2026-10-28): a waiting card pops up on every phone with the short task and buttons.
+describe('push: cards', () => {
+  it('sends a card (task, buttons, its id) to a phone; lists the phones that can get notifications', async () => {
+    const { push, lib } = make();
+    push.subscribe('d1', sub(1));
+    push.subscribe('d2', sub(2));
+    expect(push.devices().sort()).toEqual(['d1', 'd2']);
+    await push.sendCard('d1', { id: 'a1', title: 'Claude wants to run: npm test', body: 'Tap to open Novi.', actions: [{ action: 'approve', title: 'Approve' }, { action: 'deny', title: 'Deny' }] });
+    expect(lib.sent).toHaveLength(1);
+    expect(lib.sent[0].payload).toEqual({ type: 'card', id: 'a1', title: 'Claude wants to run: npm test', body: 'Tap to open Novi.', tag: 'card-a1', url: '/?card=a1', actions: [{ action: 'approve', title: 'Approve' }, { action: 'deny', title: 'Deny' }] });
+    // Cards wait up to 30 minutes: the push service may hold it that long while the phone is offline.
+    expect(lib.sent[0].opts.TTL).toBe(1800);
+    // Live (2026-10-28): the card reached the laptop but not the phone — Android may hold back normal
+    // pushes while the phone sleeps. Cards go out at high priority.
+    expect(lib.sent[0].opts.urgency).toBe('high');
+  });
+});

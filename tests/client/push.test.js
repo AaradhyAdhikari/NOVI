@@ -11,3 +11,16 @@ describe('push helpers', () => {
     expect(installHint({ userAgent: 'Mozilla/5.0 (Linux; Android 15; SM-S926B)', standalone: false })).toBeNull();
   });
 });
+
+// The service worker answers a card from a notification button with the phone's own token (2026-10-28).
+describe('shareToken', async () => {
+  const { shareToken } = await import('../../src/lib/push.js');
+  it('puts the token where the service worker reads it; no token removes it', async () => {
+    const store = new Map();
+    const caches = { open: async (name) => ({ put: async (k, r) => store.set(`${name}${k}`, await r.text()), delete: async (k) => store.delete(`${name}${k}`) }) };
+    await shareToken('tok123', { caches, Response: class { constructor(t) { this.t = t; } async text() { return this.t; } } });
+    expect(store.get('novi-auth/novi-token')).toBe('tok123');
+    await shareToken(null, { caches });
+    expect(store.has('novi-auth/novi-token')).toBe(false);
+  });
+});

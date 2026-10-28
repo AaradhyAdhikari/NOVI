@@ -44,7 +44,10 @@ export default function App() {
   // wake-word model it listens on the laptop mic (even with this page closed) and the browser stays quiet.
   const serverWake = state.wakeWord === 'server';
   serverWakeRef.current = serverWake;
-  const handsFreeOn = handsFreeSupported && !serverWake;
+  // Not on phones (user, 2026-10-28): Android plays a sound each time Chrome's speech listener starts,
+  // and it restarts every few seconds when nothing is said — a sound loop. Phones use the talk button;
+  // after Novi asks something the mic opens once through the quiet recorder (answerAt).
+  const handsFreeOn = handsFreeSupported && !serverWake && novi.isLocal;
   const sendText = (text) => send({ type: 'user_message', text });
   const sendRef = useRef(sendText);
   sendRef.current = sendText;
@@ -95,7 +98,7 @@ export default function App() {
         </section>
       </main>
       {novi.isLocal && <PairRequests requests={state.pairRequests} api={novi.api} />}
-      <ApprovalCards api={novi.api} approvals={state.approvals} onAnswer={(id, allow, choice, opts = {}) => send({ type: 'approval', id, allow, ...(choice ? { choice } : {}), ...(opts.always ? { always: true } : {}), ...(typeof opts.answer === 'string' ? { answer: opts.answer } : {}), ...(opts.proof || {}) })} />
+      <ApprovalCards api={novi.api} approvals={state.approvals} resolved={state.resolvedNote} onAnswer={(id, allow, choice, opts = {}) => send({ type: 'approval', id, allow, ...(choice ? { choice } : {}), ...(opts.always ? { always: true } : {}), ...(typeof opts.answer === 'string' ? { answer: opts.answer } : {}), ...(opts.proof || {}) })} />
       <TalkButton onText={sendText} api={novi.api} onRecording={(on) => handsFree.current?.enabled && handsFree.current.pause(on)} handsFreeOn={handsFreeOn || serverWake} answerAt={answerAt} />
       <SettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} projects={state.projects} devices={state.devices} accounts={state.accounts} googleConfigured={state.googleConfigured} api={novi.api} isLocal={novi.isLocal} />
     </div>

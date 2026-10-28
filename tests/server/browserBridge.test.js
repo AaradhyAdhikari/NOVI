@@ -107,3 +107,17 @@ describe('browser bridge: an old extension updates itself', () => {
     expect(fresh.state.messages).toEqual([{ type: 'welcome' }]);
   });
 });
+
+// User (2026-10-28): a card's Windows notification on the laptop (shown by the extension) answers it.
+describe('browser bridge: events from the extension', () => {
+  it('a notification button tap goes to onEvent, and its result goes back to the extension', async () => {
+    const events = [];
+    const port = await start({ onEvent: async (e) => { events.push(e); return { done: true, text: 'Approved' }; } });
+    const { ws, state } = connect(port);
+    await until(() => state.messages.length > 0);
+    ws.send(JSON.stringify({ type: 'event', event: 'card', ref: 7, id: 'a1', action: 'approve' }));
+    await until(() => state.messages.length > 1);
+    expect(events).toEqual([{ event: 'card', id: 'a1', action: 'approve' }]);
+    expect(state.messages[1]).toEqual({ type: 'event_result', ref: 7, done: true, text: 'Approved' });
+  });
+});
