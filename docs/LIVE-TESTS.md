@@ -46,7 +46,7 @@ download `Novi.apk` → open it → allow "Install unknown apps" for the app you
 **Novi** → Connect: type the laptop's Tailscale name (the `….ts.net` part of Novi's phone address) and tap Connect,
 or Scan QR from Novi on the laptop (Settings → Phone). Then tap every "Allow" button: Show cards over other
 apps, Notifications, Microphone, Keep running. On a Samsung also: Settings → Apps → Novi → Battery → Unrestricted.
-Rebuild after a change: double-click `android\build-apk.cmd` (APK in `%LOCALAPPDATA%\NoviPhoneBuild\app\outputs\apk\debug`).
+Rebuild after a change: double-click `android\build-apk.cmd` (APK: `android\Novi.apk`).
 - [ ] "Send a test card" in the app → card slides up at the bottom, vibrate + chime + "Novi test card. Approve or deny?" out loud → Approve → "Approved" and Novi says the test card was approved.
 - [ ] Same over full-screen YouTube (the video ducks while Novi speaks) and with the screen off (it wakes up).
 - [ ] Answer on the laptop instead → the card on the phone says "Answered" and goes away.
