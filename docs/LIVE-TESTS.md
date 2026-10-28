@@ -40,17 +40,18 @@ Last updated: 2026-10-22.
 - [x] Live 2026-10-28: "tell Claude to add dark mode to the tip calculator" → plan card popped up on the laptop (not the phone) → approved → Claude built it. Fixes after: cards go out at high push priority, the test popup, and the spoken plan line is short ("Claude's plan for X is ready: N steps. Go ahead?").
 - [ ] Phone preview pictures are now the whole page in real phone mode (390 px, sharp): "show me the homepage of tip calculator".
 
-### Novi phone app: cards ON the screen, over any app (2026-10-28, built, not tried on the phone yet)
+### Novi phone app: cards ON the screen, over any app (2026-10-28, app 1.1.1, works live on the S24+)
 Install once: **restart Novi on the laptop first** (Settings → Restart, or Update and Start Novi.cmd). On the phone,
 download `Novi.apk` → open it → allow "Install unknown apps" for the app you downloaded it with → Install. Open
 **Novi** → Connect: type the laptop's Tailscale name (the `….ts.net` part of Novi's phone address) and tap Connect,
 or Scan QR from Novi on the laptop (Settings → Phone). Then tap every "Allow" button: Show cards over other
 apps, Notifications, Microphone, Keep running. On a Samsung also: Settings → Apps → Novi → Battery → Unrestricted.
 Rebuild after a change: double-click `android\build-apk.cmd` (APK: `android\Novi.apk`).
-- [ ] "Send a test card" in the app → card slides up at the bottom, vibrate + chime + "Novi test card. Approve or deny?" out loud → Approve → "Approved" and Novi says the test card was approved.
-- [ ] Same over full-screen YouTube (the video ducks while Novi speaks) and with the screen off (it wakes up).
+- [x] Test card → card at the bottom over the home screen, vibrate + chime + read out → approved (live 2026-10-28).
+- [x] No mic button: right after reading the card out, Novi listens by itself (video paused) → said "approve" → approved (live; heard "Novi, Tex, Car. Approve." — the last clear answer counts). Nothing said in 5 s → "Didn't hear an answer: tap a button."
+- [ ] Same over full-screen YouTube (the video pauses while Novi speaks and listens, then plays again) and with the screen off (it wakes up).
 - [ ] Answer on the laptop instead → the card on the phone says "Answered" and goes away.
-- [ ] 🎤 on a card → small "Listening…" window → "option 2" / "yes, but X" / "change it to X" → Novi's answer is spoken on the phone.
+- [ ] Claude's question card → say "option 2" / "the second one"; a permission card → "yes, but X" / "change it to X" → Novi's answer is spoken on the phone. Words from a video never count (only clear answers to that card).
 - [ ] A PIN card (e.g. Claude wants to git push) → "Approve (PIN)" → PIN pad (only if Settings allow typed PINs) or "🎤 Say PIN" → approved; a wrong PIN says "PIN not accepted".
 - [ ] "Later" shrinks the card to a small "Novi · 1 card" pill; tap it to open again.
 - [ ] Phone restarted → the "Novi is connected" notification comes back by itself. Laptop off/on → it reconnects.
