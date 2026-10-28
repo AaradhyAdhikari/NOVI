@@ -240,11 +240,18 @@ class NoviService : Service() {
         if (android.os.Build.VERSION.SDK_INT >= 34 && !nm.canUseFullScreenIntent()) runCatching { startActivity(open) }
     }
 
+    /** The app's Novi page opened (it shows the cards itself) or closed (waiting cards pop up again). */
+    fun pageShown(on: Boolean) = main.post { if (on) overlay.hide() else showTop() }
+
     private fun showTop() {
         val top = cards.top()
         if (top == null) {
             overlay.hide()
             cancelCardNotice()
+            return
+        }
+        if (MainActivity.visible) {
+            overlay.hide()
             return
         }
         if (Settings.canDrawOverlays(this)) overlay.show(top, cards.size) else cardNotice(top)
@@ -253,6 +260,8 @@ class NoviService : Service() {
     /** Vibrate, a short chime, then Novi's line out loud; the screen wakes up if it was off. */
     @Suppress("DEPRECATION")
     private fun announce(card: Card) {
+        // The Novi page is open in the app: it shows and reads the card itself.
+        if (MainActivity.visible) return
         val pm = getSystemService(PowerManager::class.java)
         if (!pm.isInteractive || getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked) lockCard(card)
         if (!pm.isInteractive) {
@@ -420,7 +429,7 @@ class NoviService : Service() {
 
     /** Without "Display over other apps": at least a loud notification that opens this app. */
     private fun cardNotice(card: Card) {
-        val open = PendingIntent.getActivity(this, 1, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+        val open = PendingIntent.getActivity(this, 1, Intent(this, SetupActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
         val n = NotificationCompat.Builder(this, "cards").setSmallIcon(R.drawable.ic_novi).setContentTitle(card.title)
             .setContentText("Allow \"Display over other apps\" for Novi to answer here.").setContentIntent(open)
             .setPriority(NotificationCompat.PRIORITY_HIGH).setAutoCancel(true).build()

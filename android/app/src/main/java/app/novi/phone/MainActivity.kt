@@ -2,219 +2,155 @@ package app.novi.phone
 
 import android.Manifest
 import android.annotation.SuppressLint
-import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
+import android.net.http.SslError
 import android.os.Build
 import android.os.Bundle
-import android.os.PowerManager
 import android.provider.Settings
-import android.text.InputType
-import android.view.ViewGroup
-import android.widget.Button
-import android.widget.EditText
-import android.widget.LinearLayout
-import android.widget.ScrollView
+import android.view.Gravity
+import android.webkit.PermissionRequest
+import android.webkit.SslErrorHandler
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.activity.ComponentActivity
-import com.journeyapps.barcodescanner.ScanContract
-import com.journeyapps.barcodescanner.ScanOptions
-import org.json.JSONObject
-import kotlin.concurrent.thread
+import androidx.activity.OnBackPressedCallback
+import java.security.MessageDigest
 
-/** Pair with Novi once, give the permissions, try a test card. Everything else happens in NoviService. */
+/**
+ * The one Novi app (user, 2026-10-28: "I only want one Novi app"): the full Novi page (chat, talk,
+ * settings, memory) inside the app, signed in with this phone's own token. Cards still pop up over other
+ * apps and on the lock screen through NoviService; while this page is open, the page shows them itself.
+ * ⚙ (bottom left) opens the setup screen.
+ */
 class MainActivity : ComponentActivity() {
-    private lateinit var store: Store
-    private lateinit var state: TextView
-    private lateinit var link: EditText
-    private lateinit var perms: LinearLayout
-    private lateinit var info: TextView
-
-    private val scan = registerForActivityResult(ScanContract()) { result ->
-        result.contents?.let {
-            link.setText(it)
-            pair(it)
-        }
+    companion object {
+        /** The Novi page is on screen (NoviService then leaves the cards to it). */
+        @Volatile var visible = false
     }
+
+    private lateinit var store: Store
+    private var web: WebView? = null
+    private var loadedBase: String? = null
+    private var signedIn = false
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         store = Store(this)
-        val col = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(28), dp(20), dp(20))
-        }
-        col.addView(TextView(this).apply {
-            text = "Novi"
-            textSize = 30f
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                val w = web
+                if (w != null && w.canGoBack()) w.goBack() else moveTaskToBack(true)
+            }
         })
-        state = TextView(this).apply {
-            textSize = 16f
-            setPadding(0, dp(4), 0, dp(16))
-        }
-        col.addView(state)
-
-        col.addView(heading("1. Connect to your laptop"))
-        col.addView(TextView(this).apply {
-            text = "Scan the pairing QR in Novi on the laptop (Settings → Phone), or type the laptop's Tailscale name (like mylaptop.tail1234.ts.net) if this phone is on your Tailscale."
-        })
-        link = EditText(this).apply {
-            hint = "Laptop name or pairing link"
-            inputType = InputType.TYPE_TEXT_VARIATION_URI
-            setSingleLine()
-            setText(store.base.orEmpty())
-        }
-        col.addView(link)
-        col.addView(row(
-            button("Scan QR") { scan.launch(ScanOptions().setPrompt("Scan the QR from Novi on the laptop").setBeepEnabled(false).setOrientationLocked(false)) },
-            button("Connect") { pair(link.text.toString()) },
-        ))
-
-        col.addView(heading("2. Allow these"))
-        perms = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        col.addView(perms)
-
-        col.addView(heading("3. Try it"))
-        col.addView(row(
-            button("Send a test card") {
-                val svc = NoviService.instance ?: return@button say("Not connected yet.")
-                svc.testCard(::say)
-            },
-            button("Forget laptop") {
-                NoviService.stop(this)
-                store.forget()
-                say("Forgotten. Connect again to use Novi here.")
-                refresh()
-            },
-        ))
-        info = TextView(this).apply { setPadding(0, dp(8), 0, 0) }
-        col.addView(info)
-
-        setContentView(ScrollView(this).apply { addView(col) })
-        if (store.paired) NoviService.start(this)
     }
 
     override fun onResume() {
         super.onResume()
-        NoviService.onState = { refresh() }
-        refresh()
+        // First run, or the pop-up permission not given yet: the setup screen first.
+        if (!store.paired || !Settings.canDrawOverlays(this)) {
+            startActivity(Intent(this, SetupActivity::class.java))
+            return
+        }
+        NoviService.start(this)
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 1)
+        }
+        if (web == null || loadedBase != store.base) show()
+        visible = true
+        NoviService.instance?.pageShown(true)
     }
 
     override fun onPause() {
-        NoviService.onState = null
+        visible = false
+        NoviService.instance?.pageShown(false)
         super.onPause()
     }
 
-    private fun heading(t: String) = TextView(this).apply {
-        text = t
-        textSize = 18f
-        setPadding(0, dp(18), 0, dp(6))
-    }
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun show() {
+        val base = store.base ?: return
+        val token = store.token ?: return
+        val pin = store.pin
+        signedIn = false
+        val w = WebView(this).apply {
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = true
+            settings.mediaPlaybackRequiresUserGesture = false
+            webViewClient = object : WebViewClient() {
+                // Novi's own pages stay here; any other link opens in the phone's browser.
+                override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                    if (request.url.toString().startsWith(base)) return false
+                    runCatching { startActivity(Intent(Intent.ACTION_VIEW, request.url)) }
+                    return true
+                }
 
-    private fun button(label: String, onTap: () -> Unit) = Button(this).apply {
-        text = label
-        isAllCaps = false
-        setOnClickListener { onTap() }
-        layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-    }
+                // The page signs in with this phone's token (the web app keeps it as "novi.token").
+                override fun onPageFinished(view: WebView, url: String) {
+                    if (signedIn || !url.startsWith(base)) return
+                    val js = "(function(){var t=${jsString(token)};if(localStorage.getItem('novi.token')!==t){localStorage.setItem('novi.token',t);return 'set';}return 'ok';})()"
+                    view.evaluateJavascript(js) { r ->
+                        signedIn = true
+                        if (r.contains("set")) view.reload()
+                    }
+                }
 
-    private fun row(vararg views: Button) = LinearLayout(this).apply { views.forEach { addView(it) } }
-
-    private fun say(text: String) = runOnUiThread { info.text = text }
-
-    private fun refresh() {
-        state.text = if (store.paired) NoviService.stateText else "Not connected to a laptop yet."
-        perms.removeAllViews()
-        val pm = getSystemService(PowerManager::class.java)
-        permission("Show cards over other apps", Settings.canDrawOverlays(this)) {
-            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
-        }
-        if (Build.VERSION.SDK_INT >= 33) {
-            permission("Notifications", granted(Manifest.permission.POST_NOTIFICATIONS)) {
-                requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 2)
+                // A laptop certificate Android doesn't trust: only the exact one accepted at pairing.
+                override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError) {
+                    val x509 = if (Build.VERSION.SDK_INT >= 29) error.certificate.x509Certificate else null
+                    val ok = pin != null && x509 != null &&
+                        MessageDigest.getInstance("SHA-256").digest(x509.encoded).joinToString("") { "%02x".format(it.toInt() and 0xFF) } == pin
+                    if (ok) handler.proceed() else handler.cancel()
+                }
             }
-        }
-        if (Build.VERSION.SDK_INT >= 34) {
-            val nm = getSystemService(android.app.NotificationManager::class.java)
-            permission("Cards on the lock screen", nm.canUseFullScreenIntent()) {
-                startActivity(Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, Uri.parse("package:$packageName")))
+            webChromeClient = object : WebChromeClient() {
+                // The talk button: the mic, for Novi's own page only.
+                override fun onPermissionRequest(request: PermissionRequest) {
+                    val ours = request.origin.toString().startsWith(base)
+                    val mic = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+                    val wanted = request.resources.filter { it == PermissionRequest.RESOURCE_AUDIO_CAPTURE }
+                    if (ours && mic && wanted.isNotEmpty()) request.grant(wanted.toTypedArray()) else request.deny()
+                }
             }
+            loadUrl("$base/")
         }
-        permission("Microphone (answer by voice)", granted(Manifest.permission.RECORD_AUDIO)) {
-            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 3)
-        }
-        permission("Keep running (no battery limit)", pm.isIgnoringBatteryOptimizations(packageName)) {
-            @SuppressLint("BatteryLife")
-            val i = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName"))
-            startActivity(i)
-        }
-    }
-
-    private fun granted(p: String) = checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED
-
-    private fun permission(label: String, ok: Boolean, ask: () -> Unit) {
-        perms.addView(Button(this).apply {
-            text = if (ok) "✓ $label" else "Allow: $label"
-            isAllCaps = false
-            isEnabled = !ok
-            setOnClickListener { ask() }
+        web?.destroy()
+        web = w
+        loadedBase = base
+        val frame = FrameLayout(this)
+        frame.addView(w)
+        frame.addView(TextView(this).apply {
+            text = "⚙"
+            textSize = 18f
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            contentDescription = "Novi app setup"
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.parseColor("#994F46E5"))
+            }
+            setOnClickListener { startActivity(Intent(this@MainActivity, SetupActivity::class.java)) }
+            layoutParams = FrameLayout.LayoutParams(dp(40), dp(40), Gravity.BOTTOM or Gravity.START).apply {
+                leftMargin = dp(10)
+                bottomMargin = dp(90)
+            }
         })
+        setContentView(frame)
     }
 
-    @Deprecated("old API, enough for three permission buttons")
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        refresh()
-    }
+    private fun jsString(s: String) = "'" + s.replace("\\", "\\\\").replace("'", "\\'") + "'"
 
-    /**
-     * A QR link has a one-time code (/api/pair). Without one, a phone on the laptop owner's own Tailscale
-     * account is let in by itself (/api/pair/auto). A laptop certificate Android doesn't already trust
-     * (self-signed, on the home Wi-Fi) is shown once and pinned only if the user accepts it.
-     */
-    private fun pair(text: String) {
-        val target = parsePairLink(text) ?: return say("That isn't a Novi address. Scan the QR from Novi on the laptop.")
-        say("Connecting to ${target.base}…")
-        thread {
-            val cert = runCatching { Net.probe(target.base) }
-            cert.onFailure { return@thread say(it.message ?: "Couldn't reach the laptop.") }
-            val c = cert.getOrNull()
-            if (c == null) finishPair(target, null)
-            else runOnUiThread {
-                AlertDialog.Builder(this)
-                    .setTitle("Trust this laptop?")
-                    .setMessage("This address uses Novi's own certificate (not Tailscale's), so Android can't check it.\n\nCertificate:\n${c.second}\n\nOnly continue on your own network, with your own laptop.")
-                    .setPositiveButton("Trust") { _, _ -> thread { finishPair(target, c.first) } }
-                    .setNegativeButton("Cancel") { _, _ -> say("Not connected.") }
-                    .show()
-            }
-        }
-    }
-
-    private fun finishPair(target: PairLink, pin: String?) {
-        val net = Net(target.base, null, pin)
-        val name = "Novi app (${Build.MANUFACTURER.replaceFirstChar { it.uppercase() }} ${Build.MODEL})"
-        val result = runCatching {
-            if (target.code != null) net.post("/api/pair", JSONObject().put("code", target.code).put("name", name))
-            else net.post("/api/pair/auto", JSONObject().put("name", name))
-        }
-        result.onFailure {
-            return say(
-                if (target.code == null) "This phone isn't let in by itself (${it.message}). Scan the pairing QR from Novi on the laptop instead."
-                else "Pairing failed: ${it.message} The QR code changes after each try, so scan it again.",
-            )
-        }
-        val token = result.getOrThrow().optString("token")
-        if (token.isEmpty()) return say("Novi didn't send a token. Try again.")
-        NoviService.stop(this)
-        store.base = target.base
-        store.token = token
-        store.pin = pin
-        NoviService.start(this)
-        say("Paired. Cards from Novi will show up here, over any app.")
-        runOnUiThread { refresh() }
+    override fun onDestroy() {
+        web?.destroy()
+        web = null
+        super.onDestroy()
     }
 }

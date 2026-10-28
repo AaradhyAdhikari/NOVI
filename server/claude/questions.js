@@ -25,9 +25,12 @@ function pickOne(part, options) {
   const index = numbers.length ? NUMBER.get(numbers[0]) : words.includes('one') ? 0 : null;
   if (index !== null) {
     const rest = words.filter((w) => !NUMBER.has(w) && !FILLER.has(w));
-    if (rest.length || new Set(numbers.map((w) => NUMBER.get(w))).size > 1) return null;
+    if (new Set(numbers.map((w) => NUMBER.get(w))).size > 1) return null;
     const i = index === -1 ? options.length - 1 : index;
-    return i < options.length ? i : null;
+    if (i >= options.length) return null;
+    // Other words only when they are that option's own name ("One Bhashini", as Novi reads it out).
+    if (rest.length && rest.join(' ') !== norm(options[i].label)) return null;
+    return i;
   }
   const said = words.filter((w) => !FILLER.has(w)).join(' ');
   const labels = options.map((o) => norm(o.label));

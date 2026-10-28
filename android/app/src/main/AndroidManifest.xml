@@ -25,12 +25,19 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:configChanges="orientation|screenSize|keyboardHidden|uiMode"
             android:launchMode="singleTop">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Setup: pairing and permissions (first run, and the ⚙ in the app). -->
+        <activity
+            android:name=".SetupActivity"
+            android:exported="false"
+            android:label="Novi setup" />
 
         <!-- The mic for a card's answer: a small window in front (only a visible app may record). -->
         <activity
