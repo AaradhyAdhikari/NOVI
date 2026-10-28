@@ -441,6 +441,8 @@ export function createNovi(config, overrides = {}) {
     transcript: transcript.filter((e) => e.device === viewer).map(({ device, ...e }) => e),
     task: tasks.status(),
     approvals: approvals.pending(),
+    // The same cards, short (Android app: the ones already waiting when it connects).
+    cards: approvals.pending().map((a) => ({ ...cardAlert(a), spoken: spokenApproval(a) })),
     providers: router.status(),
     projects: memory.listProjects(),
     devices: pairing.listDevices(),
@@ -468,13 +470,14 @@ export function createNovi(config, overrides = {}) {
     }
   });
   approvals.on('added', (approval) => {
-    broadcast({ type: 'approval_added', approval });
+    const text = spokenApproval(approval);
+    // `alert` = the short card the Android app draws over other apps (and reads out: `spoken`).
+    broadcast({ type: 'approval_added', approval, alert: { ...cardAlert(approval), spoken: text } });
     // A popup everywhere (user, 2026-10-28): every phone (Web Push) and the laptop (a Windows
     // notification from the Novi extension), with the short task and buttons that answer it.
     const alert = cardAlert(approval);
     for (const device of push.devices?.() || []) push.sendCard(device, alert).catch(() => {});
     Promise.resolve(plugins.runtime.laptopNotify?.(alert)).catch(() => {});
-    const text = spokenApproval(approval);
     // A yes / no by voice is possible: the device that asked listens for it right after the question
     // (its page through `listen`, the laptop mic without "Hey Novi").
     // High-risk cards too: the answer can be the voice PIN (user's choice 2026-10-28).
@@ -732,6 +735,14 @@ export function createNovi(config, overrides = {}) {
     res.json(answerCard(String(req.body?.id || ''), String(req.body?.action || ''), req.from));
   });
   app.get('/api/push/key', (req, res) => res.json({ publicKey: push.publicKey, subscribed: req.from !== 'local' && Boolean(push.has?.(req.from.deviceId)) }));
+  // A real, harmless card for trying the popups (live 2026-10-28: a fake test popup had no card behind
+  // it, so tapping it showed nothing). It pops up everywhere like any card; its answer is said back.
+  app.post('/api/test-card', (req, res) => {
+    approvals.decide({ title: 'Novi test card: tap Approve or Deny', prompt: 'Novi test card. Approve or deny?', tier: 'medium', source: 'novi', grantable: false, timeoutMs: 10 * 60_000 })
+      .then((d) => say('novi', d.allow ? 'Test card approved — popups and buttons work.' : 'Test card denied — popups and buttons work.', req.from))
+      .catch(() => {});
+    res.json({ sent: true });
+  });
   // A test popup to the phone that asked (live 2026-10-28: a card reached the laptop, not the phone) —
   // sent right after "Turn on again", so it shows at once whether popups work there.
   app.post('/api/push/test', (req, res) => {

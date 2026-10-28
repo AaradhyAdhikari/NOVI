@@ -24,6 +24,7 @@ export function cardAlert(a) {
   return {
     id: a.id,
     title: cut(a.tier === 'high' ? `High risk: ${a.title}` : a.title),
+    proof: Boolean(proof),
     body: proof ? 'Approving needs your PIN. Tap to open Novi.' : 'Tap to open Novi.',
     actions: [{ action: 'approve', title: proof ? 'Approve (PIN)' : 'Approve' }, { action: 'deny', title: 'Deny' }],
   };

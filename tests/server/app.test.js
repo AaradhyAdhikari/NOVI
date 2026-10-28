@@ -1125,3 +1125,42 @@ describe('test popup', () => {
     expect(cards[0][1]).toMatchObject({ title: 'Novi test popup', body: 'Popups work on this phone. Cards will show here.', actions: [] });
   });
 });
+
+// Live (2026-10-28): the test popup had no card behind it, so tapping it showed nothing. A test card is a
+// real (harmless) card: it pops up everywhere like any card, and its answer is said back.
+describe('test card', () => {
+  it('raises a real card that pops up and can be answered', async () => {
+    const cards = [];
+    const push = { publicKey: 'PUB', has: () => true, subscribe: () => true, removeDevice: () => {}, send: async () => {}, devices: () => ['d1'], sendCard: async (d, a) => { cards.push(a); } };
+    const env = await start({ push });
+    const res = await fetch(`${env.base}/api/test-card`, { method: 'POST' });
+    expect(await res.json()).toEqual({ sent: true });
+    const card = env.novi.approvals.pending()[0];
+    expect(card).toMatchObject({ title: 'Novi test card: tap Approve or Deny', tier: 'medium' });
+    expect(cards[0]).toMatchObject({ id: card.id, actions: [{ action: 'approve', title: 'Approve' }, { action: 'deny', title: 'Deny' }] });
+    const answer = await fetch(`${env.base}/api/card-answer`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: card.id, action: 'approve' }) });
+    expect(await answer.json()).toEqual({ done: true, text: 'Approved' });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(env.novi.snapshot().transcript.at(-1)).toMatchObject({ role: 'novi', text: 'Test card approved — popups and buttons work.' });
+  });
+});
+
+// The Android app (2026-10-28) draws the card itself over other apps: it gets the same short card the
+// popups use (title, body, ≤ 2 buttons, needs proof?) plus the line Novi speaks, on arrival and in the
+// snapshot (cards already waiting when the app connects).
+describe('cards for the Android app', () => {
+  it('sends the ready-made card with approval_added and in the snapshot', async () => {
+    const approvals = new ApprovalQueue();
+    const { ws } = await start({ approvals });
+    const c = connect(ws);
+    await c.waitFor((m) => m.type === 'snapshot');
+    approvals.decide({ title: 'Delete old logs', tier: 'high', source: 'novi', timeoutMs: 60_000 }).catch(() => {});
+    const added = await c.waitFor((m) => m.type === 'approval_added');
+    expect(added.alert).toMatchObject({ id: added.approval.id, title: 'High risk: Delete old logs', proof: true, actions: [{ action: 'approve', title: 'Approve (PIN)' }, { action: 'deny', title: 'Deny' }] });
+    expect(added.alert.spoken).toMatch(/PIN/);
+    const c2 = connect(ws);
+    const snap = await c2.waitFor((m) => m.type === 'snapshot');
+    expect(snap.cards).toEqual([expect.objectContaining({ id: added.approval.id, proof: true })]);
+    c.ws.close(); c2.ws.close();
+  });
+});
