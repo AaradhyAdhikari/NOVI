@@ -10,7 +10,9 @@ import android.net.http.SslError
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.util.Base64
 import android.view.Gravity
+import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
 import android.webkit.SslErrorHandler
 import android.webkit.WebChromeClient
@@ -39,6 +41,39 @@ class MainActivity : ComponentActivity() {
     private var web: WebView? = null
     private var loadedBase: String? = null
     private var signedIn = false
+    private val stops = java.util.Collections.synchronizedSet(HashSet<String>())
+
+    /**
+     * The talk button's mic for the Novi page (src/lib/appRecorder.js): the page's own mic doesn't start
+     * in this WebView (live 2026-10-28), so the app records with the same recorder as the cards and hands
+     * the speech back as a WAV. Ends on a pause, after 8 s of nothing, or on stop().
+     */
+    private inner class Bridge {
+        @JavascriptInterface
+        fun record(id: String) {
+            if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                runOnUiThread { requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 1) }
+                deliver(id, null)
+                return
+            }
+            Thread {
+                val heard = runCatching { Recorder.capture(giveUpMs = 8000, maxMs = 60000) { id in stops } }.getOrNull()
+                stops.remove(id)
+                deliver(id, heard?.pcm?.takeIf { it.isNotEmpty() })
+            }.start()
+        }
+
+        @JavascriptInterface
+        fun stop(id: String) {
+            stops.add(id)
+        }
+    }
+
+    private fun deliver(id: String, pcm: ByteArray?) {
+        val b64 = pcm?.let { Base64.encodeToString(Recorder.wav(it), Base64.NO_WRAP) }
+        val js = "window.__noviAppAudio && window.__noviAppAudio(${jsString(id)}, ${if (b64 == null) "null" else "'$b64'"})"
+        runOnUiThread { web?.evaluateJavascript(js, null) }
+    }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
@@ -120,6 +155,8 @@ class MainActivity : ComponentActivity() {
                     if (ours && mic && wanted.isNotEmpty()) request.grant(wanted.toTypedArray()) else request.deny()
                 }
             }
+            // Only Novi's own page is ever loaded here (other links open in the browser).
+            addJavascriptInterface(Bridge(), "NoviApp")
             loadUrl("$base/")
         }
         web?.destroy()

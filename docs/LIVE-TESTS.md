@@ -27,6 +27,12 @@ Last updated: 2026-10-22.
 - [ ] "is it done" / "check it" (current project), "run the checks on X".
 - Results: `<project>/.novi/check-results.jsonl`, pictures `.novi/check-shots/`, research log `data/donecheck/runs.jsonl`; the brief note gets "Checked <date>".
 
+## Known problem: voice answers on the phone (2026-10-28, to fix later)
+- Pop-up (app closed): 1.4.0 call mode heard nothing; 2.0.1 falls back to listening after the read-out — not tried yet.
+- Inside the app (page open): the page listened but only caught "Nih." for the answer (voice log), so you had to tap.
+- Lock screen answer by voice worked (1.3.x: "One." → option 1).
+- In the app (2.0.x), the talk button says "Microphone unavailable…": the page's mic doesn't start inside the app's WebView. Fixed in app 2.1.0 (not tried yet): inside the app the talk button records with the app's own mic (`window.NoviApp` → `Recorder` → WAV back to the page → `/api/stt` as usual); also used when a card waits for a spoken answer in the app.
+
 ## Brief card "change X" (2026-10-28, live)
 - [x] "let's build a tiny unit converter app" → card in 24 s → "change it to also convert currencies" → new card in 10 s with "Your changes: also convert currencies" → "no" → "Okay, I won't send the brief."
 

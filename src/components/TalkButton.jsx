@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Mic, Loader2 } from 'lucide-react';
 import { startRecording, stopSpeaking } from '../lib/voice.js';
+import { appBridge, startAppRecording } from '../lib/appRecorder.js';
 
 // VAD (with its model runtime) is a big chunk: load it in the background after the page opens.
 let vadModule = null;
@@ -22,7 +23,7 @@ export default function TalkButton({ onText, api, onRecording = () => {}, handsF
   const phaseRef = useRef('idle');
   const go = (p) => { phaseRef.current = p; setPhase(p); };
   // Load the speech detector model as soon as the page opens (no mic yet), so the first tap is quick.
-  useEffect(() => { loadVad().then((m) => m.warmVad()).catch(() => {}); }, []);
+  useEffect(() => { if (!appBridge()) loadVad().then((m) => m.warmVad()).catch(() => {}); }, []);
   const micOpenMsRef = useRef(0);
 
   const autoRef = useRef(false); // this recording was started by Novi (answer to its question)
@@ -53,6 +54,9 @@ export default function TalkButton({ onText, api, onRecording = () => {}, handsF
   }
 
   async function open() {
+    // Inside the Novi Android app: the app's own mic (the page's doesn't start there).
+    const app = appBridge();
+    if (app) return startAppRecording({ app, onAutoDone: (blob) => { if (phaseRef.current === 'listening') send(blob); } });
     try {
       const { startVadRecording } = await loadVad();
       return await startVadRecording({ mode: 'hold', onAutoDone: (blob) => { if (phaseRef.current === 'listening') send(blob); } });
