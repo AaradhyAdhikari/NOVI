@@ -40,6 +40,22 @@ Last updated: 2026-10-22.
 - [x] Live 2026-10-28: "tell Claude to add dark mode to the tip calculator" → plan card popped up on the laptop (not the phone) → approved → Claude built it. Fixes after: cards go out at high push priority, the test popup, and the spoken plan line is short ("Claude's plan for X is ready: N steps. Go ahead?").
 - [ ] Phone preview pictures are now the whole page in real phone mode (390 px, sharp): "show me the homepage of tip calculator".
 
+### Novi phone app: cards ON the screen, over any app (2026-10-28, built, not tried on the phone yet)
+Install once: **restart Novi on the laptop first** (Settings → Restart, or Update and Start Novi.cmd). On the phone,
+download `Novi.apk` → open it → allow "Install unknown apps" for the app you downloaded it with → Install. Open
+**Novi** → Connect: type the laptop's Tailscale name (the `….ts.net` part of Novi's phone address) and tap Connect,
+or Scan QR from Novi on the laptop (Settings → Phone). Then tap every "Allow" button: Show cards over other
+apps, Notifications, Microphone, Keep running. On a Samsung also: Settings → Apps → Novi → Battery → Unrestricted.
+Rebuild after a change: double-click `android\build-apk.cmd` (APK in `%LOCALAPPDATA%\NoviPhoneBuild\app\outputs\apk\debug`).
+- [ ] "Send a test card" in the app → card slides up at the bottom, vibrate + chime + "Novi test card. Approve or deny?" out loud → Approve → "Approved" and Novi says the test card was approved.
+- [ ] Same over full-screen YouTube (the video ducks while Novi speaks) and with the screen off (it wakes up).
+- [ ] Answer on the laptop instead → the card on the phone says "Answered" and goes away.
+- [ ] 🎤 on a card → small "Listening…" window → "option 2" / "yes, but X" / "change it to X" → Novi's answer is spoken on the phone.
+- [ ] A PIN card (e.g. Claude wants to git push) → "Approve (PIN)" → PIN pad (only if Settings allow typed PINs) or "🎤 Say PIN" → approved; a wrong PIN says "PIN not accepted".
+- [ ] "Later" shrinks the card to a small "Novi · 1 card" pill; tap it to open again.
+- [ ] Phone restarted → the "Novi is connected" notification comes back by itself. Laptop off/on → it reconnects.
+- Known: the web app's shade notifications still come too; turn them off in the web app's Settings if they're double.
+
 ## Code map with graphify (2026-10-24, checked by Claude on the test copy)
 
 Needs graphify installed once (`pip install graphifyy` — already done on this laptop). No AI, no credits.

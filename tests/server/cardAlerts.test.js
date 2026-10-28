@@ -6,7 +6,7 @@ import { cardAlert } from '../../server/cardAlerts.js';
 describe('cardAlert', () => {
   it('an ordinary card: the short task, Approve / Deny', () => {
     expect(cardAlert({ id: 'a1', title: 'Claude wants to run: npm test', tier: 'medium', source: 'claude' })).toEqual({
-      id: 'a1', title: 'Claude wants to run: npm test', body: 'Tap to open Novi.',
+      id: 'a1', title: 'Claude wants to run: npm test', body: 'Tap to open Novi.', proof: false,
       actions: [{ action: 'approve', title: 'Approve' }, { action: 'deny', title: 'Deny' }],
     });
   });
