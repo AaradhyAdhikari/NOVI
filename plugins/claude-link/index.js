@@ -126,6 +126,8 @@ export function createClaudeLinkPlugin({ driver = null, listCode = () => listCla
             }
             // Projects that didn't reach claude.ai yet (Chrome was closed, or the page failed).
             await retryMakes();
+            // Linked projects whose instructions are still empty get them.
+            try { await healInstructions(); } catch (err) { log(`[claude-link] instructions failed: ${err.message}`); }
           };
           setTimeout(run, 30_000).unref?.();
           if (syncEveryMs > 0) setInterval(run, syncEveryMs).unref?.();
@@ -244,6 +246,39 @@ export function createClaudeLinkPlugin({ driver = null, listCode = () => listCla
       }
       if (api.runtime) api.runtime.claudeRetryMakes = retryMakes;
 
+      // What a claude.ai project of Novi's says about itself: its folder, what it is, the latest brief.
+      function instructionsFor(project, display, about = '') {
+        const k = key(project);
+        const at = rt.codingProject?.(project);
+        const brief = rt.wikiRead?.(`${k} brief`);
+        return [
+          `This is the ${display} project. Its code is in ${at?.path || 'my projects folder'} on my laptop, and Claude Code works on it there (my assistant Novi starts it).`,
+          about ? `About: ${about}` : '',
+          brief ? `The latest plan:\n${brief.slice(0, 3000)}` : '',
+        ].filter(Boolean).join('\n\n');
+      }
+
+      // Linked claude.ai projects whose instructions never got added (live 2026-10-28: Portfolio, Tip
+      // calculator, NOVI were empty). Each is opened once; empty instructions are filled in, the user's own
+      // are left alone. Only projects with a folder (the instructions name it); a miss is tried next sync.
+      async function healInstructions() {
+        if (!connected() || !getWeb().instruct) return;
+        state.instructed ||= {};
+        for (const [k, link] of Object.entries(state.linked || {})) {
+          if (!link?.url || state.instructed[k] || pending.has(k)) continue;
+          const at = rt.codingProject?.(k);
+          if (!at?.path) continue;
+          const display = displayOf(at, k);
+          const out = await getWeb().instruct({ url: link.url, instructions: instructionsFor(k, display, state.about[k] || '') });
+          if (out?.done || out?.already) {
+            state.instructed[k] = { at: now().toISOString(), how: out.done ? 'filled' : 'already' };
+            save();
+            if (out.done) log(`[claude-link] added the instructions of ${display} on claude.ai`);
+          } else log(`[claude-link] instructions of ${display} not added yet: ${out?.error || 'the instructions button or box did not show'}`);
+        }
+      }
+      if (api.runtime) api.runtime.claudeHealInstructions = healInstructions;
+
       async function make({ project, description, display, quiet = false }) {
         const k = key(project);
         pending.add(k);
@@ -256,15 +291,8 @@ export function createClaudeLinkPlugin({ driver = null, listCode = () => listCla
             rt.say?.(`${display} is already on claude.ai.`, { kind: null });
             return;
           }
-          const at = rt.codingProject?.(project);
           const about = description || state.about[k] || '';
-          const brief = rt.wikiRead?.(`${k} brief`);
-          const instructions = [
-            `This is the ${display} project. Its code is in ${at?.path || 'my projects folder'} on my laptop, and Claude Code works on it there (my assistant Novi starts it).`,
-            about ? `About: ${about}` : '',
-            brief ? `The latest plan:\n${brief.slice(0, 3000)}` : '',
-          ].filter(Boolean).join('\n\n');
-          const out = await getWeb().make({ name: display, description: about || `The ${display} project`, instructions });
+          const out = await getWeb().make({ name: display, description: about || `The ${display} project`, instructions: instructionsFor(project, display, about) });
           if (out.error) {
             remember({ project, description, display });
             log(`[claude-link] making ${display} on claude.ai failed: ${out.error}`);
@@ -273,12 +301,13 @@ export function createClaudeLinkPlugin({ driver = null, listCode = () => listCla
           }
           if (state.toMake?.[k]) delete state.toMake[k];
           state.linked[k] = { url: out.url, at: now().toISOString() };
+          if (!out.instructionsMissed) (state.instructed ||= {})[k] = { at: now().toISOString(), how: 'made' };
           state.web = [...state.web, display];
           state.webProjects = [...(state.webProjects || []), { name: display, url: out.url }];
           (state.noted ||= {})[key(display)] = true;
           save();
           rt.wikiWrite?.({ title: `${display} project`, text: `On claude.ai: ${out.url} (made ${now().toLocaleDateString('en-CA')})` });
-          rt.say?.(`Made the ${display} project on claude.ai${out.instructionsMissed ? ", but I couldn't add its instructions — add them on the project page" : ''}.`, { kind: null });
+          rt.say?.(`Made the ${display} project on claude.ai${out.instructionsMissed ? ", but I couldn't add its instructions yet — I'll try again" : ''}.`, { kind: null });
         } finally { pending.delete(k); }
       }
 

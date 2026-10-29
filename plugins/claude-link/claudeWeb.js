@@ -109,10 +109,35 @@ export function createClaudeWeb({ request, site = CLAUDE, sleep = (ms) => new Pr
     }
     if (!url) return { error: `The new project page didn't open on claude.ai, so I'm not sure ${name} was made. Check claude.ai/projects in Chrome.` };
     if (!instructions) return { url };
-    const box = (await clickText(site.instructionsButton, site.instructionsTexts)) && (await waitFor(site.instructionsBox, 8_000));
-    if (!box) return { url, instructionsMissed: true };
+    const out = await fill(instructions);
+    return out.done ? { url } : { url, instructionsMissed: true };
+  }
+
+  // The project page's Instructions: a button labelled "Edit instructions" with no text of its own (live
+  // 2026-10-28; the plain "Add" next to it is Context's file uploader, so it is never clicked by text). It
+  // opens "Set project instructions". Only an empty box is filled: the user's own instructions stay.
+  async function fill(instructions) {
+    if (!(await waitFor(site.instructionsButton, 15_000))) return { instructionsMissed: true };
+    let opened = false;
+    try { opened = !(await request('clickSel', { selector: site.instructionsButton, tabId }))?.error; } catch { /* by its text */ }
+    if (!opened) opened = await clickText(site.instructionsTextButton, site.instructionsTexts);
+    if (!opened || !(await waitFor(site.instructionsBox, 8_000))) return { instructionsMissed: true };
+    if (!(await request('has', { selector: site.emptyInstructionsBox, tabId }))?.found) {
+      await clickText(site.saveButton, site.cancelTexts);
+      return { already: true };
+    }
     await step('typing the instructions', 'typeSel', { selector: site.instructionsBox, text: instructions, tabId });
-    return (await clickText(site.saveButton, site.saveTexts)) ? { url } : { url, instructionsMissed: true };
+    return (await clickText(site.saveButton, site.saveTexts)) ? { done: true } : { instructionsMissed: true };
+  }
+
+  // An existing project whose instructions were never added (Portfolio, Tip calculator, NOVI: the click
+  // never happened before 2026-10-28) gets them now.
+  async function instruct({ url, instructions }) {
+    await open(url);
+    const shown = await ready(site.page);
+    if (shown === 'login') return notReady();
+    if (!shown) return { error: `claude.ai didn't show the project page (the tab is on ${await whereIs()}).` };
+    return fill(instructions);
   }
 
   // claude.ai/settings/usage: on desktop a Settings pop-up over a new chat (live 2026-10-29) — its text,
@@ -130,5 +155,5 @@ export function createClaudeWeb({ request, site = CLAUDE, sleep = (ms) => new Pr
   }
 
   const guard = (fn) => async (...args) => { try { return await fn(...args); } catch (err) { return { error: String(err?.message || err) }; } };
-  return { list: guard(list), make: guard(make), info: guard(info), usage: guard(usage) };
+  return { list: guard(list), make: guard(make), info: guard(info), usage: guard(usage), instruct: guard(instruct) };
 }

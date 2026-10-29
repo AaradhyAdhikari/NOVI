@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { PluginHost } from '../../server/plugins/host.js';
 import { listClaudeCodeProjects } from '../../plugins/claude-link/codeProjects.js';
-import { createClaudeWeb } from '../../plugins/claude-link/claudeWeb.js';
+import { createClaudeWeb, CLAUDE } from '../../plugins/claude-link/claudeWeb.js';
 import { createClaudeLinkPlugin } from '../../plugins/claude-link/index.js';
 import { claudeLinkCommand } from '../../server/brain/claudeLinkCommand.js';
 
@@ -55,16 +55,34 @@ describe('Claude Code projects on the laptop', () => {
 });
 
 // A fake Chrome: claude.ai pages as the extension would answer them.
-function fakeChrome({ cards = ['Novi\nVoice assistant', 'Old notes'], later = [], loggedIn = true, makeUrl = 'https://claude.ai/project/0193-abc', oldExtension = false } = {}) {
+// The project page (checked live 2026-10-28): the Instructions row is a button labelled "Edit instructions"
+// with no text; the plain "Add" buttons next to it belong to Context and Scheduled. It opens the
+// "Set project instructions" dialog (textarea + Cancel / Save instructions).
+function fakeChrome({ cards = ['Novi\nVoice assistant', 'Old notes'], later = [], loggedIn = true, makeUrl = 'https://claude.ai/project/0193-abc', oldExtension = false, instructions = '', noButton = false } = {}) {
   let shown = cards;
   const calls = [];
   let url = 'about:blank';
+  let dialog = false;
+  let typed = null;
+  const page = { instructions };
   const request = async (cmd, args = {}) => {
     calls.push([cmd, args]);
     if (cmd === 'open') { url = args.url; return { tabId: 7 }; }
     if (cmd === 'tabs') return { tabs: [{ id: 7, url }] };
-    if (cmd === 'waitFor') return { found: loggedIn };
-    if (cmd === 'has') return { found: !loggedIn && /login|Log in/.test(args.selector) };
+    if (cmd === 'waitFor') {
+      if (args.selector === CLAUDE.instructionsBox) return { found: dialog };
+      if (args.selector === CLAUDE.instructionsButton) return { found: loggedIn && !noButton };
+      return { found: loggedIn };
+    }
+    if (cmd === 'has') {
+      if (args.selector === CLAUDE.emptyInstructionsBox) return { found: dialog && !page.instructions };
+      return { found: !loggedIn && /login|Log in/.test(args.selector) };
+    }
+    if (cmd === 'typeSel' && args.selector === CLAUDE.instructionsBox) { typed = args.text; return {}; }
+    if (cmd === 'clickSel' && args.selector === CLAUDE.instructionsButton && !args.text && !noButton) { dialog = true; return {}; }
+    if (cmd === 'clickSel' && dialog && args.text === 'Save instructions') { page.instructions = typed; dialog = false; return {}; }
+    if (cmd === 'clickSel' && dialog && args.text === 'Cancel') { dialog = false; return {}; }
+    if (cmd === 'clickSel' && args.text) return { error: 'I could not find that on the page.' };
     if (cmd === 'query') {
       if (oldExtension) return { texts: shown.map((c) => c.replace(/\n/g, ' ')) };
       const out = { texts: shown.map((c) => c.split('\n')[0]), values: shown.map((_c, i) => `https://claude.ai/project/p${i + 1}`) };
@@ -162,6 +180,7 @@ function setup({ known = [], web = {}, connected = true, codeProjects = [], data
   const remembered = [...known];
   const notes = [];
   const made = [];
+  const instructed = [];
   const jobs = [];
   const opened = [];
   const runtime = {
@@ -182,12 +201,14 @@ function setup({ known = [], web = {}, connected = true, codeProjects = [], data
     info: async () => web.info || { chats: [] },
     list: async () => web.list || { names: [] },
     make: async (a) => { made.push(a); return web.make || { url: 'https://claude.ai/project/1' }; },
+    instruct: async (a) => { instructed.push(a); return typeof web.instruct === 'function' ? web.instruct(a) : (web.instruct || { done: true }); },
   };
   const host = new PluginHost({ runtime, logger: { warn() {}, info() {} } });
   expect(host.register(createClaudeLinkPlugin({ driver, listCode: () => codeProjects, track: (p) => jobs.push(p), now: () => new Date(2026, 9, 18) }))).toBe(true);
   const run = (name, args = {}) => host.get(name).run(args);
   const retryMakes = () => runtime.claudeRetryMakes();
-  return { host, run, remembered, notes, made, jobs, dataDir, opened, runtime, recased, retryMakes };
+  const heal = () => runtime.claudeHealInstructions();
+  return { host, run, remembered, notes, made, instructed, jobs, dataDir, opened, runtime, recased, retryMakes, heal };
 }
 
 describe('claude-link plugin', () => {
@@ -259,6 +280,43 @@ describe('claude-link plugin', () => {
     expect(s.notes.at(-1)).toEqual({ title: 'Portfolio project', text: 'On claude.ai: https://claude.ai/project/1 (made 2026-10-18)' });
     const again = await s.run('claude_project_make', { project: 'portfolio' });
     expect(again.note).toBe('Portfolio is already on claude.ai: https://claude.ai/project/1');
+  });
+
+  // Live 2026-10-28: Portfolio, Tip calculator and NOVI had empty instructions (the click never happened).
+  it('heal: every linked project with a folder gets its instructions once; claude.ai-only ones are left alone', async () => {
+    const dataDir = tmp();
+    fs.writeFileSync(path.join(dataDir, 'claude-link.json'), JSON.stringify({ linked: {
+      portfolio: { url: 'https://claude.ai/project/pf' }, novi: { url: 'https://claude.ai/project/nv' }, flexr: { url: 'https://claude.ai/project/fx' },
+    } }));
+    const s = setup({ known: [{ name: 'portfolio', path: '/p/Portfolio' }, { name: 'novi', path: '/p/NOVI' }], dataDir, web: { instruct: ({ url }) => (url.endsWith('nv') ? { already: true } : { done: true }) } });
+    await s.heal();
+    expect(s.instructed.map((a) => a.url)).toEqual(['https://claude.ai/project/pf', 'https://claude.ai/project/nv']);
+    expect(s.instructed[0].instructions).toMatch(/This is the Portfolio project\. Its code is in \/p\/Portfolio/);
+    await s.heal();
+    expect(s.instructed).toHaveLength(2); // checked once each, done or already set
+  });
+
+  it('heal: a miss is tried again next time; Chrome off → nothing', async () => {
+    const dataDir = tmp();
+    fs.writeFileSync(path.join(dataDir, 'claude-link.json'), JSON.stringify({ linked: { portfolio: { url: 'https://claude.ai/project/pf' } } }));
+    const s = setup({ known: [{ name: 'portfolio', path: '/p/Portfolio' }], dataDir, web: { instruct: { instructionsMissed: true } } });
+    await s.heal();
+    await s.heal();
+    expect(s.instructed).toHaveLength(2);
+    const off = setup({ known: [{ name: 'portfolio', path: '/p/Portfolio' }], dataDir, connected: false });
+    await off.heal();
+    expect(off.instructed).toEqual([]);
+  });
+
+  it('make: instructions missed → said, and the next heal fills them in', async () => {
+    const s = setup({ known: [{ name: 'portfolio', path: '/p/Portfolio' }], web: { make: { url: 'https://claude.ai/project/1', instructionsMissed: true } } });
+    const said = [];
+    s.runtime.say = (t) => said.push(t);
+    await s.run('claude_project_make', { project: 'portfolio' });
+    await s.jobs.at(-1);
+    expect(said.at(-1)).toMatch(/couldn't add its instructions yet — I'll try again/);
+    await s.heal();
+    expect(s.instructed.map((a) => a.url)).toEqual(['https://claude.ai/project/1']);
   });
 
   it('make: already on claude.ai under that name → not made twice', async () => {

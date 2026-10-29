@@ -20,6 +20,11 @@ Last updated: 2026-10-22.
 - Novi's ChatGPT / Gemini / claude.ai work stays in one minimized Chrome window (no tab pile-up).
 - No more freezes; "open my github profile" is instant; "where is my resume" ≈ 3.5 s.
 
+## claude.ai project instructions (2026-10-29, built, not tried live yet)
+Before, Novi never clicked the right button: the plain "Add" next to Instructions is the Context file uploader. Now it clicks the real Instructions button, and only fills the box if it's empty (your own text is never changed).
+- [ ] Build something new ("let's build a tiny unit converter app" → "yes"), then open that project on claude.ai: Instructions should name the folder (`C:\dev\…`) and the brief.
+- [ ] Linked projects with a folder and empty instructions get filled in on their own about 30 s after Novi starts (Chrome connected), once each. Portfolio and Tip calculator already had instructions when Claude checked on 2026-10-28, so they're left alone. To see it work, clear one project's instructions on claude.ai, delete its line under `instructed` in `data/claude-link.json`, and restart Novi.
+
 ## Changes, tests and "what is Claude working on" (2026-10-29)
 - [x] "What is Claude working on?" now sees any Claude Code session on the laptop (the Claude app too): live → "Claude Code is working on novi. Right now it is running a command: …". It was "isn't working on any task".
 - [x] "What changed in Novi" → the changed files with +/− lines (live, 12 files).
