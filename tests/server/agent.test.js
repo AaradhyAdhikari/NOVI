@@ -1868,3 +1868,47 @@ describe('Screen Mode by voice (plugins/screen, 2026-10-29)', () => {
     expect(ai.length).toBe(2);
   });
 });
+
+describe('"type: …" finds the box by itself (screen_type_into, 2026-10-29)', () => {
+  it('uses screen_type_into (an app named = brought forward first)', async () => {
+    const ran = [];
+    const tool = (name) => ({ name, description: name, parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => name, run: async (a) => { ran.push([name, a]); return { note: name === 'screen_type_into' ? 'Sent.' : 'Typed into Notepad.' }; } });
+    const tools = new ToolRegistry().add(tool('screen_type_into')).add(tool('dictate_type'));
+    const agent = new Agent({ router: { chat: async () => ({ message: { role: 'assistant', content: 'AI' }, provider: 'groq', model: 'm' }) }, tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
+    expect(await agent.handle('type: see you at 5 and send')).toBe('Sent.');
+    expect(ran.at(-1)).toEqual(['screen_type_into', { text: 'see you at 5', enter: true }]);
+    await agent.handle('type hello in notepad');
+    expect(ran.at(-1)).toEqual(['screen_type_into', { text: 'hello', app: 'notepad' }]);
+  });
+});
+
+describe('phone typing (plugins/phone-control, 2026-10-29)', () => {
+  const mk = () => {
+    const ran = [];
+    const tool = (name, run) => ({ name, description: name, parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => name, run: async (a) => { ran.push([name, a]); return run(a); } });
+    const tools = new ToolRegistry()
+      .add(tool('phone_action', (a) => (/^(type|send)/.test(a.said) && (a.inApp || /phone/.test(a.said)) ? { note: 'Typed it on the phone.' } : { unknown: true })))
+      .add(tool('screen_type_into', () => ({ note: 'Typed it.' })));
+    const agent = new Agent({ router: { chat: async () => ({ message: { role: 'assistant', content: 'AI' }, provider: 'groq', model: 'm' }) }, tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
+    return { agent, ran };
+  };
+
+  it('from inside a phone app, "type hi and send" goes to the phone', async () => {
+    const { agent, ran } = mk();
+    expect(await agent.handle('type hi and send', { from: { deviceId: 'p1' }, phoneApp: 'com.whatsapp' })).toBe('Typed it on the phone.');
+    expect(ran.at(-1)).toEqual(['phone_action', { said: 'type hi and send', inApp: true }]);
+  });
+
+  it('from the Novi app itself or the laptop, plain "type hi" stays on the laptop; "on my phone" goes to the phone', async () => {
+    const { agent, ran } = mk();
+    expect(await agent.handle('type: hi', { from: { deviceId: 'p1' }, phoneApp: 'app.novi.phone' })).toBe('Typed it.');
+    expect(ran.at(-1)[0]).toBe('screen_type_into');
+    expect(await agent.handle('type hi on my phone')).toBe('Typed it on the phone.');
+    expect(ran.at(-1)).toEqual(['phone_action', { said: 'type hi on my phone', inApp: false }]);
+  });
+
+  it('other words from inside a phone app go on as usual', async () => {
+    const { agent } = mk();
+    expect(await agent.handle('what is the weather', { from: { deviceId: 'p1' }, phoneApp: 'com.whatsapp' })).toBe('AI');
+  });
+});

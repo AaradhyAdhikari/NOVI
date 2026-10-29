@@ -66,6 +66,21 @@
                 android:value="Keeps the connection to the user's own Novi assistant on their laptop so its approval cards appear at once." />
         </service>
 
+        <!-- Phone typing: types, sends and taps in the app in front when the user asks Novi. Switched on
+             by the user in Android Settings → Accessibility. -->
+        <service
+            android:name=".NoviAccess"
+            android:exported="false"
+            android:label="Novi typing"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/novi_access" />
+        </service>
+
         <receiver
             android:name=".BootReceiver"
             android:exported="true">

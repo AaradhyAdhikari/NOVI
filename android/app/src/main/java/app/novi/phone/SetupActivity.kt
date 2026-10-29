@@ -146,6 +146,10 @@ class SetupActivity : ComponentActivity() {
         permission("Microphone (answer by voice)", granted(Manifest.permission.RECORD_AUDIO)) {
             requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 3)
         }
+        // Phone typing (2026-10-29): Android lets only the user switch an Accessibility service on.
+        permission("Phone typing: Settings → Accessibility → Novi", NoviAccess.instance != null) {
+            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        }
         permission("Keep running (no battery limit)", pm.isIgnoringBatteryOptimizations(packageName)) {
             @SuppressLint("BatteryLife")
             val i = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName"))

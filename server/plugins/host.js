@@ -33,6 +33,7 @@ export class PluginHost {
     const staged = [];
     const hooks = [];
     const services = [];
+    const routes = [];
     try {
       entry = definePluginEntry(rawEntry);
       const api = {
@@ -43,6 +44,8 @@ export class PluginHost {
         registerTool: (tool) => { staged.push(tool); },
         // Background work (e.g. a scheduler), started after all plugins load. Mirrors OpenClaw plugin services.
         registerService: (service) => { services.push(service); },
+        // A local-only HTTP endpoint at /api/plugin/<path> (OpenClaw's registerHttpRoute): handler(body) → JSON.
+        registerHttpRoute: ({ path: routePath, handler }) => { routes.push({ path: String(routePath), handler }); },
         on: (event, handler, opts = {}) => {
           if (!SUPPORTED_HOOKS.has(event)) throw new Error(`unsupported hook "${event}"`);
           hooks.push({ event, handler, allTools: Boolean(opts.allTools) });
@@ -65,7 +68,7 @@ export class PluginHost {
       this._warn(`Plugin "${rawEntry?.id || '?'}" skipped: ${err.message}`);
       return false;
     }
-    this.plugins.push({ id: entry.id, name: entry.name, description: entry.description, hooks, services, tools: staged.map((t) => t.name) });
+    this.plugins.push({ id: entry.id, name: entry.name, description: entry.description, hooks, services, routes, tools: staged.map((t) => t.name) });
     for (const tool of staged) this.tools.set(tool.name, { ...tool, pluginId: entry.id });
     return true;
   }
@@ -115,6 +118,12 @@ export class PluginHost {
       type: 'function',
       function: { name, description, parameters: parameters || { type: 'object', properties: {} } },
     }));
+  }
+
+  // The handler a plugin registered for /api/plugin/<path>, or undefined.
+  route(routePath) {
+    for (const p of this.plugins) for (const r of p.routes || []) if (r.path === routePath) return r.handler;
+    return undefined;
   }
 
   get(name) {

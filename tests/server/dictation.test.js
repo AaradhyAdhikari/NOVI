@@ -30,3 +30,12 @@ describe('dictation', () => {
     for (const t of ['type a message to Isha saying hi', 'what type of fruit is this', 'note mein ye likho', 'type', 'typing speed test']) expect(dictationCommand(t), t).toBeNull();
   });
 });
+
+describe('dictation: "… and send" (user, 2026-10-29)', () => {
+  it('"type: X and send" / "X likho aur bhej do" ask for Enter after typing', () => {
+    expect(dictationCommand('type: see you at 5 and send')).toEqual({ text: 'see you at 5', enter: true });
+    expect(dictationCommand('type hello there aur bhej do')).toEqual({ text: 'hello there', enter: true });
+    expect(dictationCommand('type: see you at 5')).toEqual({ text: 'see you at 5' });
+    expect(dictationCommand('type hi in whatsapp and send')).toEqual({ text: 'hi', app: 'whatsapp', enter: true });
+  });
+});

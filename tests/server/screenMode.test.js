@@ -143,7 +143,7 @@ describe('screen mode: doing it', () => {
   it('"type this in the search box: Novi AI" clicks the box first', async () => {
     const s = await on(setup());
     await s.say('type this in the search box: Novi AI');
-    expect(s.actions).toEqual([['click', 400, 120], ['type', 'Novi AI']]);
+    expect(s.actions).toEqual([['click', 400, 120], ['key', 'ctrl+a'], ['type', 'Novi AI'], ['key', 'enter']]); // a search box: old search replaced, Enter by itself (2026-10-29)
   });
 
   it('"press enter" sends the key; keys it does not know are refused', async () => {
@@ -372,5 +372,89 @@ describe('screen mode: the right window (live 2026-10-29: "switch to Chrome" pic
     host.register(createScreenPlugin({ driver: { front: async () => ({ hwnd: 3, title: 'Amazon.in Shopping Cart - Google Chrome' }), focus: async () => true, key: async (k) => acts.push(k) } }));
     await host.get('screen_command').run({ text: 'start screen control' });
     expect((await host.get('screen_command').run({ text: 'switch to chrome' })).note).toBe('Chrome is in front: Amazon.in Shopping Cart.');
+  });
+});
+
+describe('typing on her own (user, 2026-10-29: "she should do all that on her own")', () => {
+  const WA = { title: 'WhatsApp', items: [{ type: 'Edit', name: 'Search or start a new chat', x: 200, y: 100 }, { type: 'Edit', name: 'Type a message', x: 800, y: 1000 }, { type: 'Button', name: 'Send', x: 1200, y: 1000 }] };
+  const mk = ({ screen = GOOGLE, focused = { type: 'Document', name: 'Page', editable: false } } = {}) => {
+    const s = setup({ screen });
+    const host = new PluginHost({ runtime: { callTool: async () => ({ note: 'ok' }), dataDir: s.dir }, env: {}, logger: { warn() {} } });
+    const acts = [];
+    host.register(createScreenPlugin({ focusPauseMs: 1, driver: { items: async () => screen, window: async () => screen.title, focus: async () => true, focused: async () => focused, click: async (x, y) => acts.push(['click', x, y]), type: async (t) => acts.push(['type', t]), key: async (k) => acts.push(['key', k]) } }));
+    return { acts, say: (text) => host.get('screen_command').run({ text }), tool: (name, p) => host.get(name).run(p), gate: (name, p, direct = true) => host.get(name).gate(p, { direct }) };
+  };
+
+  it('reads "… and send" / "… aur bhej do" as type + Enter', () => {
+    expect(parseScreenCommand('type hello and send')).toEqual({ do: 'type', text: 'hello', enter: true });
+    expect(parseScreenCommand('type hello aur bhej do')).toEqual({ do: 'type', text: 'hello', enter: true });
+    expect(parseScreenCommand('send it')).toEqual({ do: 'key', key: 'enter', times: 1, say: 'Sent.' });
+  });
+
+  it('no text box has the cursor: she picks the page\'s search box, types, and searches', async () => {
+    const s = mk();
+    await s.say('start screen control');
+    expect((await s.say('type Novi AI')).note).toBe('Searched for “Novi AI”.');
+    expect(s.acts).toEqual([['click', 400, 120], ['key', 'ctrl+a'], ['type', 'Novi AI'], ['key', 'enter']]);
+  });
+
+  it('in a chat she types into the message box and presses Enter only when told to send', async () => {
+    const s = mk({ screen: WA });
+    await s.say('start screen control');
+    expect((await s.say('type hi there')).note).toBe('Typed it.');
+    expect(s.acts).toEqual([['click', 800, 1000], ['type', 'hi there']]);
+    expect(await s.gate('screen_command', { text: 'type see you and send' })).toEqual({}); // the user's words are the yes
+    expect((await s.say('type see you and send')).note).toBe('Sent.');
+    expect(s.acts.at(-1)).toEqual(['key', 'enter']);
+  });
+
+  it('the cursor is already in a box: types there, no click', async () => {
+    const s = mk({ screen: WA, focused: { type: 'Edit', name: 'Type a message', editable: true } });
+    await s.say('start screen control');
+    await s.say('type hello');
+    expect(s.acts).toEqual([['type', 'hello']]);
+  });
+
+  it('a password box with the cursor: refused', async () => {
+    const s = mk({ focused: { type: 'Edit', name: 'Field', editable: true, password: true } });
+    await s.say('start screen control');
+    expect((await s.say('type hello')).note).toBe('This looks sensitive. Please do this part yourself.');
+    expect(s.acts).toEqual([]);
+  });
+
+  it('no text box anywhere: says so', async () => {
+    const s = mk({ screen: { title: 'Calculator', items: [{ type: 'Button', name: 'Seven', x: 1, y: 1 }] } });
+    await s.say('start screen control');
+    expect((await s.say('type hello')).note).toMatch(/I don't see a text box in Calculator/);
+    expect(s.acts).toEqual([]);
+  });
+
+  it('screen_type_into works without Screen Mode (for "type: …"), no card when the user said it', async () => {
+    const s = mk({ screen: WA });
+    expect(await s.gate('screen_type_into', { text: 'hello' })).toEqual({});
+    expect((await s.gate('screen_type_into', { text: 'hello' }, false)).approval).toMatchObject({ category: 'screen' });
+    expect((await s.tool('screen_type_into', { text: 'hello', enter: true })).note).toBe('Sent.');
+  });
+});
+
+describe('screen_type_into with an app named', () => {
+  it('"type hi in whatsapp and send": WhatsApp in front first, then its message box', async () => {
+    const s = setup({ screen: { title: 'WhatsApp', items: [{ type: 'Edit', name: 'Type a message', x: 800, y: 1000 }] } });
+    const out = await s.host.get('screen_type_into').run({ text: 'hi', app: 'whatsapp', enter: true });
+    expect(s.calls[0]).toEqual(['laptop_window', { app: 'whatsapp', do: 'focus' }]);
+    expect(out.note).toBe('Sent.'); // a chat app + "and send"
+    const none = setup({ windows: [] });
+    expect((await none.host.get('screen_type_into').run({ text: 'hi', app: 'telegram' })).note).toBe("Telegram isn't open.");
+  });
+});
+
+describe('the cursor arrives a moment after the window (live: Notepad)', () => {
+  it('checks the cursor once more before picking a box itself', async () => {
+    let n = 0;
+    const acts = [];
+    const host = new PluginHost({ runtime: { callTool: async () => ({ note: 'ok' }) }, env: {}, logger: { warn() {} } });
+    host.register(createScreenPlugin({ focusPauseMs: 1, driver: { items: async () => ({ title: 'Untitled - Notepad', items: [] }), window: async () => 'Untitled - Notepad', focus: async () => true, focused: async () => ({ type: 'Document', name: 'Text editor', editable: n++ > 0 }), type: async (t) => acts.push(['type', t]), key: async (k) => acts.push(['key', k]) } }));
+    expect((await host.get('screen_type_into').run({ text: 'third line' })).note).toBe('Typed it.');
+    expect(acts).toEqual([['type', 'third line']]);
   });
 });

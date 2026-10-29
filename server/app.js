@@ -34,6 +34,7 @@ import { answerHint, spokenApproval } from './brain/answers.js';
 import { parseApproval } from './brain/approvalIntent.js';
 import { spokenQuestion } from './claude/questions.js';
 import { cardAlert } from './cardAlerts.js';
+import { createPhoneActions } from './phoneActions.js';
 import { createGroqWhisperStt } from './voice/providers/groqWhisper.js';
 import { createGeminiStt } from './voice/providers/geminiStt.js';
 import { createSarvamStt } from './voice/providers/sarvamStt.js';
@@ -174,6 +175,14 @@ export function createNovi(config, overrides = {}) {
         if (key === 'local') return 'localhost';
         const ws = [...clients].find((c) => viewerKey(c) === key && c.host);
         return ws ? ws.host.replace(/:\d+$/, '') : tsName || 'localhost';
+      },
+      // One step inside an app on the user's phone (plugins/phone-control → the Novi app's Accessibility
+      // service): the phone that asked, else the phone used last.
+      phoneAction: (action) => {
+        const phone = active && active !== 'local' && active.deviceId ? active.deviceId
+          : [...clients].filter((c) => c.deviceId).sort((a, b) => (b.usedAt || 0) - (a.usedAt || 0))[0]?.deviceId;
+        if (!phone) return Promise.resolve({ ok: false, note: "Your phone isn't connected to Novi. Open the Novi app on it." });
+        return phoneActions.request(phone, action);
       },
       // The coding project a request is about: the one named, else the running or last task's project.
       // working: the coder is busy on that project right now (a picture may be out of date soon).
@@ -391,6 +400,14 @@ export function createNovi(config, overrides = {}) {
   const originAllowed = (req) => !req.headers.origin || allowedOrigins.has(req.headers.origin);
 
   const clients = new Set();
+  // Steps for a phone's Accessibility service and their answers (server/phoneActions.js).
+  const phoneActions = createPhoneActions({
+    send: (deviceId, msg) => {
+      let reached = 0;
+      for (const ws of clients) if (ws.deviceId === deviceId) { send(ws, msg); reached += 1; }
+      return reached;
+    },
+  });
   // Phone notifications + spoken lines a phone missed while Novi wasn't open on it.
   const push = overrides.push || createPush({ dir: path.join(config.dataDir, 'push') });
   const missed = createMissedQueue();
@@ -647,6 +664,14 @@ export function createNovi(config, overrides = {}) {
     if (!device) return res.status(401).json({ error: 'Not paired' });
     req.from = { deviceId: device.id };
     next();
+  });
+  // Plugin endpoints (registerHttpRoute), laptop only — e.g. Claude Code's hooks → claude-link. A hook may
+  // wait here up to ~2 min for the user's answer on a card.
+  app.post('/api/plugin/:path', async (req, res) => {
+    if (!isLocal(req)) return res.status(403).json({ error: 'Laptop only.' });
+    const handler = plugins.route?.(req.params.path);
+    if (!handler) return res.status(404).json({ error: 'No such plugin endpoint.' });
+    try { res.json((await handler(req.body || {}, { headers: req.headers })) || {}); } catch (err) { res.status(500).json({ error: err.message }); }
   });
   app.get('/api/pairing-code', (req, res) => {
     if (!isLocal(req)) return res.status(403).json({ error: 'The pairing code is only shown on the laptop.' });
@@ -1063,7 +1088,9 @@ export function createNovi(config, overrides = {}) {
       sendTo(from, { type: 'thinking', on: true });
       try {
         const t0 = Date.now();
-        const reply = await agent.handle(text, { from });
+        // phoneApp: the app open on the phone when the Novi app's mic bubble heard it (phone typing).
+        const phoneApp = from !== 'local' && typeof msg.phoneApp === 'string' ? msg.phoneApp.slice(0, 120) : null;
+        const reply = await agent.handle(text, { from, ...(phoneApp ? { phoneApp } : {}) });
         console.log(`[timing] reply ${Date.now() - t0} ms`);
         // An empty reply = a tool already showed the answer (and the AI had nothing to add).
         if (reply) {
@@ -1080,6 +1107,8 @@ export function createNovi(config, overrides = {}) {
       }
     } else if (msg.type === 'approval') {
       approvals.resolve(msg.id, Boolean(msg.allow), 'screen', typeof msg.choice === 'string' ? msg.choice : null, { always: msg.always === true, from, proof: await approvalProof(msg, from), ...(typeof msg.answer === 'string' ? { answer: msg.answer.slice(0, 500) } : {}) });
+    } else if (msg.type === 'phone_action_result' && typeof msg.id === 'string') {
+      phoneActions.settle(msg);
     } else if (msg.type === 'card_voice' && typeof msg.id === 'string' && typeof msg.text === 'string') {
       return cardVoice(msg.id, msg.text, from);
     } else if (msg.type === 'code_save' && typeof msg.id === 'string' && typeof msg.text === 'string') {

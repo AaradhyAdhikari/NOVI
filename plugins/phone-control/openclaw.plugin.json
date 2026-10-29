@@ -1,0 +1,9 @@
+{
+  "id": "phone-control",
+  "name": "Phone control",
+  "description": "Types and taps inside apps on the user's phone through the Novi app's Accessibility service (never passwords, payments or bank apps).",
+  "categories": ["other"],
+  "contracts": { "tools": ["phone_action"] },
+  "activation": { "onStartup": true },
+  "configSchema": { "type": "object", "additionalProperties": false }
+}

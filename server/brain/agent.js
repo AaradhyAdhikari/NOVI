@@ -353,7 +353,7 @@ export class Agent {
     }
   }
 
-  async _handle(text, { from = 'local' } = {}) {
+  async _handle(text, { from = 'local', phoneApp = null } = {}) {
     this._from = from; // who asked, for plugin approvals (phone warnings)
     this._turnYes = new Set(); // kinds of step the user said yes to in this request
     // "Novi, quiet" / "quiet for 30 minutes" / "talk again".
@@ -380,6 +380,10 @@ export class Agent {
     if (answered != null) return this._remember(text, answered);
     // Screen Mode (plugins/screen, 2026-10-29): after "start screen control" every line is tried as a
     // screen command first ("click 3", "press enter", "minimize this"); anything else goes on as usual.
+    // Phone typing (plugins/phone-control, 2026-10-29): spoken from inside another phone app (the Novi
+    // app's mic bubble), or "… on my phone" — before Screen Mode, so it never lands on the laptop.
+    const phone = await this._phoneCommand(text, from, phoneApp);
+    if (phone != null) return this._remember(text, phone);
     const screen = await this._screenCommand(text);
     if (screen != null) return this._remember(text, screen);
     const also = alsoCommand(text);
@@ -437,10 +441,13 @@ export class Agent {
     if (control != null) return this._remember(text, control); // '' = a picture already said it all
     const browse = await this._browserCommand(text);
     if (browse) return this._remember(text, browse);
-    // "Type: …" / "likho …": those exact words into the app in front (plugins/dictation), no AI.
-    const dictate = this.tools.get('dictate_type') ? dictationCommand(text) : null;
+    // "Type: …" / "likho …": those exact words into the app in front, no AI. screen_type_into finds the
+    // box by itself and presses Enter in search boxes or on "… and send" (2026-10-29); dictate_type
+    // (clipboard paste, never Enter) when the screen plugin isn't there.
+    const typer = this.tools.get('screen_type_into') ? 'screen_type_into' : this.tools.get('dictate_type') ? 'dictate_type' : null;
+    const dictate = typer ? dictationCommand(text) : null;
     if (dictate) {
-      const { output } = await this._runTool({ id: `type-${Date.now()}`, function: { name: 'dictate_type', arguments: JSON.stringify(dictate) } }, { direct: true });
+      const { output } = await this._runTool({ id: `type-${Date.now()}`, function: { name: typer, arguments: JSON.stringify(dictate) } }, { direct: true });
       return this._remember(text, output?.error || output?.note || 'Typed.');
     }
     // "Put portfolio on Claude" / "sync my Claude projects" (plugins/claude-link), no AI.
@@ -1067,6 +1074,16 @@ export class Agent {
   }
 
   screenModeOn() { return Boolean(this._screenMode && this.tools.get('screen_command')); }
+
+  // One step inside the phone app the user is in. The plugin reads the words; null = not a phone step.
+  async _phoneCommand(text, from, phoneApp) {
+    if (!this.tools.get('phone_action')) return null;
+    const inApp = Boolean(from && from !== 'local' && phoneApp && !/^app\.novi\./.test(phoneApp));
+    if (!inApp && !/\bphone\b/i.test(text)) return null;
+    const { output } = await this._runTool({ id: `phone-${Date.now()}`, function: { name: 'phone_action', arguments: JSON.stringify({ said: text, inApp }) } }, { direct: true });
+    if (output?.unknown) return null;
+    return output?.error || output?.note || 'Done.';
+  }
 
   // One Screen Mode step. The plugin hands back steps other tools do ("open Notion" → open_app,
   // "search for X" → open_website) as { run, say }; "… and open the second result" comes back as `after`.

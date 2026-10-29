@@ -38,7 +38,8 @@ const RULES = [
   [re("what(?:'s| is) on (?:the |my )?(?:laptop )?screen|what do you see|describe (?:the |my )?screen|what(?:'s| is) (?:open|in front)"), () => ({ do: 'look' })],
   [re('(?:list|read|show)(?: me)?(?: out)? (?:the |all (?:the )?)?(?:screen|buttons|links|items|options|things|everything|boxes|fields)(?: on (?:the |my )?screen)?|what can i (?:click|press|tap)(?: on)?'), () => ({ do: 'list' })],
   [re('show me (?:my |the )?(?:laptop )?screen|(?:take a )?screenshot'), () => ({ do: 'show' })],
-  [re('(?:open |make )?(?:a )?new tab'), () => ({ do: 'key', key: 'ctrl+t', times: 1, say: 'New tab.' })],
+  [re('send(?: it| this| that| the message)?|bhej do|bhejo'), () => ({ do: 'key', key: 'enter', times: 1, say: 'Sent.' })],
+  [re('(?:open |make )?(?:a )?new tab'),() => ({ do: 'key', key: 'ctrl+t', times: 1, say: 'New tab.' })],
   [re('(?:go )?back|go to the previous page'), () => ({ do: 'key', key: 'alt+left', times: 1, say: 'Went back.' })],
   [re('(?:go )?forward'), () => ({ do: 'key', key: 'alt+right', times: 1, say: 'Went forward.' })],
   [re('reload|refresh(?: (?:the|this) page)?|reload (?:the|this) page'), () => ({ do: 'key', key: 'f5', times: 1, say: 'Reloaded.' })],
@@ -66,6 +67,14 @@ const RULES = [
   [re("no|nope|nah|don'?t|cancel|nahi|leave it"), () => ({ do: 'no' })],
 ];
 
+// "type hi and send" / "… aur bhej do": type, then Enter — the user's words are the yes (2026-10-29).
+const SEND_TAIL = /[\s,]+(?:and|then|aur|n)?\s*(?:send(?: it| this| that)?|search(?: it)?|submit|press enter|hit enter|enter|bhej do|bhejo|send kar do)$/i;
+const withSend = (out) => {
+  if (out?.do !== 'type' || !SEND_TAIL.test(out.text)) return out;
+  const text = out.text.replace(SEND_TAIL, '').trim();
+  return text ? { ...out, text, enter: true } : out;
+};
+
 const LEAD = /^(?:(?:hey )?novi|okay|ok|please|now|and|then|can you|could you|will you)[,\s]+/i;
 export function parseScreenCommand(text) {
   let t = String(text || '').trim().replace(/[.!?]+$/, '').replace(/\s+/g, ' ');
@@ -74,7 +83,7 @@ export function parseScreenCommand(text) {
   if (!t) return null;
   for (const [pattern, make] of RULES) {
     const m = pattern.exec(t);
-    if (m) return make(m);
+    if (m) return withSend(make(m));
   }
   return null;
 }
@@ -125,7 +134,8 @@ export function findTarget(list, target) {
 // voice PIN, 'publish' = an explicit yes; null = just do it.
 const MONEY = /\b(?:pay|payment|buy|purchase|place (?:your |the )?order|checkout|check out|transfer|send money|donate|add (?:a )?card|upi|subscribe now)\b/i;
 const DESTROY = /\b(?:delete|remove|trash|recycle bin|empty|format|uninstall|install|erase|wipe|discard|reset|factory|shut ?down|restart|reboot)\b/i;
-const PUBLISH = /\b(?:publish|deploy|push|post|send|submit|merge|release)\b/i;
+// "send" isn't here: a spoken "click send" / "send it" is the user's own yes (their choice, 2026-10-29).
+const PUBLISH = /\b(?:publish|deploy|push|post|submit|merge|release)\b/i;
 export const clickRisk = (name) => (MONEY.test(name) ? 'money' : DESTROY.test(name) ? 'destroy' : PUBLISH.test(name) ? 'publish' : null);
 const RANK = { money: 3, destroy: 2, publish: 1 };
 export const riskRank = (r) => RANK[r] || 0;
@@ -140,6 +150,22 @@ export const sensitiveScreen = (title, items = []) => SENSITIVE_TITLE.test(Strin
 export const secretWords = (text) => /\b(?:password|passcode|passwd|otp|one[\s-]?time code|pin|cvv|cvc|card number)\b/i.test(String(text || ''));
 const CHAT = /whatsapp|telegram|discord|slack|teams|messenger|instagram|gmail|outlook|signal|mail/i;
 export const chatApp = (title) => CHAT.test(String(title || ''));
+
+// The box to type into when no box has the cursor: in a chat its message box, elsewhere its search
+// box, else the only (or biggest) one. Search boxes get Enter by themselves.
+export const SEARCH_BOX = /search|address|query|\bfind\b|\burl\b/i;
+const MESSAGE_BOX = /message|type a|write|reply|comment|compose|\bask\b|\bchat\b/i;
+export function pickBox(list, title) {
+  const boxes = (list || []).filter((it) => it.type === 'Edit' || it.type === 'ComboBox');
+  const isMessage = (b) => MESSAGE_BOX.test(b.name) && !SEARCH_BOX.test(b.name);
+  const isSearch = (b) => SEARCH_BOX.test(b.name);
+  for (const fits of chatApp(title) ? [isMessage, isSearch] : [isSearch, isMessage]) {
+    const hit = boxes.find(fits);
+    if (hit) return hit;
+  }
+  if (boxes.length <= 1) return boxes[0] || null;
+  return [...boxes].sort((a, b) => (b.w || 0) * (b.h || 0) - (a.w || 0) * (a.h || 0))[0];
+}
 
 // "GitHub - Google Search - Google Chrome" → "GitHub - Google Search".
 export const shortTitle = (title) => String(title || '').replace(/\s+[-–—]\s+(?:Google Chrome|Brave|Microsoft​? Edge|Mozilla Firefox|Firefox|Opera|Vivaldi|Arc)$/i, '').trim() || 'the window';

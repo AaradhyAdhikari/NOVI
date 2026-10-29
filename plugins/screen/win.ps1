@@ -20,6 +20,22 @@ public static class NoviScreen {
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
   [DllImport("user32.dll", EntryPoint = "IsIconic")] public static extern bool Minimized(IntPtr h);
+  [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, IntPtr pid);
+  [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
+  [DllImport("user32.dll")] static extern bool AttachThreadInput(uint a, uint b, bool attach);
+  [DllImport("user32.dll")] static extern bool BringWindowToTop(IntPtr h);
+  // Window h to the front with no key presses: share the foreground window's input for a moment (an Alt
+  // tap put Notepad and Chrome into menu mode, live 2026-10-29).
+  public static bool Bring(IntPtr h) {
+    IntPtr fg = GetForegroundWindow();
+    uint fgThread = GetWindowThreadProcessId(fg, IntPtr.Zero), me = GetCurrentThreadId();
+    bool attached = fgThread != 0 && fgThread != me && AttachThreadInput(me, fgThread, true);
+    if (Minimized(h)) ShowWindow(h, 9);
+    BringWindowToTop(h);
+    SetForegroundWindow(h);
+    if (attached) AttachThreadInput(me, fgThread, false);
+    return GetForegroundWindow() == h;
+  }
   [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
   [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int max);
   delegate bool EnumProc(IntPtr h, IntPtr l);
@@ -127,13 +143,28 @@ switch ($cmd) {
     [void][NoviScreen]::GetWindowText($h, $sb, 512)
     "$([int64]$h)`t$($sb.ToString())"
   }
+  # What has the keyboard cursor: JSON { type, name, editable, password }. Editable = a value you can change
+  # (ValuePattern not read-only), or text that isn't read-only (Notepad's page; a web page is read-only).
+  'focused' {
+    Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+    $e = [System.Windows.Automation.AutomationElement]::FocusedElement
+    if (-not $e) { '{}'; break }
+    $c = $e.Current
+    $type = $c.ControlType.ProgrammaticName.Replace('ControlType.', '')
+    $editable = $false
+    $vp = $null; $tp = $null
+    if ($e.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$vp)) { $editable = -not $vp.Current.IsReadOnly }
+    elseif ($e.TryGetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern, [ref]$tp)) {
+      $ro = $tp.DocumentRange.GetAttributeValue([System.Windows.Automation.TextPattern]::IsReadOnlyAttribute)
+      $editable = ($ro -eq $false)
+    }
+    elseif ($type -eq 'Edit') { $editable = $true }
+    @{ type = $type; name = $c.Name; editable = $editable; password = [bool]$c.IsPassword } | ConvertTo-Json -Compress
+  }
   # Brings window <handle> to the front (restored if minimized); prints True only if it really is in front.
   'focushwnd' {
     $h = [IntPtr][int64]$a1
-    if ([NoviScreen]::Minimized($h)) { [void][NoviScreen]::ShowWindow($h, 9) }
-    # A short Alt press lets a background process take the foreground (Windows' focus-steal rule).
-    [NoviScreen]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero); [NoviScreen]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
-    [void][NoviScreen]::SetForegroundWindow($h)
+    [void][NoviScreen]::Bring($h)
     Start-Sleep -Milliseconds 120
     ([NoviScreen]::GetForegroundWindow() -eq $h)
   }

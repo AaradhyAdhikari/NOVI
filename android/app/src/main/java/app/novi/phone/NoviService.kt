@@ -59,6 +59,7 @@ class NoviService : Service() {
     private val cards = CardList()
     private val announced = HashSet<String>()
     private lateinit var overlay: CardOverlay
+    private lateinit var bubble: MicBubble
     private var tts: TextToSpeech? = null
     private var lastAsk = 0L
     private val reconnect = Runnable { connect() }
@@ -91,9 +92,11 @@ class NoviService : Service() {
         })
         ServiceCompat.startForeground(this, 1, connNotice("Connecting to Novi…"), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         overlay = CardOverlay(this)
+        bubble = MicBubble(this) { bubbleListen() }
         tts = TextToSpeech(this) { }
         getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(netWatch)
         connect()
+        bubbleUpdate()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
@@ -105,6 +108,7 @@ class NoviService : Service() {
         runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(netWatch) }
         socket?.close(1000, "bye")
         overlay.hide()
+        bubble.remove()
         tts?.shutdown()
         stateText = "Not running"
         onState?.invoke()
@@ -207,6 +211,12 @@ class NoviService : Service() {
                     else -> "This one needs you at the laptop."
                 },
             )
+            // A step inside the app open on this phone (phone typing, plugins/phone-control).
+            "phone_action" -> work.execute {
+                val (ok, note) = runCatching { NoviAccess.instance?.perform(msg) }.getOrElse { false to "That didn't work on the phone." }
+                    ?: (false to "Turn on Novi's typing on the phone: Settings → Accessibility → Novi.")
+                socket?.send(JSONObject().put("type", "phone_action_result").put("id", msg.optString("id")).put("ok", ok).put("note", note).toString())
+            }
             // Novi's spoken answer to something said through this app's mic.
             "speak" -> if (System.currentTimeMillis() - lastAsk < 30_000) say(msg.optString("text"))
         }
@@ -241,7 +251,13 @@ class NoviService : Service() {
     }
 
     /** The app's Novi page opened (it shows the cards itself) or closed (waiting cards pop up again). */
-    fun pageShown(on: Boolean) = main.post { if (on) overlay.hide() else showTop() }
+    fun pageShown(on: Boolean) = main.post {
+        if (on) overlay.hide() else showTop()
+        bubbleUpdate()
+    }
+
+    /** The mic bubble: while Novi's typing (NoviAccess) is on and the Novi app isn't on screen. */
+    fun bubbleUpdate() = main.post { bubble.update(NoviAccess.instance != null && !MainActivity.visible) }
 
     private fun showTop() {
         val top = cards.top()
@@ -410,6 +426,44 @@ class NoviService : Service() {
         android.media.AudioDeviceInfo.TYPE_USB_HEADSET,
         26, // TYPE_BLE_HEADSET (API 31)
     )
+
+    /**
+     * The mic bubble was tapped inside another app: hear one command and send it with that app's name
+     * (`phoneApp`), so "type hi and send" happens there, not on the laptop. Novi's answer is spoken
+     * (`lastAsk`). Recording from the background needs the microphone foreground service, like a card.
+     */
+    fun bubbleListen() {
+        if (listeningFor != null) return
+        val allowed = checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        val micOk = allowed && runCatching {
+            ServiceCompat.startForeground(this, 1, connNotice(stateText), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+        }.isSuccess
+        if (!micOk) {
+            toast("Android didn't let Novi listen. Open the Novi app once and allow the microphone.")
+            return
+        }
+        val app = NoviAccess.instance?.frontPackage().orEmpty()
+        listeningFor = "bubble"
+        stopListening = false
+        bubble.listening(true)
+        Thread {
+            val heard = runCatching { Recorder.capture(giveUpMs = 5000, maxMs = 10000) { stopListening } }.getOrNull()
+            main.post { endListening(); bubble.listening(false) }
+            if (heard == null || heard.blocked || heard.pcm.isEmpty()) {
+                main.post { toast(if (heard?.blocked == true) "Android didn't let Novi listen." else "Didn't hear anything.") }
+                return@Thread
+            }
+            val text = runCatching { transcribe(Recorder.wav(heard.pcm)) }.getOrNull().orEmpty().trim()
+            main.post {
+                if (text.isEmpty()) { toast("Didn't catch that."); return@post }
+                lastAsk = System.currentTimeMillis()
+                val sent = socket?.send(JSONObject().put("type", "user_message").put("text", text).put("phoneApp", app).toString()) == true
+                toast(if (sent) "“$text”" else "Not connected to Novi.")
+            }
+        }.start()
+    }
+
+    private fun toast(text: String) = android.widget.Toast.makeText(this, text, android.widget.Toast.LENGTH_SHORT).show()
 
     /** Back to the plain connection service (no mic), and the video / music plays again. */
     private fun endListening() {

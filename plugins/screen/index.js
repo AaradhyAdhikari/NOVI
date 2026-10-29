@@ -6,7 +6,7 @@ import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { definePluginEntry } from '#plugin-sdk';
 import { pageShot } from './pageShot.js';
-import { parseScreenCommand, pickResult, findTarget, clickRisk, riskRank, sensitiveScreen, secretWords, chatApp, shortTitle, capital, createSession, clickPoint, KEY_LABEL } from './mode.js';
+import { parseScreenCommand, pickResult, findTarget, clickRisk, riskRank, sensitiveScreen, secretWords, chatApp, shortTitle, capital, createSession, clickPoint, pickBox, SEARCH_BOX, KEY_LABEL } from './mode.js';
 
 // Screen control: look at the screen (Gemini vision — the user agreed screenshots may go to Gemini),
 // click a described element, type, press a key. Every action needs approval (category "screen",
@@ -50,6 +50,8 @@ export const windowsDriver = {
   // The foreground window's handle and title; focus by handle (checked: True only if it is in front).
   front: async () => { const [h, ...t] = (await ps(['front'])).split('\t'); return { hwnd: Number(h) || null, title: t.join('\t') }; },
   focusHandle: async (hwnd) => (await ps(['focushwnd', String(hwnd)])) === 'True',
+  // What has the keyboard cursor in the front window: { type, name, editable, password }.
+  focused: async () => JSON.parse((await ps(['focused'])) || '{}'),
   click: (x, y) => ps(['click', String(x), String(y)]),
   type: (text) => ps(['type'], { NOVI_SCREEN_TEXT: String(text) }),
   key: (name) => ps(['key', KEY_CODES[name]]),
@@ -402,14 +404,54 @@ export function createScreenPlugin({ driver = windowsDriver, now = Date.now, foc
           }
           case 'type': {
             if (secretWords(intent.text) || secretWords(intent.target)) return { note: "I can't type passwords aloud. Please type it yourself." };
+            // "type hi in WhatsApp": that app in front first, then read it fresh.
+            if (intent.app) {
+              const went = await callTool('laptop_window', { app: intent.app, do: 'focus' });
+              if (went?.error) return { note: went.notFound ? `${capital(intent.app)} isn't open.` : went.error };
+              stale();
+            }
             const s = await look();
             if (sensitiveScreen(s.title, s.raw)) return { note: SENS };
-            const box = intent.n != null ? listed(intent.n) : intent.target ? findTarget(s.list, intent.target) : null;
-            if ((intent.n != null || intent.target) && !box) return listOffer(`I couldn't find ${intent.target || `box ${intent.n}`}.`);
+            const named = intent.n != null ? listed(intent.n) : intent.target ? findTarget(s.list, intent.target) : null;
+            if ((intent.n != null || intent.target) && !named) return listOffer(`I couldn't find ${intent.target || `box ${intent.n}`}.`);
             if (!(await onTop(s.title))) return { note: `I can't bring "${shortTitle(s.title)}" to the front.` };
-            if (box) { const p = clickPoint(box); await driver.click(p.x, p.y); stale(); }
+            // No box named: the one with the cursor, else she picks one herself (user: "she should do all
+            // that on her own") — never a password box.
+            let box = named;
+            let focusedName = '';
+            if (!box && driver.focused) {
+              let f = await driver.focused().catch(() => null);
+              // The cursor in a menu (the app is in menu mode): Escape leaves it, then look again.
+              if (/^Menu/.test(f?.type || '')) {
+                await driver.key('esc');
+                f = await driver.focused().catch(() => null);
+              }
+              // A window just brought forward hands its text area the cursor a moment later (live: Notepad).
+              if (!f?.editable && !f?.password) {
+                await new Promise((r) => setTimeout(r, focusPauseMs * 2));
+                f = await driver.focused().catch(() => null);
+              }
+              if (f?.password) return { note: SENS };
+              if (f?.editable) focusedName = String(f.name || '');
+              else {
+                box = pickBox(s.list, s.title);
+                if (!box) return { note: `I don't see a text box in ${shortTitle(s.title)}. Say “list the screen”, then “type … in box” and its number.` };
+              }
+            }
+            if (box) {
+              const p = clickPoint(box);
+              await driver.click(p.x, p.y);
+              stale();
+              // A search box she clicked: the new words replace the old search. A message box keeps your draft.
+              if (SEARCH_BOX.test(box.name)) await driver.key('ctrl+a');
+            }
             await driver.type(String(intent.text).slice(0, 2000));
-            return { note: 'Typed it.', target: box?.name || '', done: { what: `typed “${String(intent.text).slice(0, 60)}” in ${shortTitle(s.title)}`, undo: { key: 'ctrl+z' } } };
+            // Enter: search boxes by themselves; anywhere else only when the user said "… and send".
+            const search = SEARCH_BOX.test(box ? box.name : focusedName) && !chatApp(s.title);
+            const press = Boolean(intent.enter) || search;
+            if (press) { await driver.key('enter'); stale(); lastList = null; }
+            const note = !press ? 'Typed it.' : search ? `Searched for “${intent.text}”.` : chatApp(s.title) ? 'Sent.' : 'Typed it and pressed Enter.';
+            return { note, target: box?.name || focusedName, done: { what: `typed “${String(intent.text).slice(0, 60)}” in ${shortTitle(s.title)}${press ? ' and pressed Enter' : ''}`, undo: press ? null : { key: 'ctrl+z' } } };
           }
           case 'key': {
             const name = intent.key;
@@ -565,6 +607,16 @@ export function createScreenPlugin({ driver = windowsDriver, now = Date.now, foc
       wrap('screen_scroll', 'Scroll the app in front up or down.', { direction: { type: 'string', enum: ['up', 'down'] }, times: num }, ['direction'], ({ direction, times }) => ({ do: 'scroll', dir: direction === 'up' ? 'up' : 'down', times: Number(times) || 1 }));
       wrap('screen_search', 'Search the web for something in the laptop\'s browser.', { query: str('What to search for') }, ['query'], ({ query }) => ({ do: 'search', query }));
       wrap('screen_open_search_result', 'Search the web in the laptop\'s browser, then open the n-th result.', { query: str('What to search for'), n: num }, ['query'], ({ query, n }) => ({ do: 'search', query, open: Number(n) || 1 }));
+      // "type: …" without Screen Mode: the same typing step (finds the box herself, Enter as above).
+      api.registerTool({
+        name: 'screen_type_into',
+        description: 'Type text into the laptop app in front: the box with the cursor, else the right box by itself (the message box in a chat, the search box elsewhere). enter = press Enter after (search boxes always get it). Never passwords.',
+        parameters: obj({ text: str('What to type'), target: str('Optional: which box, e.g. "search box"'), enter: { type: 'boolean' }, app: str('Optional: the app to bring forward first, e.g. "whatsapp"') }, ['text']),
+        async execute(_id, { text, target, enter, app } = {}) {
+          const out = await step({ do: 'type', text: String(text || ''), ...(target ? { target } : {}), ...(enter ? { enter: true } : {}), ...(app ? { app } : {}) }, `type: ${text}`);
+          return reply(out.note, { note: out.note });
+        },
+      });
       const WRAPPED = new Set(['screen_open_result', 'screen_minimize', 'screen_maximize', 'screen_scroll', 'screen_search', 'screen_open_search_result', 'screen_mode_start']);
 
       // Screen control never deletes (live 2026-10-17: Delete in File Explorer removed a folder with no
@@ -586,7 +638,7 @@ export function createScreenPlugin({ driver = windowsDriver, now = Date.now, foc
         if (risk.level === 'money') return { block: true, blockReason: SENS };
         if (risk.level === 'destroy') return approve(`Click “${risk.name}” in ${where}`, 'This could delete or change something for good. Say your voice PIN to go ahead, or say no.', { pin: true });
         if (risk.level === 'publish') return approve(`Click “${risk.name}” in ${where}`, 'This may send or publish something.');
-        if (intent.do === 'key' && intent.key === 'enter') {
+        if (!direct && intent.do === 'key' && intent.key === 'enter') { // said by the user = their yes (2026-10-29)
           const title = seen?.title || lastWin.title; // the last read: no new read just to ask
           if (chatApp(title)) return approve(`Press Enter in ${shortTitle(title)}`, 'This may send the message.');
         }
@@ -595,6 +647,7 @@ export function createScreenPlugin({ driver = windowsDriver, now = Date.now, foc
       };
       api.on('before_tool_call', ({ toolName, params, direct }) => {
         if (toolName === 'screen_command' || WRAPPED.has(toolName)) return modeGate(toolName, params || {}, direct);
+        if (toolName === 'screen_type_into') return direct ? undefined : { requireApproval: { title: 'Type text on screen', description: String(params?.text || '').slice(0, 300), severity: 'warning', category: 'screen', grantable: true } };
         if (toolName === 'screen_key' && /^(?:shift\+)?(?:ctrl\+)?(?:delete|del)$|^ctrl\+d$/i.test(normKey(params.key)) && !textApp(params.app)) return NO_DELETE;
         const clickWhat = toolName === 'screen_click' ? String(params.target || listed(params.n)?.name || (params.n ? `item ${params.n}` : '')) : '';
         if (toolName === 'screen_click' && /\b(?:delete|remove|recycle bin|trash|move to bin|permanently)\b/i.test(clickWhat)) return NO_DELETE;

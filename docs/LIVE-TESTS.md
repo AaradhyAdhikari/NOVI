@@ -31,6 +31,21 @@ Checked live (typed lines, not your voice yet): start/stop; "open notepad" (1.3 
 - [ ] Every step is logged in `data/screen/history.jsonl` (time, words, window, action, target, vision yes/no, result, ms).
 - Speed: a fresh read of the screen list takes ~3 s on this laptop (PowerShell + accessibility); "click 3", keys, scroll and window moves reuse the last read (60 s) and should take ≈ 0.5–1 s.
 
+## Typing on her own (2026-10-29, laptop checked by Claude on the test copy; phone not tried yet)
+**Laptop** — say it in Screen Mode, or anytime as "type: …":
+- [ ] "type: hello" with no box clicked: she finds the box herself (message box in WhatsApp, the search box on a page) and types. Checked: Notepad.
+- [ ] A search box: she presses Enter herself ("Searched for …"), and the old search is replaced, not added to.
+- [ ] A chat: Enter only when you say it — "type see you at 5 and send" / "… aur bhej do" / "send it" (no card; your words are the yes). Checked: Notepad got the Enter.
+- [ ] "type hi in WhatsApp and send": WhatsApp comes forward first. ("type: … in notepad" checked.)
+- [ ] Never: a password box with the cursor, a password/OTP said aloud, password/payment/cart screens.
+**Phone** — install the new app (android\Novi.apk, 2.2.0), then Novi ⚙ → "Phone typing: Settings → Accessibility → Novi" and switch **Novi typing** on (Android asks you to confirm; only you can do this):
+- [ ] A purple Novi bubble appears on the right over other apps (hidden while the Novi app is open; drag it up/down).
+- [ ] In WhatsApp: tap the bubble, say "type hi and send" → typed into the message box and sent. "type hello" alone → typed, not sent; then "send it".
+- [ ] In Chrome/YouTube: tap the bubble, "search for lo-fi music" → typed into the search box and searched.
+- [ ] "tap <button words>", "go back", "go home", "scroll down".
+- [ ] From the laptop or the Novi app: "type hello on my phone" / "phone pe …" → done in the app open on the phone.
+- [ ] Never: GPay/PhonePe/Paytm/bank apps, Settings, password manager apps, any screen with a password box, Pay/Buy/Delete buttons → "This looks sensitive. Please do this part yourself."
+
 ## Only my voice (2026-10-29, built, not tried live yet)
 Set up 2026-10-29: speaker model in `models/speaker/`, your voice learned from 60 "Hey Novi" clips (strictness 0.57). A check takes ~130 ms. **Restart Novi once** (Settings → Restart) so it loads the model.
 - [ ] Settings → "Hey Novi" shows "Only my voice can command Novi" ticked after learning.

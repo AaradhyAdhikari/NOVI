@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="access_description">Lets Novi type, send and tap in the app you are using when you ask her to (\"type hi and send\", \"tap login\"). She never types passwords and never acts in payment, bank or Settings apps.</string>
+</resources>
