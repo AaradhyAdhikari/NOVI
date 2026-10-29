@@ -40,7 +40,7 @@ describe('word list + misunderstanding log', () => {
     expect(put.status).toBe(200);
     expect(await (await json(env.base, '/api/vocabulary')).json()).toEqual({ words: ['OpenClaw'], fixes: { novee: 'Novi', 'open claw': 'OpenClaw' } });
     const result = await env.novi.runVoiceCommand(Buffer.from('RIFFfake'));
-    expect(result).toEqual({ text: 'hey Novi OpenClaw', reply: 'echo: hey Novi OpenClaw' });
+    expect(result).toEqual({ text: 'hey Novi OpenClaw', reply: 'echo: hey Novi OpenClaw', screenMode: false });
     const log = await (await json(env.base, '/api/voice-log')).json();
     expect(log.entries[0]).toMatchObject({ source: 'wake', heard: 'hey novee open claw', text: 'hey Novi OpenClaw', reply: 'echo: hey Novi OpenClaw', hasAudio: true });
   });

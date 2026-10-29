@@ -197,9 +197,9 @@ describe('what is on the screen, as a list (no AI)', () => {
     await s.run('screen_items', { app: 'Brave' });
     expect((await s.gate('screen_click', { n: 2, app: 'Brave' })).approval.title).toBe('Click “Binks69 DUKH BEGIN... 5 hours ago”');
     expect((await s.run('screen_click', { n: 2, app: 'Brave' })).text).toBe('Clicked “Binks69 DUKH BEGIN... 5 hours ago”.');
-    expect(s.actions.at(-1)).toEqual(['click', 485, 760]);
+    expect(s.actions.at(-1)).toEqual(['click', 420, 820]); // a tall link: its title line (clickPoint), still inside the tile
     await s.run('screen_click', { target: 'snaxgaming', app: 'Brave' });
-    expect(s.actions.at(-1)).toEqual(['click', 160, 575]);
+    expect(s.actions.at(-1)).toEqual(['click', 90, 593]); // a tall link too
     expect(s.prompts).toEqual([]); // vision never asked
   });
 

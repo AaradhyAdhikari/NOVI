@@ -107,6 +107,14 @@ describe('laptop control: windows', () => {
     expect((await tool('laptop_window').run({ app: 'zoom', do: 'focus' })).error).toBe("I don't see a window for zoom.");
   });
 
+  it('"this" is the window the user is working in, never Novi', async () => {
+    const { tool, calls } = setup();
+    const out = await tool('laptop_window').run({ app: 'this', do: 'minimize' });
+    expect(out.error).toBeUndefined();
+    expect(calls.at(-1)[1].do).toBe('minimize');
+    expect(out.note).not.toMatch(/novi/i);
+  });
+
   it('closing asks; "all" counts the windows and closes each; nothing to close asks nothing', async () => {
     const { tool, calls } = setup();
     expect((await tool('laptop_window').gate({ app: 'chrome', do: 'close' })).approval.title).toBe('Close Chrome?');

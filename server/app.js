@@ -330,7 +330,7 @@ export function createNovi(config, overrides = {}) {
     let samples;
     try { samples = readWavInt16(Buffer.from(audio)); } catch { return null; }
     const t0 = Date.now();
-    const { ok, score } = checkVoice(samples.subarray(0, 16000 * 10)); // 10 s is plenty to know a voice
+    const { ok, score } = checkVoice(samples.subarray(0, 16000 * 4)); // 4 s is plenty to know a voice (~230 ms; 8 s took 527 ms)
     const ms = Date.now() - t0;
     console.log(`[timing] voice check ${ms} ms (${ok === false ? 'not the owner' : ok ? 'owner' : 'unchecked'})`);
     return { ok, score, ms };
@@ -1158,7 +1158,7 @@ export function createNovi(config, overrides = {}) {
     // What was heard and Novi's reply: the wake-word service uses them for conversation mode.
     const reply = (await handleMessage({ type: 'user_message', text })) || '';
     if (id) voiceLog.setReply(id, reply);
-    return { text, reply };
+    return { text, reply, screenMode: agent.screenModeOn?.() || false };
   }
   const setWakeTools = (tools) => { wakeTools = tools; };
   // Trigger level chosen in Settings (from the user's own clips), if any.

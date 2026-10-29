@@ -8,6 +8,10 @@ describe('conversationNext', () => {
     expect(next.deafMs).toBeGreaterThan(2000);
     expect(next.deafMs).toBeLessThan(6000);
   });
+  it('in Screen Mode it waits longer for the next command', () => {
+    expect(conversationNext({ text: 'click 3', reply: 'Clicked Sign in.', screenMode: true }).waitMs).toBe(20000);
+    expect(conversationNext({ text: 'stop screen control', reply: 'Screen control is off.', screenMode: false })).toBe(null); // "stop …" ends the conversation too
+  });
   it('a longer reply means a longer deaf period', () => {
     const short = conversationNext({ text: 'time', reply: 'It is 9 pm.' });
     const long = conversationNext({ text: 'news', reply: 'Here is a longer answer that takes Novi a good while to say out loud. And a second sentence too.' });

@@ -938,7 +938,7 @@ describe('Novi server', () => {
 
   it('a laptop-mic command returns what was heard and the reply (for conversation mode)', async () => {
     const { novi } = await start();
-    expect(await novi.runVoiceCommand(Buffer.from('wav'))).toEqual({ text: 'heard 3 bytes of audio/wav', reply: 'echo: heard 3 bytes of audio/wav' });
+    expect(await novi.runVoiceCommand(Buffer.from('wav'))).toEqual({ text: 'heard 3 bytes of audio/wav', reply: 'echo: heard 3 bytes of audio/wav', screenMode: false });
   });
 
   it('plugins get a private-only AI call (Groq), never another provider', async () => {

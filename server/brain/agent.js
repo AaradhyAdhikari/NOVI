@@ -19,6 +19,7 @@ import { claudeLinkCommand, linkFolderCommand, projectStatusCommand, projectAbou
 import { changesCommand } from './changesCommand.js';
 import { codemapCommand } from './codemapCommand.js';
 import { doneCheckCommand } from './doneCheckCommand.js';
+import { isScreenModeStart } from './screenModeCommand.js';
 import { parseApproval } from './approvalIntent.js';
 import { describeTurn } from '../activity.js';
 import { learningCommand } from './learning.js';
@@ -377,6 +378,10 @@ export class Agent {
     // choice on a card ("the second one"), and the voice PIN for high-risk cards.
     const answered = await this._answerCard(text, from);
     if (answered != null) return this._remember(text, answered);
+    // Screen Mode (plugins/screen, 2026-10-29): after "start screen control" every line is tried as a
+    // screen command first ("click 3", "press enter", "minimize this"); anything else goes on as usual.
+    const screen = await this._screenCommand(text);
+    if (screen != null) return this._remember(text, screen);
     const also = alsoCommand(text);
     if (also) {
       const reply = await this._also(also, from);
@@ -1059,6 +1064,35 @@ export class Agent {
     } catch (err) {
       return { output: { error: err.message }, note: err instanceof UserFacingError ? err.message : undefined };
     }
+  }
+
+  screenModeOn() { return Boolean(this._screenMode && this.tools.get('screen_command')); }
+
+  // One Screen Mode step. The plugin hands back steps other tools do ("open Notion" → open_app,
+  // "search for X" → open_website) as { run, say }; "… and open the second result" comes back as `after`.
+  async _screenCommand(text) {
+    if (!this.tools.get('screen_command') || (!this._screenMode && !isScreenModeStart(text))) return null;
+    const run = async (name, args) => (await this._runTool({ id: `scr-${Date.now()}`, function: { name, arguments: JSON.stringify(args) } }, { direct: true })).output || {};
+    const out = await run('screen_command', { text });
+    if (out.mode) this._screenMode = out.mode === 'on';
+    if (out.unknown) return null;
+    if (out.error) return out.error === 'The user declined this action.' ? "Okay, I won't." : out.error;
+    if (!out.run || !this.tools.get(out.run.tool)) return out.note || 'Done.';
+    let done = await run(out.run.tool, out.run.args);
+    if (done.error && out.fallback && this.tools.get(out.fallback.tool)) done = await run(out.fallback.tool, out.fallback.args);
+    if (done.error) return done.error === 'The user declined this action.' ? "Okay, I won't." : done.error;
+    if (done.candidates) return done.note; // "Which one did you mean: …?"
+    // A just-started app can open behind the one in front (live: Notepad behind Claude): bring it forward.
+    if (out.focus && this.tools.get('laptop_window')) {
+      for (let i = 0; i < 4; i++) {
+        await new Promise((r) => setTimeout(r, this.screenFocusWaitMs ?? 800));
+        if (!(await run('laptop_window', { app: out.focus, do: 'focus' })).error) break;
+      }
+    }
+    if (!out.after) return out.say || done.note || 'Done.';
+    await new Promise((r) => setTimeout(r, 3000)); // the results page loading
+    const next = await run('screen_command', { text: out.after });
+    return [out.say, next.note || next.error].filter(Boolean).join(' ');
   }
 
   // Laptop controls without the AI (volume, windows, clipboard…). "Go to X" with no such window

@@ -20,16 +20,25 @@ Last updated: 2026-10-22.
 - Novi's ChatGPT / Gemini / claude.ai work stays in one minimized Chrome window (no tab pile-up).
 - No more freezes; "open my github profile" is instant; "where is my resume" ≈ 3.5 s.
 
+## Screen Mode: the whole screen by voice (2026-10-29, checked by Claude on the test copy)
+Checked live (typed lines, not your voice yet): start/stop; "open notepad" (1.3 s) · on your `.env` tab "type hello" refused · "open a new tab" · "type …" (2.5 s) · "what did you just do" · "undo that" (1.8 s, back in the right window) · "press enter" · "minimize this" (57 ms) · "switch to notepad" (112 ms) · "scroll down" (1.1 s) · "search for vitest docs" → "open the first result" (3 s, the Vitest guide) · "go back" · "close this tab" (closed only Novi's search tab). Fixed on the way: Notepad opening behind Claude, AppActivate saying "yes" without the window in front (now: by window handle, checked, else nothing is pressed), Google results clicked in the empty middle of their box (now the title line), the Google logo counted as result 1, "close this tab" closing a browser tab elsewhere, `.env`/keys files and shopping carts now "sensitive", and "switch to Chrome" picking your other Chrome window (it now says which window: "Chrome is in front: Amazon.in Shopping Cart."; after a search the results window is used). Still to try **by voice**: the list below. Restart Novi once. Say **"start screen control"** → "Screen control is on…". Then, one at a time (the laptop mic stays open 20 s between commands; "Hey Novi" if it closed):
+- [ ] "Open Chrome" (focuses it if open, else opens it) · "search for GitHub" · "open the second result" · "go back" · "scroll down twice" · "reload".
+- [ ] "List the screen" → numbered list; "click 3" (fast, no new read) · "click login" (an ordinary page's Sign in link) · "type this in the search box: Novi AI" · "press enter".
+- [ ] "Minimize this" · "maximize this" · "switch to WhatsApp" (not open → "Should I open it?" → "yes") · "close this tab" · "close this window" (asks first).
+- [ ] "What's on the screen?" (Gemini looks) · "click the blue button" (vision when the list can't tell) · "what did you just do?" · "undo that" (after typing / scrolling / a new tab / minimizing).
+- [ ] Safety: a password page (GitHub's sign-in page) → "This looks sensitive. Please do this part yourself." for clicks, typing and Enter; "type my password …" refused; a Buy/Pay button refused; a "Delete …" button asks for your voice PIN; Enter in WhatsApp asks "This may send the message".
+- [ ] "Stop screen control" / "stop" ends it ("pause" alone still pauses the video; "pause screen control" pauses the mode). It also ends by itself after 15 minutes with no commands.
+- [ ] Every step is logged in `data/screen/history.jsonl` (time, words, window, action, target, vision yes/no, result, ms).
+- Speed: a fresh read of the screen list takes ~3 s on this laptop (PowerShell + accessibility); "click 3", keys, scroll and window moves reuse the last read (60 s) and should take ≈ 0.5–1 s.
+
 ## Only my voice (2026-10-29, built, not tried live yet)
-Setup once: the speaker model is **not on the laptop yet**. Download `wespeaker_en_voxceleb_resnet34.onnx` (≈26 MB) from
-https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/wespeaker_en_voxceleb_resnet34.onnx
-into `C:\dev\NOVI\models\speaker\`, restart Novi, then Settings → "Hey Novi" → **Learn my voice** (your 61 practice clips are already there).
+Set up 2026-10-29: speaker model in `models/speaker/`, your voice learned from 60 "Hey Novi" clips (strictness 0.57). A check takes ~130 ms. **Restart Novi once** (Settings → Restart) so it loads the model.
 - [ ] Settings → "Hey Novi" shows "Only my voice can command Novi" ticked after learning.
 - [ ] Your own voice on the laptop mic, the talk button and the phone app works as before.
 - [ ] Someone else (or a video) says "what time is it" into the talk button / phone app → "That didn't sound like you." (said once a minute at most), nothing happens; Settings → Activity shows "not your voice".
 - [ ] A card waits for your PIN: the PIN still works by voice (the PIN is the proof); typed messages are never checked.
 - [ ] Novi ignores you? Lower Strictness a little in Settings. Untick the box to turn the check off.
-- [ ] The log shows `[timing] voice check N ms` — tell Claude the number (should be well under 300 ms).
+- [ ] The log shows `[timing] voice check N ms` (expected ~130–250 ms).
 
 ## claude.ai project instructions (2026-10-29, built, not tried live yet)
 Before, Novi never clicked the right button: the plain "Add" next to Instructions is the Context file uploader. Now it clicks the real Instructions button, and only fills the box if it's empty (your own text is never changed).

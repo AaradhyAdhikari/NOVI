@@ -174,7 +174,9 @@ export function createLaptopControlPlugin({
       tool(api, 'laptop_window', 'Switch to (focus), minimize, maximize or close an app window by its name, e.g. "Chrome", "WhatsApp", "VS Code". all = every window of that app.',
         obj({ app: { type: 'string' }, do: { type: 'string', enum: ['focus', 'minimize', 'maximize', 'close'] }, all: { type: 'boolean' } }, ['app', 'do']),
         async ({ app, do: action, all }) => {
-          const found = findWindows(await windows(), app);
+          // "this" / "it" = the window the user is working in (front-most, not Novi) — Screen Mode's "minimize this".
+          const list = await windows();
+          const found = /^(?:this|it|that|current|the current one)$/i.test(String(app).trim()) ? [workWindow(list)].filter(Boolean) : findWindows(list, app);
           if (!found.length) return { error: `I don't see a window for ${app}.`, notFound: true };
           const label = appLabel(found[0]);
           if (action === 'close') {

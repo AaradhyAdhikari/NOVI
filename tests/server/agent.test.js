@@ -1838,3 +1838,33 @@ describe('what Claude is working on + changes and tests by voice (2026-10-29)', 
     expect(s.ai).toEqual([]);
   });
 });
+
+describe('Screen Mode by voice (plugins/screen, 2026-10-29)', () => {
+  it('"start screen control" turns it on; then every line goes to screen_command first, no AI', async () => {
+    const ran = [];
+    let on = false;
+    const tool = (name, run) => ({ name, description: name, parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => name, run: async (a) => { ran.push([name, a]); return run(a); } });
+    const tools = new ToolRegistry()
+      .add(tool('screen_command', ({ text }) => {
+        if (/start screen control$/i.test(text)) { on = true; return { note: 'Screen control is on.', mode: 'on' }; }
+        if (!on) return { unknown: true, mode: 'off' };
+        if (/^stop$/i.test(text)) { on = false; return { note: 'Screen control is off.', mode: 'off' }; }
+        if (/^open notion$/i.test(text)) return { note: 'Opening Notion.', run: { tool: 'open_app', args: { name: 'notion' } }, say: 'Notion is open.', mode: 'on' };
+        if (/^click 3$/i.test(text)) return { note: 'Clicked Sign in.', mode: 'on' };
+        return { unknown: true, mode: 'on' };
+      }))
+      .add(tool('open_app', () => ({ opened: 'Notion' })));
+    const ai = [];
+    const agent = new Agent({ router: { chat: async () => { ai.push(1); return { message: { role: 'assistant', content: 'AI' }, provider: 'groq', model: 'm' }; } }, tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
+    expect(await agent.handle('click 3')).toBe('AI'); // off: not a screen command
+    expect(await agent.handle('Novi, start screen control')).toBe('Screen control is on.');
+    expect(agent.screenModeOn()).toBe(true);
+    expect(await agent.handle('click 3')).toBe('Clicked Sign in.');
+    expect(await agent.handle('open notion')).toBe('Notion is open.');
+    expect(ran.at(-1)).toEqual(['open_app', { name: 'notion' }]);
+    expect(await agent.handle('what is the weather')).toBe('AI'); // not a screen command: goes on as usual
+    expect(await agent.handle('stop')).toBe('Screen control is off.');
+    expect(agent.screenModeOn()).toBe(false);
+    expect(ai.length).toBe(2);
+  });
+});

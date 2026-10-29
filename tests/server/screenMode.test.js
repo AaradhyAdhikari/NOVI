@@ -118,7 +118,7 @@ describe('screen mode: doing it', () => {
 
   it('"search for GitHub" opens a search page on the laptop', async () => {
     const s = await on(setup());
-    expect(await s.say('search for GitHub')).toMatchObject({ run: { tool: 'open_website', args: { url: 'https://www.google.com/search?q=GitHub', on: 'laptop' } }, say: 'Searching for GitHub.' });
+    expect(await s.say('search for GitHub')).toMatchObject({ run: { tool: 'open_website', args: { target: 'https://www.google.com/search?q=GitHub', on: 'laptop' } }, say: 'Searching for GitHub.' });
   });
 
   it('"open the second result" clicks the second visible result, no AI', async () => {
@@ -254,5 +254,123 @@ describe('screen mode: safety', () => {
     t = 16 * 60_000;
     expect((await host.get('screen_command').run({ text: 'click 3' })).unknown).toBe(true);
     expect(host.get('screen_state') && (await host.get('screen_state').run({})).on).toBe(false);
+  });
+});
+
+describe('screen mode: live fixes (2026-10-29)', () => {
+  it('a secrets file (.env, keys) open in front counts as sensitive', async () => {
+    const { sensitiveScreen } = await import('../../plugins/screen/mode.js');
+    expect(sensitiveScreen('.env - Notepad')).toBe(true);
+    expect(sensitiveScreen('id_rsa - Notepad')).toBe(true);
+    expect(sensitiveScreen('credentials.json - Visual Studio Code')).toBe(true);
+    expect(sensitiveScreen('notes.txt - Notepad')).toBe(false);
+    const s = await on(setup({ screen: { title: '.env - Notepad', items: [] } }));
+    expect((await s.say('type hello')).note).toBe('This looks sensitive. Please do this part yourself.');
+    await s.say('open a new tab'); // a safe key: still fine
+    expect(s.actions.at(-1)).toEqual(['key', 'ctrl+t']);
+  });
+
+  it('"close this tab" presses Ctrl+W in the app in front (not a browser tab somewhere else)', async () => {
+    const s = await on(setup({ screen: { title: 'notes.txt - Notepad', items: [] } }));
+    expect((await s.say('close this tab')).note).toBe('Closed the tab.');
+    expect(s.actions.at(-1)).toEqual(['key', 'ctrl+w']);
+    expect(s.calls.find((c) => c[0] === 'laptop_tab')).toBeUndefined();
+  });
+
+  it('"open X" asks the agent to bring X to the front once it has opened', async () => {
+    const s = await on(setup({ windows: [] }));
+    expect(await s.say('open notepad')).toMatchObject({ run: { tool: 'open_app' }, focus: 'notepad' });
+  });
+});
+
+describe('screen mode: never presses anything into the wrong window', () => {
+  it('when the app does not come to the front, nothing is typed or pressed', async () => {
+    const s = setup({ front: 'NOVI - Google Chrome' });
+    const host = new PluginHost({ runtime: { callTool: async () => ({ note: 'Switched.' }), dataDir: s.dir }, env: {}, logger: { warn() {} } });
+    const acts = [];
+    host.register(createScreenPlugin({ focusPauseMs: 1, driver: { items: async () => GOOGLE, window: async () => 'NOVI - Google Chrome', focus: async () => true, type: async (t) => acts.push(['type', t]), key: async (k) => acts.push(['key', k]), click: async () => acts.push(['click']) } }));
+    const say = (text) => host.get('screen_command').run({ text });
+    await say('start screen control');
+    expect((await say('type hello')).note).toMatch(/can't bring/);
+    expect((await say('press enter')).note).toMatch(/can't bring/);
+    expect(acts).toEqual([]);
+  });
+});
+
+describe('screen mode: follows the window by its handle', () => {
+  const mk = ({ canFocus = true } = {}) => {
+    const acts = [];
+    const st = { front: { hwnd: 7, title: 'Untitled - Notepad' } };
+    const driver = {
+      items: async () => ({ title: 'Untitled - Notepad', hwnd: 7, items: [] }),
+      window: async () => st.front.title,
+      front: async () => st.front,
+      focusHandle: async (h) => { acts.push(['focusHandle', h]); if (canFocus) st.front = { hwnd: h, title: 'hello - Notepad' }; return canFocus; },
+      focus: async () => true,
+      type: async (t) => { acts.push(['type', t]); st.front = { hwnd: 7, title: 'hello - Notepad' }; },
+      key: async (k) => acts.push(['key', k]),
+    };
+    const host = new PluginHost({ runtime: { callTool: async () => ({ note: 'ok' }) }, env: {}, logger: { warn() {} } });
+    host.register(createScreenPlugin({ driver, focusPauseMs: 1 }));
+    return { acts, st, say: (text) => host.get('screen_command').run({ text }) };
+  };
+
+  it('a title that changed while typing is still the same window; undo goes back to it', async () => {
+    const s = mk();
+    await s.say('start screen control');
+    await s.say('type hello');
+    s.st.front = { hwnd: 99, title: 'Claude' }; // something else came to the front
+    expect((await s.say('undo that')).note).toBe('Undone.');
+    expect(s.acts.slice(-2)).toEqual([['focusHandle', 7], ['key', 'ctrl+z']]);
+  });
+
+  it('undo refuses when that window cannot be brought back', async () => {
+    const s = mk({ canFocus: false });
+    await s.say('start screen control');
+    await s.say('type hello');
+    s.st.front = { hwnd: 99, title: 'Claude' };
+    expect((await s.say('undo that')).note).toMatch(/didn't undo anything/);
+    expect(s.acts.at(-1)).toEqual(['focusHandle', 7]);
+  });
+});
+
+describe('screen mode: clicks that land (live 2026-10-29, Google in Chrome)', () => {
+  it('a tall link is clicked on its title line, not the empty middle of its box', async () => {
+    const { clickPoint } = await import('../../plugins/screen/mode.js');
+    expect(clickPoint({ type: 'Hyperlink', x: 610, y: 361, w: 694, h: 90 })).toEqual({ x: 383, y: 388 });
+    expect(clickPoint({ type: 'Button', x: 50, y: 40, w: 80, h: 30 })).toEqual({ x: 50, y: 40 });
+    expect(clickPoint({ type: 'Hyperlink', x: 50, y: 40 })).toEqual({ x: 50, y: 40 });
+  });
+
+  it('Google results: the links with an address, not the logo or the sitelinks', () => {
+    const items = [
+      { type: 'Hyperlink', name: 'Go to Google Home', x: 100, y: 100 },
+      { type: 'Hyperlink', name: 'GitHub · Change is constant. GitHub keeps you ahead ... GitHub https://github.com', x: 600, y: 360 },
+      { type: 'Hyperlink', name: 'Sign up for GitHub', x: 600, y: 460 },
+      { type: 'Hyperlink', name: 'GitHub - Wikipedia Wikipedia https://en.wikipedia.org › wiki › GitHub', x: 600, y: 700 },
+    ];
+    expect(pickResult(items, 1).name).toMatch(/github\.com$/);
+    expect(pickResult(items, 2).name).toMatch(/Wikipedia/);
+  });
+});
+
+describe('screen mode: the right window (live 2026-10-29: "switch to Chrome" picked the user\'s Amazon cart)', () => {
+  it('a shopping cart counts as sensitive', async () => {
+    const { sensitiveScreen } = await import('../../plugins/screen/mode.js');
+    expect(sensitiveScreen('Amazon.in Shopping Cart - Google Chrome')).toBe(true);
+    expect(sensitiveScreen('Your Basket - Tesco - Brave')).toBe(true);
+  });
+
+  it('after a search, the results window is the one brought forward', async () => {
+    const s = await on(setup());
+    expect(await s.say('search for GitHub')).toMatchObject({ focus: 'GitHub - Google Search' });
+  });
+
+  it('"switch to Chrome" says which window it brought forward', async () => {
+    const acts = [];
+    const host = new PluginHost({ runtime: { callTool: async () => ({ note: 'Switched to Chrome.' }) }, env: {}, logger: { warn() {} } });
+    host.register(createScreenPlugin({ driver: { front: async () => ({ hwnd: 3, title: 'Amazon.in Shopping Cart - Google Chrome' }), focus: async () => true, key: async (k) => acts.push(k) } }));
+    await host.get('screen_command').run({ text: 'start screen control' });
+    expect((await host.get('screen_command').run({ text: 'switch to chrome' })).note).toBe('Chrome is in front: Amazon.in Shopping Cart.');
   });
 });

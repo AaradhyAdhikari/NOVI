@@ -198,10 +198,11 @@ const MS_PER_CHAR = 70; // ~14 characters a second
 // "Could you clarify…?", which opened the mic again and again).
 const UNCLEAR = /\b(?:clarify|not sure (?:i|what)|didn['’]?t (?:catch|understand|get)|what would you like|what do you mean|could you (?:repeat|rephrase|say that again)|say that again)\b/i;
 
-export function conversationNext({ text = '', reply = '' } = {}) {
+export function conversationNext({ text = '', reply = '', screenMode = false } = {}) {
   if (!String(text).trim() || !String(reply).trim() || ENDS.test(String(text).trim())) return null;
   if (UNCLEAR.test(String(reply))) return null;
-  return { deafMs: SPEECH_START_MS + spokenText(reply).length * MS_PER_CHAR, waitMs: 8000 };
+  // Screen Mode: one command after another, with a look at the screen in between.
+  return { deafMs: SPEECH_START_MS + spokenText(reply).length * MS_PER_CHAR, waitMs: screenMode ? 20000 : 8000 };
 }
 
 // The laptop mic can fail (earbuds connecting, another app, a driver hiccup). Never give up:
