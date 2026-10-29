@@ -15,7 +15,7 @@ import { sameCommand } from './sameCommand.js';
 import { replyFrom } from './shortcuts.js';
 import { briefCommand, changeCommand } from './briefCommand.js';
 import { dictationCommand } from './dictationCommand.js';
-import { claudeLinkCommand, linkFolderCommand, projectStatusCommand, projectAboutCommand, claudeActivityCommand } from './claudeLinkCommand.js';
+import { claudeLinkCommand, linkFolderCommand, projectStatusCommand, projectAboutCommand, claudeActivityCommand, claudeUsageCommand } from './claudeLinkCommand.js';
 import { changesCommand } from './changesCommand.js';
 import { codemapCommand } from './codemapCommand.js';
 import { doneCheckCommand } from './doneCheckCommand.js';
@@ -31,7 +31,7 @@ import fs from 'node:fs';
 // "What went wrong?" (the activity log) and "what's running?" — answered without the AI.
 const WRONG_RE = /^(?:what went wrong|what happened(?: last time| just now| there)?|why didn'?t (?:that|it|this) work|why did (?:that|it) fail|kya (?:galat )?hua(?: tha)?|kya gadbad hui)$/i;
 const RUNNING_RE = /^(?:what(?:'s| is) (?:running|going on|happening)(?: right now)?|what are you (?:doing|working on)(?: right now)?|(?:sab )?kya (?:kya )?chal raha hai|anything running)$/i;
-const DIRECT_OK = new Set(['code_start_task', 'code_send_message', 'rename_project', 'file_new_folder', 'open_project', 'file_open', 'file_rename', 'note_write', 'notes_ask', 'note_open', 'whatsapp_send', 'claude_project_make', 'remember_project', 'codemap_build', 'donecheck_run', 'donecheck_fix', 'claude_activity', 'code_changes', 'code_tests']); // whatsapp_send: the user's decision 2026-10-17 — their command is the yes
+const DIRECT_OK = new Set(['code_start_task', 'code_send_message', 'rename_project', 'file_new_folder', 'open_project', 'file_open', 'file_rename', 'note_write', 'notes_ask', 'note_open', 'whatsapp_send', 'claude_project_make', 'remember_project', 'codemap_build', 'donecheck_run', 'donecheck_fix', 'claude_activity', 'code_changes', 'code_tests', 'claude_usage']); // whatsapp_send: the user's decision 2026-10-17 — their command is the yes
 const ASK_ANYWAY = new Set(['file_gather', 'file_undo_move', 'laptop_run', 'preview_show', 'preview_open']); // preview_show/open: only its first start of a project's own command asks
 const MAX_ROUNDS = 10; // screen tasks: open the app, look, click, type, …
 const MAX_HISTORY = 40;
@@ -407,8 +407,9 @@ export class Agent {
       const quickReply = await this._quick(quick, from);
       if (quickReply != null) return this._remember(text, quickReply); // '' = the card's asker already answered
     }
-    // "What did Claude change" / "run the tests" (plugins/changes), no AI.
-    const change = changesCommand(text);
+    // "What did Claude change" / "run the tests" (plugins/changes), "show me my Claude usage"
+    // (plugins/claude-link), no AI.
+    const change = changesCommand(text) || claudeUsageCommand(text);
     if (change && this.tools.get(change.tool)) {
       const { output } = await this._runTool({ id: `chg-${Date.now()}`, function: { name: change.tool, arguments: JSON.stringify(change.args) } }, { direct: true });
       return this._remember(text, output?.error || output?.note || 'Done.');
@@ -668,7 +669,7 @@ export class Agent {
     if (mem && this.tools.get(mem.tool)) return { quick: null, calls: [{ name: mem.tool, args: mem.args }], reply: null, provider: 'direct' };
     const activity = claudeActivityCommand(text);
     if (activity && this.tools.get('claude_activity')) return { quick: null, calls: [{ name: 'claude_activity', args: {} }], reply: null, provider: 'direct' };
-    const change = changesCommand(text);
+    const change = changesCommand(text) || claudeUsageCommand(text);
     if (change && this.tools.get(change.tool)) return { quick: null, calls: [{ name: change.tool, args: change.args }], reply: null, provider: 'direct' };
     const check = doneCheckCommand(text);
     if (check && this.tools.get(check.tool)) return { quick: null, calls: [{ name: check.tool, args: check.args }], reply: null, provider: 'direct' };

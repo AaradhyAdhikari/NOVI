@@ -115,6 +115,20 @@ export function createClaudeWeb({ request, site = CLAUDE, sleep = (ms) => new Pr
     return (await clickText(site.saveButton, site.saveTexts)) ? { url } : { url, instructionsMissed: true };
   }
 
+  // claude.ai/settings/usage: on desktop a Settings pop-up over a new chat (live 2026-10-29) — its text,
+  // once the numbers show (usage.js reads them).
+  async function usage() {
+    await open('https://claude.ai/settings/usage');
+    if (!(await waitFor('[role="dialog"]', 15_000))) return (await loginNeeded()) ? notReady() : { error: "claude.ai's Usage page didn't load in Chrome. Try again in a moment." };
+    let text = '';
+    for (let i = 0; i < 8; i += 1) {
+      ({ text = '' } = (await request('textOf', { selector: '[role="dialog"]', tabId })) || {});
+      if (text.includes('% used')) break;
+      await sleep(pollMs);
+    }
+    return text.includes('% used') ? { text } : { error: "I opened claude.ai's Usage page but couldn't find the numbers." };
+  }
+
   const guard = (fn) => async (...args) => { try { return await fn(...args); } catch (err) { return { error: String(err?.message || err) }; } };
-  return { list: guard(list), make: guard(make), info: guard(info) };
+  return { list: guard(list), make: guard(make), info: guard(info), usage: guard(usage) };
 }

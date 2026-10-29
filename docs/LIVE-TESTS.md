@@ -23,6 +23,7 @@ Last updated: 2026-10-22.
 ## Changes, tests and "what is Claude working on" (2026-10-29)
 - [x] "What is Claude working on?" now sees any Claude Code session on the laptop (the Claude app too): live → "Claude Code is working on novi. Right now it is running a command: …". It was "isn't working on any task".
 - [x] "What changed in Novi" → the changed files with +/− lines (live, 12 files).
+- [x] "Show me my Claude usage" / "Claude stats" / "how much Claude is left" → read from claude.ai in the hidden Chrome tab and said (live: "this session 47% used, resets at 6:20 AM. This week 59% used…").
 - [ ] "show me the changes in App.jsx" → the changed lines.
 - [ ] "run the tests" / "did the tests pass" on a project with tests → "N passed, M failed: …".
 - [ ] When Claude finishes a task → "Claude changed N files: …".

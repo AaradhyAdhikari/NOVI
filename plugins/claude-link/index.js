@@ -4,6 +4,7 @@ import { definePluginEntry } from '#plugin-sdk';
 import { listClaudeCodeProjects, CONTAINER } from './codeProjects.js';
 import { createClaudeWeb } from './claudeWeb.js';
 import { activeSessions, activityLine } from './activity.js';
+import { parseUsage, usageLine } from './usage.js';
 
 // Novi ⇄ Claude (user, 2026-10-18): every folder Claude Code has worked in becomes one of Novi's
 // projects (with a note in Novi Memory), so old projects can be driven by voice like new ones; and
@@ -135,6 +136,21 @@ export function createClaudeLinkPlugin({ driver = null, listCode = () => listCla
             if (on && !wasConnected && Object.keys(state.toMake || {}).length) retryMakes().catch((err) => log(`[claude-link] ${err.message}`));
             wasConnected = on;
           }, 60_000).unref?.();
+        },
+      });
+
+      // "Show me my Claude usage" (user, 2026-10-29): the numbers from claude.ai's Usage page, read in
+      // Novi's background Chrome tab, said in one line.
+      api.registerTool({
+        name: 'claude_usage',
+        description: "The user's Claude plan usage right now: this session's and this week's % used and when they reset, read from claude.ai ('show me my Claude usage', 'Claude stats', 'how much Claude is left').",
+        parameters: { type: 'object', properties: {}, required: [] },
+        async execute() {
+          if (!connected()) return { content: [], details: { note: "Chrome isn't connected to Novi, so I can't read claude.ai. Open Chrome and ask again." } };
+          const out = await getWeb().usage();
+          if (out?.error) return { content: [], details: { note: out.error } };
+          const line = usageLine(parseUsage(out.text), out.text);
+          return { content: [], details: { note: line || "I opened claude.ai's Usage page but couldn't find the numbers." } };
         },
       });
 

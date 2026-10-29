@@ -104,3 +104,16 @@ export function claudeActivityCommand(text) {
   }
   return null;
 }
+
+// "Show me my Claude usage" / "Claude stats" / "how much Claude do I have left" / "usage stats" /
+// "Claude limit kitna bacha hai" → the numbers from claude.ai's Usage page (claude_usage), no AI.
+export function claudeUsageCommand(text) {
+  const t = String(text || '').trim().replace(LEAD, '').replace(/[.!?]+$/, '').trim();
+  if (/^(?:show (?:me )?|what(?:'s| is| are) |tell me |check )?(?:my )?(?:current )?claude (?:usage|stats|limits?)(?: stats)?(?: right now| now| today)?$/i.test(t)
+    || /^(?:show (?:me )?)?(?:my )?usage stats$/i.test(t)
+    || /^how much (?:of )?claude (?:do i have|is|have i got) left$/i.test(t)
+    || /^claude (?:limit|usage) kitna (?:bacha|baki) hai$/i.test(t)) {
+    return { tool: 'claude_usage', args: {} };
+  }
+  return null;
+}
