@@ -97,7 +97,7 @@ export function projectStatusCommand(text) {
 // → every busy Claude Code session (plugins/claude-link claude_activity), no AI.
 export function claudeActivityCommand(text) {
   const t = String(text || '').trim().replace(LEAD, '').replace(/[.!?]+$/, '').trim();
-  if (/^what(?:'s| is| are)\s+claude(?: code)?\s+(?:working on|doing|up to|busy with)(?:\s+(?:right now|now))?$/i.test(t)
+  if (/^what(?:'s| is| are)\s+claude(?: code)?\s+(?:currently\s+)?(?:working on|doing|up to|busy with)(?:\s+(?:right now|now|rn|at the moment|currently))?$/i.test(t)
     || /^is\s+claude(?: code)?\s+(?:working|busy|doing (?:something|anything))(?:\s+on (?:something|anything))?(?:\s+(?:right now|now))?$/i.test(t)
     || /^claude(?: code)?\s+(?:kya kar raha hai|kya kar rahi hai|kis pe kaam kar raha hai)$/i.test(t)) {
     return { tool: 'claude_activity', args: {} };
