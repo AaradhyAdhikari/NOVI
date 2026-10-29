@@ -6,12 +6,10 @@ import { createKwsDetector, kwsAvailable } from './kwsDetector.js';
 import { createWakeListener, normalizeVolume } from './listener.js';
 import { encodeWav } from '../../../src/lib/utterance.js';
 import { spokenText } from '../../narrator.js';
-import { loadSpeakerVerifier } from '../speaker/verifier.js';
 import { createWorkerRecorder } from './micWorker.js';
 
 const DIR = path.resolve('models/wakeword');
 const KWS_DIR = path.resolve('models/kws');
-const SPEAKER_MODEL = path.resolve('models/speaker/wespeaker_en_voxceleb_resnet34.onnx');
 
 // "Only my voice" + "Hey Novi" interrupts: the listener asks Novi whether a voice is the owner's
 // (true / false / null = check off) and silences Novi when the owner interrupts it.
@@ -64,7 +62,8 @@ export function pickWakeEngine({ env = process.env, exists = fs.existsSync } = {
   return { engine: null, missing: [modelPath, ...shared].filter((f) => !exists(f)) };
 }
 
-export async function startWakeWordService({ novi, env = process.env, logger = console }) {
+// speaker: the speaker model Novi loaded at startup (index.js), for the log line only.
+export async function startWakeWordService({ novi, env = process.env, logger = console, speaker = null }) {
   const pick = pickWakeEngine({ env });
   if (!pick.engine) {
     logger.log(`  Wake word: browser only (missing ${pick.missing.map((f) => path.relative(process.cwd(), f)).join(', ')})`);
@@ -76,10 +75,7 @@ export async function startWakeWordService({ novi, env = process.env, logger = c
   const { PvRecorder } = await import('@picovoice/pvrecorder-node');
   let detector = kws ? createKwsDetector({ dir: pick.dir }) : await createWakeWordDetector({ melspectrogramPath: pick.shared[0], embeddingPath: pick.shared[1], modelPath });
   if (env.NOVI_WAKEWORD_DEBUG) detector = withDebugLog(detector, logger);
-  const speaker = await loadSpeakerVerifier({ modelPath: path.resolve(env.NOVI_SPEAKER_MODEL || SPEAKER_MODEL) });
-  if (speaker.status === 'error') logger.warn(`⚠  Voice check off: the speaker model failed to load (${speaker.error}).`);
-  novi.setSpeakerVerifier?.(speaker);
-  const voiceCheck = { ready: 'ready', 'no-model': 'no model', error: 'error' }[speaker.status];
+  const voiceCheck = { ready: 'ready', 'no-model': 'no model', error: 'error' }[(await speaker)?.status] || 'no model';
 
   // 0.35: the hey_novi model trained on synthetic voices; override with NOVI_WAKEWORD_THRESHOLD.
   // A level chosen in Settings → "Hey Novi" from the user's own clips wins over the default.
@@ -104,7 +100,7 @@ export async function startWakeWordService({ novi, env = process.env, logger = c
       onCommand: async (audio, { followUp } = {}) => {
         logger.log(`[wake] ${followUp ? 'follow-up' : 'command'} recorded (${(audio.length / 16000).toFixed(1)} s)`);
         try {
-          const result = await novi.runVoiceCommand(Buffer.from(encodeWav(Float32Array.from(normalizeVolume(audio), (s) => s / 32768), 16000)), { followUp: Boolean(followUp) });
+          const result = await novi.runVoiceCommand(Buffer.from(encodeWav(Float32Array.from(normalizeVolume(audio), (s) => s / 32768), 16000)), { followUp: Boolean(followUp), voiceChecked: Boolean(followUp) }); // the listener checked a follow-up's voice itself
           // Conversation mode: keep listening for the next sentence, no "Hey Novi" needed.
           const next = result && conversationNext(result);
           if (next && current?.listener === listener) {

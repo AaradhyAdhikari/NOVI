@@ -20,6 +20,17 @@ Last updated: 2026-10-22.
 - Novi's ChatGPT / Gemini / claude.ai work stays in one minimized Chrome window (no tab pile-up).
 - No more freezes; "open my github profile" is instant; "where is my resume" ≈ 3.5 s.
 
+## Only my voice (2026-10-29, built, not tried live yet)
+Setup once: the speaker model is **not on the laptop yet**. Download `wespeaker_en_voxceleb_resnet34.onnx` (≈26 MB) from
+https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/wespeaker_en_voxceleb_resnet34.onnx
+into `C:\dev\NOVI\models\speaker\`, restart Novi, then Settings → "Hey Novi" → **Learn my voice** (your 61 practice clips are already there).
+- [ ] Settings → "Hey Novi" shows "Only my voice can command Novi" ticked after learning.
+- [ ] Your own voice on the laptop mic, the talk button and the phone app works as before.
+- [ ] Someone else (or a video) says "what time is it" into the talk button / phone app → "That didn't sound like you." (said once a minute at most), nothing happens; Settings → Activity shows "not your voice".
+- [ ] A card waits for your PIN: the PIN still works by voice (the PIN is the proof); typed messages are never checked.
+- [ ] Novi ignores you? Lower Strictness a little in Settings. Untick the box to turn the check off.
+- [ ] The log shows `[timing] voice check N ms` — tell Claude the number (should be well under 300 ms).
+
 ## claude.ai project instructions (2026-10-29, built, not tried live yet)
 Before, Novi never clicked the right button: the plain "Add" next to Instructions is the Context file uploader. Now it clicks the real Instructions button, and only fills the box if it's empty (your own text is never changed).
 - [ ] Build something new ("let's build a tiny unit converter app" → "yes"), then open that project on claude.ai: Instructions should name the folder (`C:\dev\…`) and the brief.
@@ -149,7 +160,7 @@ Needs graphify installed once (`pip install graphifyy` — already done on this 
 - [ ] Hindi / Marathi / Hinglish: "kal ka weather batao", "YouTube pe arijit singh lagao".
 - [ ] Dictation: click in Notepad, hold **Ctrl+Shift+Space**, speak, let go → your words are typed. Also "type: hello there".
 - [ ] Desktop orb: shows listening / thinking / talking, drag it, tap it to talk, right-click → Hide.
-- [ ] "Learn my voice" (Settings → "Hey Novi"), then check a friend's "Hey Novi" is ignored.
+- [ ] "Learn my voice" (Settings → "Hey Novi"), then check a friend's "Hey Novi" is ignored (see "Only my voice" above).
 
 ## Laptop control
 

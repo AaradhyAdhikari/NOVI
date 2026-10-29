@@ -23,6 +23,9 @@ async function loadSherpa(modelPath) {
   return new SpeakerEmbeddingExtractor({ model: modelPath, numThreads: 1, provider: 'cpu', debug: 0 });
 }
 
+// models/speaker/ (gitignored, ≈26 MB, see README "Voice check"); NOVI_SPEAKER_MODEL wins.
+export const speakerModelPath = (env = process.env) => path.resolve(env.NOVI_SPEAKER_MODEL || 'models/speaker/wespeaker_en_voxceleb_resnet34.onnx');
+
 export async function loadSpeakerVerifier({ modelPath, load = loadSherpa, exists = fs.existsSync }) {
   if (!exists(modelPath)) return { verifier: null, status: 'no-model' };
   let extractor;

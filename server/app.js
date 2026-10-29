@@ -59,6 +59,7 @@ import { createMissedQueue } from './missed.js';
 import { createTailscaleIdentity } from './tailscaleIdentity.js';
 import { PairRequests } from './pairRequests.js';
 import { enrollVoice, readClips, createVoiceprintStore } from './voice/speaker/enroll.js';
+import { readWavInt16 } from './voice/wakeword/detector.js';
 import { createVocabulary } from './voice/vocabulary.js';
 import { judgeHeard } from './voice/heardFilter.js';
 import { hintNames, fixNames } from './voice/techWords.js';
@@ -319,8 +320,39 @@ export function createNovi(config, overrides = {}) {
     if (result.refinedFrom) console.log(`[voice] Hindi/Marathi: used ${result.provider} instead of ${result.refinedFrom}`);
     return typeof result.confidence === 'number' ? { text: result.text, confidence: result.confidence } : result.text;
   });
+  // "Only my voice": a voice that isn't the owner's is not transcribed and never acts (talk button,
+  // phone app, laptop mic, dictation). A spoken PIN still counts — the PIN is the proof. A clip that
+  // can't be checked (not 16 kHz WAV, too short, no voiceprint, check off) goes through: never deaf.
+  const NOT_YOU = "That didn't sound like you.";
+  const notYouSaid = new Map(); // device → when NOT_YOU was last said (said once, not on every clip)
+  function voiceVerdict(audio) {
+    if (!usableVoiceprint()) return null;
+    let samples;
+    try { samples = readWavInt16(Buffer.from(audio)); } catch { return null; }
+    const t0 = Date.now();
+    const { ok, score } = checkVoice(samples.subarray(0, 16000 * 10)); // 10 s is plenty to know a voice
+    const ms = Date.now() - t0;
+    console.log(`[timing] voice check ${ms} ms (${ok === false ? 'not the owner' : ok ? 'owner' : 'unchecked'})`);
+    return { ok, score, ms };
+  }
+  function notYou(from, verdict) {
+    const turn = activity.begin("(a voice that isn't yours)", from);
+    activity.route(turn, 'not your voice');
+    activity.end(turn, `${NOT_YOU} (match ${verdict.score}, check ${verdict.ms} ms)`);
+    const key = from === 'local' ? 'local' : from?.deviceId;
+    if (Date.now() - (notYouSaid.get(key) || 0) < 60_000) return;
+    notYouSaid.set(key, Date.now());
+    sendTo(from, { type: 'speak', text: NOT_YOU });
+  }
   // Speech → text with your fixes applied; logged (with the recording) for Settings → Words.
-  async function hear(audio, mimeType, source) {
+  // voiceChecked: the wake listener already checked this very clip (a follow-up).
+  async function hear(audio, mimeType, source, { from = 'local', voiceChecked = false } = {}) {
+    const verdict = voiceChecked ? null : voiceVerdict(audio);
+    // Not the owner: only a PIN for a card that waits for one is worth transcribing.
+    if (verdict?.ok === false && !agent.wantsPin?.(from)) {
+      notYou(from, verdict);
+      return { text: '', id: null, notYou: true };
+    }
     working += 1;
     let heard;
     let confidence;
@@ -331,6 +363,10 @@ export function createNovi(config, overrides = {}) {
     } finally { working -= 1; }
     // Your word fixes, then near-misses of your project / tech names ("tracebytes" → TraceBites).
     const text = fixNames(vocabulary.apply(heard), projectWords());
+    if (verdict?.ok === false && !parseSpokenPin(text)) {
+      notYou(from, verdict);
+      return { text: '', id: null, notYou: true };
+    }
     let id = null;
     // A PIN said while a card waits is never kept in the voice log (text or recording).
     const maybePin = approvals.pending().length > 0 && parseSpokenPin(text);
@@ -877,7 +913,8 @@ export function createNovi(config, overrides = {}) {
     try {
       const mimeType = String(req.headers['content-type'] || 'audio/webm').split(';')[0];
       const t0 = Date.now();
-      const { text, id } = await hear(req.body, mimeType, 'talk');
+      const { text, id, notYou: rejected } = await hear(req.body, mimeType, 'talk', { from: req.from });
+      if (rejected) return res.json({ text: '', notYou: true, message: NOT_YOU });
       // Where the time goes (tap → mic open on the phone, speech-to-text here). Never logs the words.
       console.log(`[timing] mic open ${Number(req.headers['x-novi-mic-ms']) || '?'} ms, speech-to-text ${Date.now() - t0} ms (${Math.round(req.body.length / 1024)} KB)`);
       res.json({ text, logId: id });
@@ -1108,8 +1145,8 @@ export function createNovi(config, overrides = {}) {
   // A command heard by the always-on laptop microphone (16 kHz WAV).
   // followUp: heard while Novi kept listening after a reply (no "Hey Novi") — noise there is dropped,
   // which also ends the listening (live 2026-10-20: "Aung!" ran a sync and answers chained).
-  async function runVoiceCommand(wav, { followUp = false } = {}) {
-    const { text, id, confidence } = await hear(wav, 'audio/wav', 'wake');
+  async function runVoiceCommand(wav, { followUp = false, voiceChecked = false } = {}) {
+    const { text, id, confidence } = await hear(wav, 'audio/wav', 'wake', { voiceChecked });
     if (!text || text === '.') return null;
     // A PIN said for a waiting card is never "noise" (it is often one word: "4829").
     const drop = agent.wantsPin?.('local') && parseSpokenPin(text) ? null : judgeHeard({ text, confidence, followUp });

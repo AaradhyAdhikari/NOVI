@@ -57,8 +57,8 @@ export default function WakeTraining({ api }) {
   );
 }
 
-// "Only my voice": learn a voiceprint from the clips above; then only your voice wakes Novi, and
-// saying "Hey Novi" while it talks stops it.
+// "Only my voice": learn a voiceprint from the clips above; then only your voice commands Novi (laptop
+// mic, talk button, phone app; typed text is never checked), and "Hey Novi" while it talks stops it.
 function VoiceCheck({ api, clips }) {
   const [v, setV] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -87,10 +87,13 @@ function VoiceCheck({ api, clips }) {
     <div className="voice-check">
       <h4>Only my voice</h4>
       {v.status !== 'ready' ? (
-        <p className="muted">{v.status === 'error' ? 'The speaker model failed to load (see the log).' : 'Voice check needs the speaker model — see README (Voice check).'}</p>
+        <p className="muted">{v.status === 'error'
+          ? 'The speaker model failed to load (see the log). Until then Novi listens to anyone.'
+          : 'Off: Novi listens to anyone. To turn it on, put the speaker model in models/speaker/ (README → Voice check), restart Novi, then come back here and tap Learn my voice.'}</p>
       ) : (
         <>
-          <p className="muted">Novi learns your voice from the clips above (at least 5). Then a TV or someone else saying “Hey Novi” is ignored, and you can say “Hey Novi” while it talks to stop it.</p>
+          <p className="muted">Novi learns your voice from the clips above (at least 5). Then only your voice can command Novi — on the laptop mic, the talk button and the phone app (typed messages always work). Anyone else hears “That didn't sound like you.” A spoken PIN still needs the right PIN.</p>
+          {!v.learned && <p className="warn">Not learned yet: Novi listens to anyone until you tap Learn my voice.</p>}
           <button className="btn" onClick={() => send('/api/voiceprint/learn', 'POST')} disabled={busy || clips < 5}>
             {busy ? <Loader2 size={16} className="spin" /> : null} {v.learned ? 'Learn my voice again' : 'Learn my voice'}
           </button>
@@ -99,7 +102,7 @@ function VoiceCheck({ api, clips }) {
             <>
               <p className="muted">Learned from {v.clipCount} clips · your match {v.selfScores[0].toFixed(2)}–{v.selfScores[1].toFixed(2)} · strictness {v.strictness}</p>
               <label className="row">
-                <input type="checkbox" checked={v.enabled} onChange={(e) => send('/api/voiceprint', 'PUT', { enabled: e.target.checked })} /> Only my voice wakes Novi
+                <input type="checkbox" checked={v.enabled} onChange={(e) => send('/api/voiceprint', 'PUT', { enabled: e.target.checked })} /> Only my voice can command Novi
               </label>
               <label className="row">
                 Strictness {strictness?.toFixed(2)}

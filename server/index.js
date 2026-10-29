@@ -9,6 +9,7 @@ import { tailscaleCert } from './tailscale.js';
 import { startKeepAwake } from './laptop/keepAwake.js';
 import { checkClaude } from './claude/check.js';
 import { startWakeWordService } from './voice/wakeword/service.js';
+import { loadSpeakerVerifier, speakerModelPath } from './voice/speaker/verifier.js';
 import { createLocalSpeaker } from './voice/localSpeaker.js';
 import { rememberOwnProject } from './ownProject.js';
 import { createEdgeTts, DEFAULT_VOICES } from './voice/edgeTts.js';
@@ -43,6 +44,12 @@ const serverTls = {
   SNICallback: (servername, cb) => cb(null, ts && servername === ts.name ? tsContext : undefined),
 };
 const novi = createNovi(config, { lanUrls, localSpeaker, logBuffer, system, tsName: ts?.name || null, tls: serverTls });
+// "Only my voice" on every voice path (phone, app, laptop mic), so the speaker model loads here, not with the wake word.
+const speaker = loadSpeakerVerifier({ modelPath: speakerModelPath() }).then((loaded) => {
+  if (loaded.status === 'error') console.warn(`⚠  Voice check off: the speaker model failed to load (${loaded.error}).`);
+  novi.setSpeakerVerifier(loaded);
+  return loaded;
+});
 await novi.plugins.loadDirectory(path.resolve('plugins'));
 rememberOwnProject(novi.memory, process.cwd());
 await novi.plugins.startServices({ skip: testCopy ? TEST_SKIP_SERVICES : [] });
@@ -73,7 +80,7 @@ server.listen(config.port, '0.0.0.0', () => {
   console.log(`  Plugins: ${novi.plugins.plugins.map((p) => p.id).join(', ')}`);
   console.log(`  Pairing code: ${novi.pairing.currentCode().code} (also shown in the app)`);
   // Always-on "Hey Novi" on the laptop microphone (works with the browser closed). The test copy leaves the mic to the real Novi.
-  if (!testCopy) startWakeWordService({ novi })
+  if (!testCopy) startWakeWordService({ novi, speaker })
     .then((service) => { wake = service; console.log(''); })
     .catch((err) => console.warn(`⚠  Wake word unavailable: ${err.message}\n`));
 });

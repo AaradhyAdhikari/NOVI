@@ -45,7 +45,8 @@ export default function TalkButton({ onText, api, onRecording = () => {}, handsF
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error || `server error ${res.status}`);
       const text = String(body.text || '').trim();
-      if (text && text !== '.') onText(text);
+      if (body.notYou) setError(body.message); // "Only my voice": someone else spoke
+      else if (text && text !== '.') onText(text);
       else setError("I didn't catch that. Try again, or type.");
     } catch (err) {
       setError(`Speech-to-text failed (${err.message}). Try again, or type.`);
