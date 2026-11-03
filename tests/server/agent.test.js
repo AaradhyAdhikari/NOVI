@@ -155,7 +155,7 @@ describe('YouTube by voice: open it now, then say what to play', () => {
 
   it('"open YouTube" opens it at once (no AI call) and asks what to play; the next answer plays it', async () => {
     const { agent, router, ran } = ytSetup();
-    expect(await agent.handle('Open YouTube.')).toBe("YouTube's open. What should I play?");
+    expect(await agent.handle('Open YouTube.')).toBe("YouTube's open.");
     expect(ran).toEqual([['open', { target: 'https://www.youtube.com' }]]);
     expect(await agent.handle('Valorant')).toBe('Playing Valorant Champions Final.');
     expect(ran[1]).toEqual(['play', { query: 'Valorant' }]);
@@ -1663,6 +1663,43 @@ describe("a card's own words for a spoken no", () => {
     const pending = approvals.decide({ title: 'Send this brief to Claude?', tier: 'medium', source: 'orchestrator', changeable: true, speaksOnDeny: true });
     expect(await agent.handle('no')).toBe('');
     expect(await pending).toMatchObject({ allow: false });
+  });
+});
+
+describe('step by step or in one go: open, type, enter (2026-11-04)', () => {
+  const mk = () => {
+    const ran = [];
+    const tool = (name, out) => ({ name, description: name, parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => name, run: async (a) => { ran.push([name, a]); return out; } });
+    const tools = new ToolRegistry()
+      .add(tool('open_website', { opened: 'https://www.youtube.com', on: 'laptop' }))
+      .add(tool('play_youtube', { note: 'Playing.' }))
+      .add(tool('screen_type_into', { note: "Typed it. Say enter when you're ready." }))
+      .add(tool('screen_enter', { note: 'Pressed Enter.' }));
+    const agent = new Agent({ router: { chat: async () => ({ message: { role: 'assistant', content: 'From the AI.' }, provider: 'groq', model: 'm' }) }, tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
+    agent._openPauseMs = 0;
+    return { agent, ran };
+  };
+
+  it('"open youtube", "type lofi", "enter": the words wait in the box, and "enter" is never a video to play', async () => {
+    const s = mk();
+    expect(s.agent.stepsOn()).toBe(false);
+    await s.agent.handle('open youtube');
+    expect(s.agent.stepsOn()).toBe(true); // the laptop mic waits longer for the next step
+    expect(await s.agent.handle('type lofi music')).toMatch(/Say enter/);
+    expect(await s.agent.handle('enter')).toBe('Pressed Enter.');
+    expect(s.ran.map(([n]) => n)).toEqual(['open_website', 'screen_type_into', 'screen_enter']);
+  });
+
+  it('"open youtube type claude code and enter": all of it from one sentence, nothing played', async () => {
+    const s = mk();
+    await s.agent.handle('open youtube type claude code and enter');
+    expect(s.ran).toEqual([['open_website', { target: 'https://www.youtube.com' }], ['screen_type_into', { text: 'claude code', enter: true }]]);
+  });
+
+  it('a bare "enter" with nothing going on stays with the AI', async () => {
+    const s = mk();
+    expect(await s.agent.handle('enter')).toBe('From the AI.');
+    expect(s.ran).toEqual([]);
   });
 });
 

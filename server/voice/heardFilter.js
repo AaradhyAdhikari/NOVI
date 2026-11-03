@@ -11,7 +11,8 @@ const PHANTOM = new Set(['thank you', 'thanks', 'thank you very much', 'thanks f
   'please subscribe', 'like and subscribe', 'the end', 'music', 'applause', 'laughter']);
 // One word is fine when it is an answer or a stop.
 const ONE_WORD_OK = new Set(['yes', 'yeah', 'yep', 'no', 'nope', 'nah', 'okay', 'ok', 'stop', 'cancel', 'wait', 'pause',
-  'haan', 'ha', 'han', 'nahi', 'nako', 'ho', 'theek', 'ruko', 'bas', 'deny', 'allow', 'always', 'continue', 'next', 'louder', 'quieter']);
+  'haan', 'ha', 'han', 'nahi', 'nako', 'ho', 'theek', 'ruko', 'bas', 'deny', 'allow', 'always', 'continue', 'next', 'louder', 'quieter',
+  'enter', 'send', 'bhejo']);
 
 const clean = (text) => String(text || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}\s']/gu, ' ').replace(/\s+/g, ' ').trim();
 

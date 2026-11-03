@@ -796,6 +796,28 @@ describe('Novi server', () => {
     expect(listened).toHaveLength(2);
   });
 
+  it('step by step from the talk button: the laptop mic stays on for the next step (live 2026-11-04: Brave covered the page)', async () => {
+    let steps = true;
+    const { ws: url, novi, base } = await start({ agent: { handle: async (text) => `echo: ${text}`, stepsOn: () => steps } });
+    const listened = [];
+    novi.setWakeTools({ listen: (o) => listened.push(o) });
+    const c = connect(url);
+    await c.opened;
+    const say = async (text) => { c.ws.send(JSON.stringify({ type: 'user_message', text })); await new Promise((r) => setTimeout(r, 80)); };
+    await say('typed in the chat'); // no talk button: the mic stays off
+    expect(listened).toEqual([]);
+    await fetch(`${base}/api/stt`, { method: 'POST', headers: { 'Content-Type': 'audio/wav' }, body: Buffer.from('abcd') });
+    await say('open youtube');
+    expect(listened).toHaveLength(1);
+    expect(listened[0].waitMs).toBe(20000);
+    expect(listened[0].deafMs).toBeGreaterThan(0);
+    steps = false; // not working step by step: the talk button stays one sentence at a time
+    await fetch(`${base}/api/stt`, { method: 'POST', headers: { 'Content-Type': 'audio/wav' }, body: Buffer.from('abcd') });
+    await say('what time is it');
+    expect(listened).toHaveLength(1);
+    c.ws.close();
+  });
+
   it('runtime.say can speak a short version while the chat gets the whole text (file summaries)', async () => {
     const { ws, novi } = await start();
     const c = connect(ws);

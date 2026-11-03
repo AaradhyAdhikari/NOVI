@@ -65,6 +65,7 @@ public static class NoviScreen {
 [void][NoviScreen]::SetProcessDPIAware()
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 
+function Invoke-Screen([string]$cmd, [string]$a1, [string]$a2) {
 switch ($cmd) {
   'shot' {
     $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
@@ -81,13 +82,15 @@ switch ($cmd) {
     [NoviScreen]::mouse_event(0x4, 0, 0, 0, [UIntPtr]::Zero)
   }
   'type' {
-    # SendKeys treats + ^ % ~ ( ) { } [ ] as commands: wrap each in braces so it's typed literally.
-    $text = ($env:NOVI_SCREEN_TEXT -replace '\r?\n', ' ') -replace '([+^%~(){}\[\]])', '{$1}'
-    # SendKeys inverts letter case while Caps Lock is on: switch it off while typing, then back on.
-    $caps = [Console]::CapsLock
-    if ($caps) { [NoviScreen]::keybd_event(0x14, 0, 0, [UIntPtr]::Zero); [NoviScreen]::keybd_event(0x14, 0, 2, [UIntPtr]::Zero) }
-    try { [System.Windows.Forms.SendKeys]::SendWait($text) }
-    finally { if ($caps) { [NoviScreen]::keybd_event(0x14, 0, 0, [UIntPtr]::Zero); [NoviScreen]::keybd_event(0x14, 0, 2, [UIntPtr]::Zero) } }
+    # In one go through the clipboard (2026-11-04): key by key, the first letters were lost while the
+    # window took the cursor ("hello" came out "llo"), and Hindi or Marathi didn't type at all.
+    # Line breaks become spaces, so nothing is sent by accident. What was copied before is put back.
+    $before = Get-Clipboard -Raw -Format Text -ErrorAction SilentlyContinue
+    Set-Clipboard -Value ($env:NOVI_SCREEN_TEXT -replace '?
+', ' ')
+    [System.Windows.Forms.SendKeys]::SendWait('^v')
+    Start-Sleep -Milliseconds 200
+    if ($before) { Set-Clipboard -Value $before }
   }
   'key' { [System.Windows.Forms.SendKeys]::SendWait($a1) }
   # Mouse wheel over the middle of the front app window (not Novi's page): $a1 notches, negative = down.
@@ -174,4 +177,33 @@ switch ($cmd) {
     $sb.ToString()
   }
   default { throw "unknown command: $cmd" }
+}
+}
+
+# serve: stays running (2026-11-04). Starting PowerShell and compiling the helpers above cost 0.7 s for
+# every step, 6 s for one typed line. One JSON line per command on stdin, one back (same as
+# laptop-control's worker). The env values come as base64 so any language arrives intact.
+if ($cmd -eq 'serve') {
+  while ($true) {
+    $line = [Console]::In.ReadLine()
+    if ($null -eq $line) { break }
+    $id = $null
+    try {
+      $req = $line | ConvertFrom-Json
+      $id = $req.id
+      $a = $req.args
+      if ($a.env) {
+        foreach ($p in $a.env.PSObject.Properties) {
+          [Environment]::SetEnvironmentVariable($p.Name, [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String([string]$p.Value)))
+        }
+      }
+      $out = (Invoke-Screen ([string]$a.cmd) ([string]$a.a1) ([string]$a.a2) | Out-String).Trim()
+      [Console]::Out.WriteLine((@{ id = $id; ok = $true; out = $out } | ConvertTo-Json -Compress))
+    } catch {
+      [Console]::Out.WriteLine((@{ id = $id; ok = $false; error = [string]$_.Exception.Message } | ConvertTo-Json -Compress))
+    }
+    [Console]::Out.Flush()
+  }
+} else {
+  Invoke-Screen $cmd $a1 $a2
 }

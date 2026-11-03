@@ -2,10 +2,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { definePluginEntry } from '#plugin-sdk';
 import { pageShot } from './pageShot.js';
+import { createControlWorker } from '../laptop-control/worker.js';
 import { parseScreenCommand, pickResult, findTarget, clickRisk, riskRank, sensitiveScreen, secretWords, chatApp, shortTitle, capital, createSession, clickPoint, pickBox, SEARCH_BOX, KEY_LABEL } from './mode.js';
 
 // Screen control: look at the screen (Gemini vision — the user agreed screenshots may go to Gemini),
@@ -29,10 +29,12 @@ const normKey = (k) => String(k || '').toLowerCase().replace(/\s+/g, '').replace
 export const toPixels = ([y, x], width, height) => ({ x: Math.round((x / 1000) * width), y: Math.round((y / 1000) * height) });
 
 const SCRIPT = path.join(path.dirname(fileURLToPath(import.meta.url)), 'win.ps1');
-function ps(args, env = {}) {
-  return new Promise((resolve, reject) => execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', SCRIPT, ...args], {
-    windowsHide: true, timeout: 20_000, env: { ...process.env, ...env },
-  }, (err, out, stderr) => (err ? reject(new Error(String(stderr || err.message).trim().slice(0, 300))) : resolve(String(out).trim()))));
+// One PowerShell that stays running: a new one for each step cost 0.7 s (2026-11-04).
+let helper = null;
+function ps([cmd, a1 = '', a2 = ''], env = {}) {
+  helper ||= createControlWorker({ script: SCRIPT, args: ['serve'], timeoutMs: 20_000 });
+  const coded = Object.fromEntries(Object.entries(env).map(([k, v]) => [k, Buffer.from(String(v), 'utf8').toString('base64')]));
+  return helper.run('screen', { cmd, a1, a2, env: coded }).then((r) => String(r.out ?? '').trim());
 }
 
 export const windowsDriver = {
@@ -410,7 +412,8 @@ export function createScreenPlugin({ driver = windowsDriver, now = Date.now, foc
               if (went?.error) return { note: went.notFound ? `${capital(intent.app)} isn't open.` : went.error };
               stale();
             }
-            const s = await look();
+            // Fresh: the window in front may have changed since the last step ("open youtube").
+            const s = await look(!intent.n);
             if (sensitiveScreen(s.title, s.raw)) return { note: SENS };
             const named = intent.n != null ? listed(intent.n) : intent.target ? findTarget(s.list, intent.target) : null;
             if ((intent.n != null || intent.target) && !named) return listOffer(`I couldn't find ${intent.target || `box ${intent.n}`}.`);
@@ -445,12 +448,14 @@ export function createScreenPlugin({ driver = windowsDriver, now = Date.now, foc
               // A search box she clicked: the new words replace the old search. A message box keeps your draft.
               if (SEARCH_BOX.test(box.name)) await driver.key('ctrl+a');
             }
+            await new Promise((r) => setTimeout(r, focusPauseMs)); // the box takes the cursor a moment after the window comes forward
             await driver.type(String(intent.text).slice(0, 2000));
             // Enter: search boxes by themselves; anywhere else only when the user said "… and send".
+            // Enter only on "… and send" or the user's own "enter" next (2026-11-04: see it in the box first).
             const search = SEARCH_BOX.test(box ? box.name : focusedName) && !chatApp(s.title);
-            const press = Boolean(intent.enter) || search;
+            const press = Boolean(intent.enter);
             if (press) { await driver.key('enter'); stale(); lastList = null; }
-            const note = !press ? 'Typed it.' : search ? `Searched for “${intent.text}”.` : chatApp(s.title) ? 'Sent.' : 'Typed it and pressed Enter.';
+            const note = !press ? "Typed it. Say enter when you're ready." : search ? `Searched for “${intent.text}”.` : chatApp(s.title) ? 'Sent.' : 'Typed it and pressed Enter.';
             return { note, target: box?.name || focusedName, done: { what: `typed “${String(intent.text).slice(0, 60)}” in ${shortTitle(s.title)}${press ? ' and pressed Enter' : ''}`, undo: press ? null : { key: 'ctrl+z' } } };
           }
           case 'key': {
@@ -617,6 +622,16 @@ export function createScreenPlugin({ driver = windowsDriver, now = Date.now, foc
           return reply(out.note, { note: out.note });
         },
       });
+      // "enter" as its own step after screen_type_into.
+      api.registerTool({
+        name: 'screen_enter',
+        description: 'Press Enter in the laptop app being worked in, as its own step after typing there.',
+        parameters: obj({}),
+        async execute() {
+          const out = await step({ do: 'key', key: 'enter', times: 1 }, 'enter');
+          return reply(out.note, { note: out.note });
+        },
+      });
       const WRAPPED = new Set(['screen_open_result', 'screen_minimize', 'screen_maximize', 'screen_scroll', 'screen_search', 'screen_open_search_result', 'screen_mode_start']);
 
       // Screen control never deletes (live 2026-10-17: Delete in File Explorer removed a folder with no
@@ -647,6 +662,7 @@ export function createScreenPlugin({ driver = windowsDriver, now = Date.now, foc
       };
       api.on('before_tool_call', ({ toolName, params, direct }) => {
         if (toolName === 'screen_command' || WRAPPED.has(toolName)) return modeGate(toolName, params || {}, direct);
+        if (toolName === 'screen_enter' && !direct) return { requireApproval: { title: 'Press Enter on screen', description: 'This may send what was typed.', severity: 'warning', category: 'screen', grantable: false } };
         if (toolName === 'screen_type_into') return direct ? undefined : { requireApproval: { title: 'Type text on screen', description: String(params?.text || '').slice(0, 300), severity: 'warning', category: 'screen', grantable: true } };
         if (toolName === 'screen_key' && /^(?:shift\+)?(?:ctrl\+)?(?:delete|del)$|^ctrl\+d$/i.test(normKey(params.key)) && !textApp(params.app)) return NO_DELETE;
         const clickWhat = toolName === 'screen_click' ? String(params.target || listed(params.n)?.name || (params.n ? `item ${params.n}` : '')) : '';

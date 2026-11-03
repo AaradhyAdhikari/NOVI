@@ -14,7 +14,7 @@ import { chatgptCommand } from './chatgptCommand.js';
 import { sameCommand } from './sameCommand.js';
 import { replyFrom } from './shortcuts.js';
 import { briefCommand, changeCommand } from './briefCommand.js';
-import { dictationCommand } from './dictationCommand.js';
+import { dictationCommand, enterCommand, chainCommand } from './dictationCommand.js';
 import { claudeLinkCommand, linkFolderCommand, projectStatusCommand, projectAboutCommand, claudeActivityCommand, claudeUsageCommand } from './claudeLinkCommand.js';
 import { changesCommand } from './changesCommand.js';
 import { codemapCommand } from './codemapCommand.js';
@@ -33,6 +33,7 @@ import fs from 'node:fs';
 // "What went wrong?" (the activity log) and "what's running?" — answered without the AI.
 const WRONG_RE = /^(?:what went wrong|what happened(?: last time| just now| there)?|why didn'?t (?:that|it|this) work|why did (?:that|it) fail|kya (?:galat )?hua(?: tha)?|kya gadbad hui)$/i;
 const RUNNING_RE = /^(?:what(?:'s| is) (?:running|going on|happening)(?: right now)?|what are you (?:doing|working on)(?: right now)?|(?:sab )?kya (?:kya )?chal raha hai|anything running)$/i;
+const STEP_TOOLS = new Set(['open_app', 'open_website', 'screen_type_into', 'screen_enter']);
 const DIRECT_OK = new Set(['code_start_task', 'code_send_message', 'rename_project', 'file_new_folder', 'open_project', 'file_open', 'file_rename', 'note_write', 'notes_ask', 'note_open', 'whatsapp_send', 'claude_project_make', 'remember_project', 'codemap_build', 'donecheck_run', 'donecheck_fix', 'claude_activity', 'code_changes', 'code_tests', 'claude_usage']); // whatsapp_send: the user's decision 2026-10-17 — their command is the yes
 const ASK_ANYWAY = new Set(['file_gather', 'file_undo_move', 'laptop_run', 'preview_show', 'preview_open']); // preview_show/open: only its first start of a project's own command asks
 const MAX_ROUNDS = 10; // screen tasks: open the app, look, click, type, …
@@ -385,6 +386,23 @@ export class Agent {
     // app's mic bubble), or "… on my phone" — before Screen Mode, so it never lands on the laptop.
     const phone = await this._phoneCommand(text, from, phoneApp);
     if (phone != null) return this._remember(text, phone);
+    // "Open youtube type claude code and enter": both halves, with time for the app to come up. A page
+    // still loading has no box yet, so the typing gets one more try.
+    const chain = this.tools.get('screen_type_into') && !this.screenModeOn() ? chainCommand(text) : null;
+    if (chain) {
+      const pause = () => new Promise((r) => setTimeout(r, this._openPauseMs ?? 2500));
+      await this._handle(chain.open, { from, phoneApp });
+      await pause();
+      const typed = await this._handle(chain.type, { from, phoneApp });
+      if (!/don't see a text box/i.test(String(typed))) return typed;
+      await pause();
+      return this._handle(chain.type, { from, phoneApp });
+    }
+    if (this.tools.get('screen_enter') && !this.screenModeOn() && enterCommand(text, { steps: this.stepsOn() })) {
+      this._ytUntil = 0; // "enter" is never a video to play
+      const { output } = await this._runTool({ id: `enter-${Date.now()}`, function: { name: 'screen_enter', arguments: '{}' } }, { direct: true });
+      return this._remember(text, output?.error || output?.note || 'Pressed Enter.');
+    }
     const screen = await this._screenCommand(text);
     if (screen != null) return this._remember(text, screen);
     const also = alsoCommand(text);
@@ -454,6 +472,7 @@ export class Agent {
     const typer = this.tools.get('screen_type_into') ? 'screen_type_into' : this.tools.get('dictate_type') ? 'dictate_type' : null;
     const dictate = typer ? dictationCommand(text) : null;
     if (dictate) {
+      this._ytUntil = 0; // typing it, not asking for a video
       const { output } = await this._runTool({ id: `type-${Date.now()}`, function: { name: typer, arguments: JSON.stringify(dictate) } }, { direct: true });
       return this._remember(text, output?.error || output?.note || 'Typed.');
     }
@@ -797,7 +816,7 @@ export class Agent {
       const { output } = await run('open_website', { target: 'https://www.youtube.com' });
       if (output?.error) return output.error;
       this._ytUntil = Date.now() + 2 * 60_000;
-      return output?.on === 'phone' ? "Here's YouTube. What should I play?" : "YouTube's open. What should I play?";
+      return output?.on === 'phone' ? "Here's YouTube." : "YouTube's open.";
     }
     const { output } = await run('play_youtube', { query });
     if (output?.error) return output.error;
@@ -1003,6 +1022,7 @@ export class Agent {
     let runArgs = {};
     try { runArgs = JSON.parse(call.function?.arguments || '{}'); } catch { /* reported below */ }
     this._turnRuns?.push({ tool: call.function?.name, args: runArgs, output: result.output, asked: result.asked });
+    if (STEP_TOOLS.has(call.function?.name) && !result.output?.error) this._stepsUntil = Date.now() + 2 * 60_000;
     // "her" / "him" in the next WhatsApp request = the chat Novi just checked.
     if (call.function?.name === 'whatsapp_prepare' && result.output?.ready?.name) this._waLastTo = result.output.ready.name;
     const err = result.output?.error;
@@ -1082,6 +1102,9 @@ export class Agent {
     }
   }
 
+  // Working step by step ("open youtube", "type …", "enter"): the laptop mic waits longer between
+  // steps and a bare "enter" means Enter. Each open / type step keeps it going for 2 minutes.
+  stepsOn() { return this._stepsUntil > Date.now(); }
   screenModeOn() { return Boolean(this._screenMode && this.tools.get('screen_command')); }
 
   // One step inside the phone app the user is in. The plugin reads the words; null = not a phone step.

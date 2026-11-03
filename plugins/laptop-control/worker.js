@@ -3,7 +3,7 @@
 // PowerShell and compiling its C# helpers takes about a second, so it starts once and stays up.
 import { spawn } from 'node:child_process';
 
-export function createControlWorker({ spawnImpl = spawn, script, platform = process.platform, timeoutMs = 10_000, logger = console } = {}) {
+export function createControlWorker({ spawnImpl = spawn, script, args: scriptArgs = [], platform = process.platform, timeoutMs = 10_000, logger = console } = {}) {
   let child = null;
   let buffer = '';
   let nextId = 1;
@@ -27,7 +27,7 @@ export function createControlWorker({ spawnImpl = spawn, script, platform = proc
   }
 
   function start() {
-    const c = spawnImpl('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+    const c = spawnImpl('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script, ...scriptArgs], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
     buffer = '';
     c.stdout.on('data', (chunk) => {
       buffer += chunk.toString('utf8');

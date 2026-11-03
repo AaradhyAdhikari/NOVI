@@ -427,6 +427,7 @@ export function createNovi(config, overrides = {}) {
   // With no Novi page open, spoken lines go to the laptop speakers instead (Windows voice).
   const localSpeaker = overrides.localSpeaker || null;
   // The wake listener must know when the laptop is talking ("Hey Novi" then interrupts it).
+  let talkedAt = 0; // when the laptop's talk button last sent words
   let wakeTools = null; // { capture, setThreshold, threshold, setSpeaking } from the wake-word service
   let talking = 0;
   const speakLocal = (text) => {
@@ -951,6 +952,7 @@ export function createNovi(config, overrides = {}) {
       const t0 = Date.now();
       const { text, id, notYou: rejected } = await hear(req.body, mimeType, 'talk', { from: req.from });
       if (rejected) return res.json({ text: '', notYou: true, message: NOT_YOU });
+      if (req.from === 'local') talkedAt = Date.now();
       // Where the time goes (tap → mic open on the phone, speech-to-text here). Never logs the words.
       console.log(`[timing] mic open ${Number(req.headers['x-novi-mic-ms']) || '?'} ms, speech-to-text ${Date.now() - t0} ms (${Math.round(req.body.length / 1024)} KB)`);
       res.json({ text, logId: id });
@@ -1107,6 +1109,11 @@ export function createNovi(config, overrides = {}) {
         if (reply) {
           say('novi', reply, from);
           sendTo(from, { type: 'speak', text: spokenText(reply) });
+          // Talk button, working step by step ("open youtube", "type …", "enter"): the app just opened
+          // covers Novi's page, so the laptop mic takes the next step (live 2026-11-04).
+          if (from === 'local' && agent.stepsOn?.() && Date.now() - talkedAt < 30_000) {
+            wakeTools?.listen?.({ deafMs: 1500 + 70 * spokenText(reply).length, waitMs: 20000 });
+          }
         }
         return reply;
       } catch (err) {
@@ -1198,7 +1205,7 @@ export function createNovi(config, overrides = {}) {
     // What was heard and Novi's reply: the wake-word service uses them for conversation mode.
     const reply = (await handleMessage({ type: 'user_message', text })) || '';
     if (id) voiceLog.setReply(id, reply);
-    return { text, reply, screenMode: agent.screenModeOn?.() || false };
+    return { text, reply, screenMode: agent.screenModeOn?.() || agent.stepsOn?.() || false };
   }
   const setWakeTools = (tools) => { wakeTools = tools; };
   // Trigger level chosen in Settings (from the user's own clips), if any.
