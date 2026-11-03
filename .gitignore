@@ -14,3 +14,7 @@ backups/
 models/speaker/*.onnx
 
 graphify-out/
+
+# Local LLM models (large, downloaded per machine)
+models/llm/
+infina-desktop-*.exe

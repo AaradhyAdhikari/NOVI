@@ -3,11 +3,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { definePluginEntry } from '#plugin-sdk';
 import { createOrbProcess } from './orbProcess.js';
+import { cleanDictation } from '../../server/voice/dictationCleanup.js';
 
 // The desktop orb (user, 2026-10-18): a small Novi circle, always on top in a corner (draggable,
 // remembered), showing what Novi is doing on the laptop. A tap = "Hey Novi" without saying it;
 // holding Ctrl+Shift+Space records, and letting go types the words into the app in front
-// (plugins/dictation). Windows only; NOVI_ORB=off turns it off.
+// (plugins/dictation). Windows only; NOVI_ORB=off turns it off. The held-key words are tidied first
+// (fillers, stutters, capitals: server/voice/dictationCleanup.js, 2026-11-03); NOVI_DICTATION_CLEANUP=off
+// types them exactly as heard. "type: …" by voice is never changed.
 const SCRIPT = path.join(path.dirname(fileURLToPath(import.meta.url)), 'orb.ps1');
 
 export function createOrbPlugin({ platform = process.platform, env = process.env, createProcess = createOrbProcess } = {}) {
@@ -25,7 +28,9 @@ export function createOrbPlugin({ platform = process.platform, env = process.env
         if (!wav) return;
         const text = String((await rt.hear(wav)) || '').trim();
         if (!text || text === '.') return;
-        await rt.callTool('dictate_type', { text });
+        const tidy = String(env.NOVI_DICTATION_CLEANUP || '').toLowerCase() === 'off' ? text : cleanDictation(text);
+        if (!tidy) return; // nothing left but fillers ("um")
+        await rt.callTool('dictate_type', { text: tidy });
       }
       const onEvent = (e = {}) => {
         if (e.event === 'tap') return rt.wake?.listen?.();

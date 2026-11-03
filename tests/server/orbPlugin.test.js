@@ -86,12 +86,27 @@ describe('orb plugin', () => {
     t.fire({ event: 'hold_start' });
     expect(t.did.at(-1)).toEqual(['hold', { maxMs: 60_000 }]);
     await t.fire({ event: 'hold_end' });
-    expect(t.did.at(-1)).toEqual(['dictate_type', { text: 'see you at 5' }]);
+    expect(t.did.at(-1)).toEqual(['dictate_type', { text: 'See you at 5' }]); // tidied: capital letter
     t.fire({ event: 'moved', x: 100, y: 200 });
     expect(JSON.parse(fs.readFileSync(path.join(t.dataDir, 'orb.json'), 'utf8'))).toEqual({ x: 100, y: 200 });
     expect(t.handlers().place()).toEqual({ x: 100, y: 200 });
     t.fire({ event: 'open' });
     expect(t.did.at(-1)).toEqual(['open', 'https://localhost:3001']);
+  });
+
+  it('held-key dictation is tidied (fillers, stutters), or typed exactly as heard with NOVI_DICTATION_CLEANUP=off (2026-11-03)', async () => {
+    const tidy = setup({ heard: 'um so i think the the plan is fine' });
+    await startServices(tidy.host);
+    await tidy.fire({ event: 'hold_end' });
+    expect(tidy.did.at(-1)).toEqual(['dictate_type', { text: 'So I think the plan is fine' }]);
+    const raw = setup({ heard: 'um so i think the the plan is fine', env: { NOVI_DICTATION_CLEANUP: 'off' } });
+    await startServices(raw.host);
+    await raw.fire({ event: 'hold_end' });
+    expect(raw.did.at(-1)).toEqual(['dictate_type', { text: 'um so i think the the plan is fine' }]);
+    const onlyFiller = setup({ heard: 'um' });
+    await startServices(onlyFiller.host);
+    await onlyFiller.fire({ event: 'hold_end' });
+    expect(onlyFiller.did.some((d) => Array.isArray(d) && d[0] === 'dictate_type')).toBe(false);
   });
 
   it('a too-short hold or nothing heard types nothing; off on other systems or with NOVI_ORB=off', async () => {
