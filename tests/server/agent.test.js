@@ -153,12 +153,10 @@ describe('YouTube by voice: open it now, then say what to play', () => {
     return { agent, router, ran };
   };
 
-  it('"open YouTube" opens it at once (no AI call) and asks what to play; the next answer plays it', async () => {
+  it('"open YouTube" opens it at once (no AI call), asks nothing, and plays nothing by itself (user, 2026-11-04)', async () => {
     const { agent, router, ran } = ytSetup();
     expect(await agent.handle('Open YouTube.')).toBe("YouTube's open.");
     expect(ran).toEqual([['open', { target: 'https://www.youtube.com' }]]);
-    expect(await agent.handle('Valorant')).toBe('Playing Valorant Champions Final.');
-    expect(ran[1]).toEqual(['play', { query: 'Valorant' }]);
     expect(router.calls).toHaveLength(0);
   });
 
@@ -1694,6 +1692,42 @@ describe('step by step or in one go: open, type, enter (2026-11-04)', () => {
     const s = mk();
     await s.agent.handle('open youtube type claude code and enter');
     expect(s.ran).toEqual([['open_website', { target: 'https://www.youtube.com' }], ['screen_type_into', { text: 'claude code', enter: true }]]);
+  });
+
+  it('"Type." then the words; a sentence ending in "Enter."; no AI for either (live 2026-11-04: 8-19 s)', async () => {
+    const s = mk();
+    await s.agent.handle('open notepad type hello'); // steps are on
+    s.ran.length = 0;
+    await s.agent.handle('Type.');
+    expect(s.agent.silentTurn()).toBe(true);
+    await s.agent.handle('This is a test for my voice.');
+    expect(s.ran).toEqual([['screen_type_into', { text: 'This is a test for my voice.' }]]);
+    await s.agent.handle('I have to sleep. Enter.');
+    expect(s.ran.at(-1)).toEqual(['screen_type_into', { text: 'I have to sleep', enter: true }]);
+  });
+
+  it('"open youtube" waits for the user: a stray "Thank you." plays nothing (live: a Dido song)', async () => {
+    const s = mk();
+    await s.agent.handle('open youtube');
+    await s.agent.handle('Thank you.');
+    expect(s.ran.some(([n]) => n === 'play_youtube')).toBe(false);
+  });
+
+  it('the word "type" is a command, never typed (live: "Type lookFPS, Enter." searched for "Type lookFPS")', async () => {
+    const s = mk();
+    await s.agent.handle('open notepad type hello');
+    s.ran.length = 0;
+    await s.agent.handle('Type lookFPS, Enter.');
+    await s.agent.handle('Tipe second one, Enter.');
+    await s.agent.handle('on the next line, I want to sleep.');
+    await s.agent.handle('Type.');
+    await s.agent.handle('Type on the next line, hello.');
+    expect(s.ran).toEqual([
+      ['screen_type_into', { text: 'lookFPS', enter: true }],
+      ['screen_type_into', { text: 'second one', enter: true }],
+      ['screen_type_into', { text: 'I want to sleep.', newLine: true }],
+      ['screen_type_into', { text: 'hello.', newLine: true }],
+    ]);
   });
 
   it('steps you can see are not read out; anything that went wrong is', async () => {

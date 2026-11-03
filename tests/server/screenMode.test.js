@@ -391,6 +391,18 @@ describe('typing on her own (user, 2026-10-29: "she should do all that on her ow
     expect(parseScreenCommand('send it')).toEqual({ do: 'key', key: 'enter', times: 1, say: 'Sent.' });
   });
 
+  it('a new line first when asked; sentences in the same box get a space between them (2026-11-04)', async () => {
+    const s = mk({ screen: { ...WA, hwnd: 7 } });
+    await s.say('start screen control');
+    await s.say('type first one.');
+    await s.say('type second one.');
+    const typed = () => s.acts.filter(([k]) => k === 'type').map(([, t]) => t);
+    expect(typed().slice(-2)).toEqual(['first one', ' second one']);
+    s.acts.length = 0;
+    await s.say('type on the next line, third one');
+    expect(s.acts.slice(-2)).toEqual([['key', 'enter'], ['type', 'third one']]);
+  });
+
   it('no text box has the cursor: she picks the page\'s search box, types, and searches', async () => {
     const s = mk();
     await s.say('start screen control');

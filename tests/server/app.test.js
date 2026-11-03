@@ -818,6 +818,23 @@ describe('Novi server', () => {
     c.ws.close();
   });
 
+  it('the same words from two mics a moment apart run once (live 2026-11-04: YouTube opened twice)', async () => {
+    const ran = [];
+    const { ws: url } = await start({ agent: { handle: async (t) => { ran.push(t); return 'ok'; } } });
+    const c = connect(url);
+    await c.opened;
+    for (const text of ['Open YouTube.', 'open youtube', 'Open Notepad.']) c.ws.send(JSON.stringify({ type: 'user_message', text }));
+    await new Promise((r) => setTimeout(r, 120));
+    expect(ran).toEqual(['Open YouTube.', 'Open Notepad.']);
+    c.ws.close();
+  });
+
+  it('working step by step, a made-up word from the talk button goes nowhere', async () => {
+    const { base } = await start({ transcribe: async () => 'Thank you.', agent: { handle: async () => 'ok', stepsOn: () => true } });
+    const res = await fetch(`${base}/api/stt`, { method: 'POST', headers: { 'Content-Type': 'audio/wav' }, body: Buffer.from('abcd') });
+    expect((await res.json()).text).toBe('');
+  });
+
   it('a silent step shows in the chat but is not spoken (2026-11-04)', async () => {
     const { ws: url } = await start({ agent: { handle: async () => 'Typed it.', silentTurn: () => true } });
     const c = connect(url);

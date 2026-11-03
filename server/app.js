@@ -333,7 +333,9 @@ export function createNovi(config, overrides = {}) {
     return hint.words;
   };
   const voiceLog = createVoiceLog({ dir: path.join(config.dataDir, 'voice-log'), realDir: path.join(config.dataDir, 'voice-samples', 'real') });
-  const speech = createSpeechEngine({ stt: [createGroqWhisperStt({ keys: providerKeys('groq'), prompt: (base) => vocabulary.prompt(answerHint(base, approvals.pending().some((a) => a.tier !== 'high')), projectWords()) }), sarvam, createGeminiStt({ keys: providerKeys('gemini') })], indic: sarvam });
+  // Working step by step: the words she should expect, so "type" isn't heard as "Tai".
+  const stepHint = (base) => (agent.stepsOn?.() ? `${base} Type. Enter. Send it. Open YouTube. Open Notepad.` : base);
+  const speech = createSpeechEngine({ stt: [createGroqWhisperStt({ keys: providerKeys('groq'), prompt: (base) => vocabulary.prompt(stepHint(answerHint(base, approvals.pending().some((a) => a.tier !== 'high'))), projectWords()) }), sarvam, createGeminiStt({ keys: providerKeys('gemini') })], indic: sarvam });
   const stt = overrides.transcribe || (async (audio, mimeType) => {
     const result = await speech.transcribe({ audio, mimeType });
     if (result.fallbackFrom.length) console.warn(`[voice] ${result.fallbackFrom.join(', ')} failed; used ${result.provider}`);
@@ -427,6 +429,7 @@ export function createNovi(config, overrides = {}) {
   // With no Novi page open, spoken lines go to the laptop speakers instead (Windows voice).
   const localSpeaker = overrides.localSpeaker || null;
   // The wake listener must know when the laptop is talking ("Hey Novi" then interrupts it).
+  let lastSaid = { words: '', at: 0 };
   let lastSilent = false; // the last reply went to the chat only
   let talkedAt = 0; // when the laptop's talk button last sent words
   let wakeTools = null; // { capture, setThreshold, threshold, setSpeaking } from the wake-word service
@@ -951,8 +954,10 @@ export function createNovi(config, overrides = {}) {
     try {
       const mimeType = String(req.headers['content-type'] || 'audio/webm').split(';')[0];
       const t0 = Date.now();
-      const { text, id, notYou: rejected } = await hear(req.body, mimeType, 'talk', { from: req.from });
+      const { text, id, notYou: rejected, confidence } = await hear(req.body, mimeType, 'talk', { from: req.from });
       if (rejected) return res.json({ text: '', notYou: true, message: NOT_YOU });
+      // Working step by step the laptop mic is open too: the talk button gets its noise filter.
+      if (req.from === 'local' && agent.stepsOn?.() && judgeHeard({ text, confidence, followUp: true })) return res.json({ text: '' });
       if (req.from === 'local') talkedAt = Date.now();
       // Where the time goes (tap → mic open on the phone, speech-to-text here). Never logs the words.
       console.log(`[timing] mic open ${Number(req.headers['x-novi-mic-ms']) || '?'} ms, speech-to-text ${Date.now() - t0} ms (${Math.round(req.body.length / 1024)} KB)`);
@@ -1085,6 +1090,10 @@ export function createNovi(config, overrides = {}) {
   async function handleMessage(msg, from = 'local') {
     if (msg.type === 'user_message' && typeof msg.text === 'string' && msg.text.trim()) {
       const text = msg.text.trim().slice(0, 4000);
+      // The talk button and the laptop mic can both hear one sentence: it runs once.
+      const said = text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+      if (from === 'local' && said === lastSaid.words && Date.now() - lastSaid.at < 3000) return '';
+      if (from === 'local') lastSaid = { words: said, at: Date.now() };
       active = from;
       // A card is waiting for the voice PIN (agent.wantsPin): the PIN goes only to the approval — never
       // into the chat, the activity log, the learning loop or the AI.

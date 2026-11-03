@@ -53,6 +53,7 @@ const RULES = [
   [re('type (?:this |that )?(?:in|into) (?:the )?(.+?)\\s*[:,]\\s*(.+)'), (m) => ({ do: 'type', text: m[2], target: m[1] })],
   [re(`type (.+?) (?:in|into) (?:box|field|item|number) ${N}`), (m) => ({ do: 'type', text: m[1], n: num(m[2]) })],
   [re('type (.+?) (?:in|into) (?:that|this|the) (?:box|field)'), (m) => ({ do: 'type', text: m[1] })],
+  [re('type (?:(?:on|in|to) )?(?:the |a )?(?:next|new|another) line[.,:]?\\s+(.+)'), (m) => ({ do: 'type', text: m[1], newLine: true })],
   [re('type(?: (?:this|that|out))?\\s*[:,]?\\s+(.+)'), (m) => ({ do: 'type', text: m[1] })],
   // click a number
   [re(`(?:click|tap|press|select|choose|open)(?: on)?(?: (?:option|number|item|no\\.?))? ${N}`), (m) => ({ do: 'click', n: num(m[1]) })],

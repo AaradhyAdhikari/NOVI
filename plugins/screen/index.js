@@ -278,6 +278,7 @@ export function createScreenPlugin({ driver = windowsDriver, now = Date.now, foc
       let offer = null; // "Spotify isn't open. Should I open it?" → { run, say } or { intent }, 60 s
       let lastDone = null; // { what, undo } for "what did you just do" / "undo that"
       let lastWin = { title: '', hwnd: null }; // the window the last step was in (log, undo)
+      let typedIn = null; // the window the last words went into, Enter not pressed since
       const look = async (fresh = false) => {
         if (!fresh && seen && now() - seen.at < 60_000) return seen;
         const { title, hwnd = null, items } = await driver.items();
@@ -452,8 +453,12 @@ export function createScreenPlugin({ driver = windowsDriver, now = Date.now, foc
             // Enter: search boxes by themselves; anywhere else only when the user said "… and send".
             // Enter only on "… and send" or the user's own "enter" next (2026-11-04: see it in the box first).
             const search = SEARCH_BOX.test(box ? box.name : focusedName) && !chatApp(s.title);
-            await driver.type((search ? String(intent.text).replace(/\.$/, '') : String(intent.text)).slice(0, 2000)); // no speech full stop in a search
+            if (intent.newLine && !search) { await driver.key('enter'); typedIn = null; }
+            // Another sentence in the same box: a space, not "sleep.again".
+            const joined = !search && !intent.newLine && typedIn === s.hwnd && s.hwnd != null ? ' ' : '';
+            await driver.type(joined + (search ? String(intent.text).replace(/\.$/, '') : String(intent.text)).slice(0, 2000)); // no speech full stop in a search
             const press = Boolean(intent.enter);
+            typedIn = press ? null : s.hwnd;
             if (press) { await driver.key('enter'); stale(); lastList = null; }
             const note = !press ? "Typed it." : search ? `Searched for “${intent.text}”.` : chatApp(s.title) ? 'Sent.' : 'Typed it and pressed Enter.';
             return { note, target: box?.name || focusedName, done: { what: `typed “${String(intent.text).slice(0, 60)}” in ${shortTitle(s.title)}${press ? ' and pressed Enter' : ''}`, undo: press ? null : { key: 'ctrl+z' } } };
@@ -616,9 +621,9 @@ export function createScreenPlugin({ driver = windowsDriver, now = Date.now, foc
       api.registerTool({
         name: 'screen_type_into',
         description: 'Type text into the laptop app in front: the box with the cursor, else the right box by itself (the message box in a chat, the search box elsewhere). enter = press Enter after (search boxes always get it). Never passwords.',
-        parameters: obj({ text: str('What to type'), target: str('Optional: which box, e.g. "search box"'), enter: { type: 'boolean' }, app: str('Optional: the app to bring forward first, e.g. "whatsapp"') }, ['text']),
-        async execute(_id, { text, target, enter, app } = {}) {
-          const out = await step({ do: 'type', text: String(text || ''), ...(target ? { target } : {}), ...(enter ? { enter: true } : {}), ...(app ? { app } : {}) }, `type: ${text}`);
+        parameters: obj({ text: str('What to type'), target: str('Optional: which box, e.g. "search box"'), enter: { type: 'boolean' }, newLine: { type: 'boolean', description: 'Start a new line first' }, app: str('Optional: the app to bring forward first, e.g. "whatsapp"') }, ['text']),
+        async execute(_id, { text, target, enter, newLine, app } = {}) {
+          const out = await step({ do: 'type', text: String(text || ''), ...(target ? { target } : {}), ...(enter ? { enter: true } : {}), ...(newLine ? { newLine: true } : {}), ...(app ? { app } : {}) }, `type: ${text}`);
           return reply(out.note, { note: out.note });
         },
       });

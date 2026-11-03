@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import { PluginHost } from '../../server/plugins/host.js';
 import { createDictationPlugin } from '../../plugins/dictation/index.js';
-import { dictationCommand, enterCommand, chainCommand } from '../../server/brain/dictationCommand.js';
+import { dictationCommand, enterCommand, chainCommand, typeNextCommand, sentenceEnter } from '../../server/brain/dictationCommand.js';
 import { judgeHeard } from '../../server/voice/heardFilter.js';
 
 // Dictation (user, 2026-10-18): Novi types your words into the app in front. Never presses Enter.
@@ -94,6 +94,25 @@ describe('dictation', () => {
   it('a "Thank you." Whisper makes up at the end is not typed', () => {
     expect(dictationCommand('Type lofi music. Thank you.')).toEqual({ text: 'lofi music.' });
     expect(dictationCommand('type thank you')).toEqual({ text: 'thank you' });
+  });
+
+  it('as it was really heard (live 2026-11-04): "Tipe …", ". Enter.", "Type." alone', () => {
+    expect(dictationCommand('Tipe Scout OP, Enter.')).toEqual({ text: 'Scout OP', enter: true });
+    expect(dictationCommand('Type my test line. Enter.')).toEqual({ text: 'my test line', enter: true });
+    for (const t of ['Type.', 'Also type,', 'type', 'likho']) expect(typeNextCommand(t), t).toBe(true);
+    for (const t of ['type hello', 'also type hello', 'typing']) expect(typeNextCommand(t), t).toBe(false);
+    expect(sentenceEnter('I have to sleep. Enter.')).toEqual({ text: 'I have to sleep', enter: true });
+    expect(sentenceEnter('I have to sleep, enter')).toEqual({ text: 'I have to sleep', enter: true });
+    expect(sentenceEnter('please enter the room')).toBe(null);
+  });
+
+  it('"next line" and "again" are instructions, not words to type (live 2026-11-04)', () => {
+    expect(dictationCommand('Type on the next line, I want to sleep.')).toEqual({ text: 'I want to sleep.', newLine: true });
+    expect(dictationCommand('type next line hello')).toEqual({ text: 'hello', newLine: true });
+    expect(dictationCommand('type in a new line: hello there')).toEqual({ text: 'hello there', newLine: true });
+    expect(dictationCommand("Type again. I won't be sleeping.")).toEqual({ text: "I won't be sleeping." });
+    for (const t of ['next line', 'New line.']) expect(enterCommand(t, { steps: true }), t).toBe(true);
+    expect(enterCommand('next line')).toBe(false);
   });
 
   it('never: messages to people, notes, questions about types', () => {

@@ -14,7 +14,7 @@ import { chatgptCommand } from './chatgptCommand.js';
 import { sameCommand } from './sameCommand.js';
 import { replyFrom } from './shortcuts.js';
 import { briefCommand, changeCommand } from './briefCommand.js';
-import { dictationCommand, enterCommand, chainCommand } from './dictationCommand.js';
+import { dictationCommand, enterCommand, chainCommand, typeNextCommand, sentenceEnter, nextLineWords } from './dictationCommand.js';
 import { claudeLinkCommand, linkFolderCommand, projectStatusCommand, projectAboutCommand, claudeActivityCommand, claudeUsageCommand } from './claudeLinkCommand.js';
 import { changesCommand } from './changesCommand.js';
 import { codemapCommand } from './codemapCommand.js';
@@ -346,7 +346,8 @@ export class Agent {
     try {
       const out = await this._handle(text, opts);
       // Open / type / enter worked: it's on the screen, so nothing is read out (user, 2026-11-04).
-      this._silent = runs.length > 0 && runs.every((r) => STEP_TOOLS.has(r.tool) && !r.output?.error && (!r.output?.note || DONE_NOTE.test(r.output.note)));
+      this._silent = Boolean(this._quietReply) || runs.length > 0 && runs.every((r) => STEP_TOOLS.has(r.tool) && !r.output?.error && (!r.output?.note || DONE_NOTE.test(r.output.note)));
+      this._quietReply = false;
       this.activity?.end(rec, out);
       try { this.learning?.observe({ heard: text, reply: out, tools: rec?.tools || runs.map((r) => ({ name: r.tool, ok: !r.output?.error, error: r.output?.error })), runs }); } catch { /* never break a request */ }
       return out;
@@ -400,6 +401,25 @@ export class Agent {
       if (!/don't see a text box/i.test(String(typed))) return typed;
       await pause();
       return this._handle(chain.type, { from, phoneApp });
+    }
+    // Working step by step: "Type." then the words, and "words. Enter.", straight to the box (no AI:
+    // these took 8-19 s live).
+    if (this.tools.get('screen_type_into') && !this.screenModeOn() && this.stepsOn()) {
+      if (typeNextCommand(text)) {
+        this._typeNext = true;
+        this._quietReply = true;
+        return this._remember(text, 'Go ahead.');
+      }
+      const next = this._typeNext;
+      this._typeNext = false;
+      // A line that starts with "type" is the normal route below, so "type" itself is never typed.
+      const words = dictationCommand(text) ? null
+        : nextLineWords(text) ? dictationCommand(`type ${text}`)
+          : sentenceEnter(text) || (next ? { text: text.trim() } : null);
+      if (words) {
+        const { output } = await this._runTool({ id: `type-${Date.now()}`, function: { name: 'screen_type_into', arguments: JSON.stringify(words) } }, { direct: true });
+        return this._remember(text, output?.error || output?.note || 'Typed.');
+      }
     }
     if (this.tools.get('screen_enter') && !this.screenModeOn() && enterCommand(text, { steps: this.stepsOn() })) {
       this._ytUntil = 0; // "enter" is never a video to play
@@ -818,7 +838,6 @@ export class Agent {
     if (cmd.open) {
       const { output } = await run('open_website', { target: 'https://www.youtube.com' });
       if (output?.error) return output.error;
-      this._ytUntil = Date.now() + 2 * 60_000;
       return output?.on === 'phone' ? "Here's YouTube." : "YouTube's open.";
     }
     const { output } = await run('play_youtube', { query });
