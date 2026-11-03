@@ -110,7 +110,8 @@ export async function startWakeWordService({ novi, env = process.env, logger = c
         try {
           const result = await novi.runVoiceCommand(Buffer.from(encodeWav(Float32Array.from(normalizeVolume(audio), (s) => s / 32768), 16000)), { followUp: Boolean(followUp), voiceChecked: Boolean(followUp) }); // the listener checked a follow-up's voice itself
           // Conversation mode: keep listening for the next sentence, no "Hey Novi" needed.
-          const next = result && conversationNext(result);
+          // Working step by step: dropped noise doesn't end it, the mic stays open for the next step.
+          const next = result ? conversationNext(result) : followUp && novi.stepsOn?.() ? { deafMs: 0, waitMs: 20000 } : null;
           if (next && current?.listener === listener) {
             listener.followUp(next);
             novi.broadcast({ type: 'wake' });
@@ -120,6 +121,8 @@ export async function startWakeWordService({ novi, env = process.env, logger = c
         }
       },
       onNoCommand: ({ followUp } = {}) => {
+        // Working step by step: a quiet spell isn't the end (user, 2026-11-04: no clicking between steps).
+        if (followUp && novi.stepsOn?.() && current?.listener === listener) { listener.followUp({ deafMs: 0, waitMs: 20000 }); return; }
         logger.log(followUp ? '[wake] conversation ended (quiet)' : '[wake] no command heard after the wake word');
         novi.broadcast({ type: 'wake_timeout' });
       },
@@ -206,11 +209,11 @@ const MS_PER_CHAR = 70; // ~14 characters a second
 // "Could you clarify…?", which opened the mic again and again).
 const UNCLEAR = /\b(?:clarify|not sure (?:i|what)|didn['’]?t (?:catch|understand|get)|what would you like|what do you mean|could you (?:repeat|rephrase|say that again)|say that again)\b/i;
 
-export function conversationNext({ text = '', reply = '', screenMode = false } = {}) {
+export function conversationNext({ text = '', reply = '', screenMode = false, silent = false } = {}) {
   if (!String(text).trim() || !String(reply).trim() || ENDS.test(String(text).trim())) return null;
-  if (UNCLEAR.test(String(reply))) return null;
+  if (!screenMode && UNCLEAR.test(String(reply))) return null;
   // Screen Mode: one command after another, with a look at the screen in between.
-  return { deafMs: SPEECH_START_MS + spokenText(reply).length * MS_PER_CHAR, waitMs: screenMode ? 20000 : 8000 };
+  return { deafMs: silent ? 300 : SPEECH_START_MS + spokenText(reply).length * MS_PER_CHAR, waitMs: screenMode ? 20000 : 8000 };
 }
 
 // The laptop mic can fail (earbuds connecting, another app, a driver hiccup). Never give up:

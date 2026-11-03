@@ -427,6 +427,7 @@ export function createNovi(config, overrides = {}) {
   // With no Novi page open, spoken lines go to the laptop speakers instead (Windows voice).
   const localSpeaker = overrides.localSpeaker || null;
   // The wake listener must know when the laptop is talking ("Hey Novi" then interrupts it).
+  let lastSilent = false; // the last reply went to the chat only
   let talkedAt = 0; // when the laptop's talk button last sent words
   let wakeTools = null; // { capture, setThreshold, threshold, setSpeaking } from the wake-word service
   let talking = 0;
@@ -1108,11 +1109,12 @@ export function createNovi(config, overrides = {}) {
         // An empty reply = a tool already showed the answer (and the AI had nothing to add).
         if (reply) {
           say('novi', reply, from);
-          sendTo(from, { type: 'speak', text: spokenText(reply) });
+          lastSilent = Boolean(agent.silentTurn?.());
+          if (!lastSilent) sendTo(from, { type: 'speak', text: spokenText(reply) });
           // Talk button, working step by step ("open youtube", "type …", "enter"): the app just opened
           // covers Novi's page, so the laptop mic takes the next step (live 2026-11-04).
           if (from === 'local' && agent.stepsOn?.() && Date.now() - talkedAt < 30_000) {
-            wakeTools?.listen?.({ deafMs: 1500 + 70 * spokenText(reply).length, waitMs: 20000 });
+            wakeTools?.listen?.({ deafMs: lastSilent ? 300 : 1500 + 70 * spokenText(reply).length, waitMs: 20000 });
           }
         }
         return reply;
@@ -1196,7 +1198,9 @@ export function createNovi(config, overrides = {}) {
     const { text, id, confidence } = await hear(wav, 'audio/wav', 'wake', { voiceChecked });
     if (!text || text === '.') return null;
     // A PIN said for a waiting card is never "noise" (it is often one word: "4829").
-    const drop = agent.wantsPin?.('local') && parseSpokenPin(text) ? null : judgeHeard({ text, confidence, followUp });
+    // While working step by step a command word is judged like one right after "Hey Novi".
+    const step = followUp && agent.stepsOn?.() && /^\W*(?:type|enter|send|press|open|search|go|likho)\b/i.test(text);
+    const drop = agent.wantsPin?.('local') && parseSpokenPin(text) ? null : judgeHeard({ text, confidence, followUp: followUp && !step });
     if (drop) {
       console.log(`[wake] ignored ${followUp ? 'follow-up' : 'command'} (${drop}, ${text.split(/s+/).length} words)`);
       if (id) voiceLog.setReply(id, `(ignored: ${drop})`);
@@ -1205,7 +1209,7 @@ export function createNovi(config, overrides = {}) {
     // What was heard and Novi's reply: the wake-word service uses them for conversation mode.
     const reply = (await handleMessage({ type: 'user_message', text })) || '';
     if (id) voiceLog.setReply(id, reply);
-    return { text, reply, screenMode: agent.screenModeOn?.() || agent.stepsOn?.() || false };
+    return { text, reply, screenMode: agent.screenModeOn?.() || agent.stepsOn?.() || false, silent: lastSilent };
   }
   const setWakeTools = (tools) => { wakeTools = tools; };
   // Trigger level chosen in Settings (from the user's own clips), if any.
@@ -1218,5 +1222,5 @@ export function createNovi(config, overrides = {}) {
     broadcast({ type: 'stop_speaking' });
   };
 
-  return { app, activity, shortcuts, codeEdits, setQuiet: (on, minutes) => (on ? quiet.on(minutes) : quiet.off()), attachWebSocket, remotePin, setWakeTools, setSpeakerVerifier, checkVoice, stopSpeaking, wakeThreshold, snapshot, runVoiceCommand, handleMessage, setWakeWord, memory, accounts, approvals, tasks, router, agent, tools, plugins, pairing, broadcast };
+  return { app, activity, shortcuts, stepsOn: () => Boolean(agent.stepsOn?.() || agent.screenModeOn?.()), codeEdits, setQuiet: (on, minutes) => (on ? quiet.on(minutes) : quiet.off()), attachWebSocket, remotePin, setWakeTools, setSpeakerVerifier, checkVoice, stopSpeaking, wakeThreshold, snapshot, runVoiceCommand, handleMessage, setWakeWord, memory, accounts, approvals, tasks, router, agent, tools, plugins, pairing, broadcast };
 }

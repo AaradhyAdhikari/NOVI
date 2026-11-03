@@ -81,7 +81,7 @@ public static class NoviWin {
     var list = new List<object[]>();
     EnumWindows((h, l) => {
       if (!IsWindowVisible(h) || GetWindow(h, 4) != IntPtr.Zero) return true; // hidden or owned
-      if ((GetWindowLong(h, -20) & 0x80) != 0) return true; // tool window
+      if ((GetWindowLong(h, -20) & 0x08000080) != 0) return true; // tool window, or a popup that can't take the keyboard (0x08000000)
       int cloaked; if (DwmGetWindowAttribute(h, 14, out cloaked, 4) == 0 && cloaked != 0) return true; // hidden UWP
       int n = GetWindowTextLength(h); if (n == 0) return true;
       var sb = new StringBuilder(n + 1); GetWindowText(h, sb, sb.Capacity);

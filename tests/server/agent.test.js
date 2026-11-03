@@ -1667,13 +1667,13 @@ describe("a card's own words for a spoken no", () => {
 });
 
 describe('step by step or in one go: open, type, enter (2026-11-04)', () => {
-  const mk = () => {
+  const mk = (typed = 'Typed it.') => {
     const ran = [];
     const tool = (name, out) => ({ name, description: name, parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => name, run: async (a) => { ran.push([name, a]); return out; } });
     const tools = new ToolRegistry()
       .add(tool('open_website', { opened: 'https://www.youtube.com', on: 'laptop' }))
       .add(tool('play_youtube', { note: 'Playing.' }))
-      .add(tool('screen_type_into', { note: "Typed it. Say enter when you're ready." }))
+      .add(tool('screen_type_into', { note: typed }))
       .add(tool('screen_enter', { note: 'Pressed Enter.' }));
     const agent = new Agent({ router: { chat: async () => ({ message: { role: 'assistant', content: 'From the AI.' }, provider: 'groq', model: 'm' }) }, tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
     agent._openPauseMs = 0;
@@ -1685,7 +1685,7 @@ describe('step by step or in one go: open, type, enter (2026-11-04)', () => {
     expect(s.agent.stepsOn()).toBe(false);
     await s.agent.handle('open youtube');
     expect(s.agent.stepsOn()).toBe(true); // the laptop mic waits longer for the next step
-    expect(await s.agent.handle('type lofi music')).toMatch(/Say enter/);
+    expect(await s.agent.handle('type lofi music')).toBe('Typed it.');
     expect(await s.agent.handle('enter')).toBe('Pressed Enter.');
     expect(s.ran.map(([n]) => n)).toEqual(['open_website', 'screen_type_into', 'screen_enter']);
   });
@@ -1694,6 +1694,21 @@ describe('step by step or in one go: open, type, enter (2026-11-04)', () => {
     const s = mk();
     await s.agent.handle('open youtube type claude code and enter');
     expect(s.ran).toEqual([['open_website', { target: 'https://www.youtube.com' }], ['screen_type_into', { text: 'claude code', enter: true }]]);
+  });
+
+  it('steps you can see are not read out; anything that went wrong is', async () => {
+    const s = mk();
+    await s.agent.handle('open youtube');
+    expect(s.agent.silentTurn()).toBe(true);
+    await s.agent.handle('type lofi music');
+    expect(s.agent.silentTurn()).toBe(true);
+    await s.agent.handle('enter');
+    expect(s.agent.silentTurn()).toBe(true);
+    await s.agent.handle('what is the time');
+    expect(s.agent.silentTurn()).toBe(false);
+    const stuck = mk("I don't see a text box in X.");
+    await stuck.agent.handle('type lofi music');
+    expect(stuck.agent.silentTurn()).toBe(false);
   });
 
   it('a bare "enter" with nothing going on stays with the AI', async () => {

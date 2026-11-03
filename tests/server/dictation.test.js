@@ -81,6 +81,21 @@ describe('dictation', () => {
     expect(plugin).not.toMatch(/execFile\('powershell\.exe'/);
   });
 
+  it('the app in front is the real foreground window, never a floating popup (live 2026-11-04: "Meeting Notification [app:state:1]")', () => {
+    const ps = fs.readFileSync(new URL('../../plugins/screen/win.ps1', import.meta.url), 'utf8');
+    const front = /public static IntPtr FrontApp\(\) \{[\s\S]*?\n  \}/.exec(ps)[0];
+    expect(front).toMatch(/GetForegroundWindow\(\)/);
+    expect(front).toMatch(/Floating\(/);
+    expect(ps).toMatch(/0x08000000/); // can't take the keyboard
+    const control = fs.readFileSync(new URL('../../plugins/laptop-control/control.ps1', import.meta.url), 'utf8');
+    expect(control).toMatch(/0x08000000/);
+  });
+
+  it('a "Thank you." Whisper makes up at the end is not typed', () => {
+    expect(dictationCommand('Type lofi music. Thank you.')).toEqual({ text: 'lofi music.' });
+    expect(dictationCommand('type thank you')).toEqual({ text: 'thank you' });
+  });
+
   it('never: messages to people, notes, questions about types', () => {
     for (const t of ['type a message to Isha saying hi', 'what type of fruit is this', 'note mein ye likho', 'type', 'typing speed test']) expect(dictationCommand(t), t).toBeNull();
   });

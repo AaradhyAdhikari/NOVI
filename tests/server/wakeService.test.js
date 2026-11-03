@@ -2,6 +2,12 @@ import { describe, it, expect, vi } from 'vitest';
 import { conversationNext, keepRestarting, speakerOptions, releaseAfter } from '../../server/voice/wakeword/service.js';
 
 describe('conversationNext', () => {
+  it('working step by step: a silent reply leaves the mic open at once, and an unclear one doesn\'t end the work', () => {
+    expect(conversationNext({ text: 'type lofi', reply: 'Typed it.', screenMode: true, silent: true }).deafMs).toBeLessThan(500);
+    expect(conversationNext({ text: 'obanyudu', reply: 'Could you clarify?', screenMode: true })).not.toBe(null);
+    expect(conversationNext({ text: 'obanyudu', reply: 'Could you clarify?' })).toBe(null);
+  });
+
   it('keeps listening after a reply, deaf for about as long as Novi speaks', () => {
     const next = conversationNext({ text: "what's the weather", reply: 'It is 28 degrees and sunny in Pune.' });
     expect(next.waitMs).toBe(8000);

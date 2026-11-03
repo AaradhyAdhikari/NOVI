@@ -24,7 +24,8 @@ export function chainCommand(text) {
 }
 
 export function dictationCommand(text) {
-  const t = String(text || '').trim().replace(LEAD, '');
+  // Whisper makes up a closing "Thank you." from the quiet after a sentence.
+  const t = String(text || '').trim().replace(LEAD, '').replace(/([.!?])\s+thank you[.!]?$/i, '$1');
   if (/^type (?:a |an )?(?:message|mail|email|text)\b/i.test(t) || (/\bnotes?\b/i.test(t) && /likh/i.test(t))) return null;
   const m = /^type(?: this| out| it)?\s*[:,-]?\s+(.+)$/i.exec(t)
     || /^(?:likho|likh do)\s*[:,-]?\s+(.+)$/i.exec(t)

@@ -449,13 +449,13 @@ export function createScreenPlugin({ driver = windowsDriver, now = Date.now, foc
               if (SEARCH_BOX.test(box.name)) await driver.key('ctrl+a');
             }
             await new Promise((r) => setTimeout(r, focusPauseMs)); // the box takes the cursor a moment after the window comes forward
-            await driver.type(String(intent.text).slice(0, 2000));
             // Enter: search boxes by themselves; anywhere else only when the user said "… and send".
             // Enter only on "… and send" or the user's own "enter" next (2026-11-04: see it in the box first).
             const search = SEARCH_BOX.test(box ? box.name : focusedName) && !chatApp(s.title);
+            await driver.type((search ? String(intent.text).replace(/\.$/, '') : String(intent.text)).slice(0, 2000)); // no speech full stop in a search
             const press = Boolean(intent.enter);
             if (press) { await driver.key('enter'); stale(); lastList = null; }
-            const note = !press ? "Typed it. Say enter when you're ready." : search ? `Searched for “${intent.text}”.` : chatApp(s.title) ? 'Sent.' : 'Typed it and pressed Enter.';
+            const note = !press ? "Typed it." : search ? `Searched for “${intent.text}”.` : chatApp(s.title) ? 'Sent.' : 'Typed it and pressed Enter.';
             return { note, target: box?.name || focusedName, done: { what: `typed “${String(intent.text).slice(0, 60)}” in ${shortTitle(s.title)}${press ? ' and pressed Enter' : ''}`, undo: press ? null : { key: 'ctrl+z' } } };
           }
           case 'key': {

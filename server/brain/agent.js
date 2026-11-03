@@ -33,6 +33,7 @@ import fs from 'node:fs';
 // "What went wrong?" (the activity log) and "what's running?" — answered without the AI.
 const WRONG_RE = /^(?:what went wrong|what happened(?: last time| just now| there)?|why didn'?t (?:that|it|this) work|why did (?:that|it) fail|kya (?:galat )?hua(?: tha)?|kya gadbad hui)$/i;
 const RUNNING_RE = /^(?:what(?:'s| is) (?:running|going on|happening)(?: right now)?|what are you (?:doing|working on)(?: right now)?|(?:sab )?kya (?:kya )?chal raha hai|anything running)$/i;
+const DONE_NOTE = /^(?:Typed it|Pressed Enter|Sent|Searched for)/;
 const STEP_TOOLS = new Set(['open_app', 'open_website', 'screen_type_into', 'screen_enter']);
 const DIRECT_OK = new Set(['code_start_task', 'code_send_message', 'rename_project', 'file_new_folder', 'open_project', 'file_open', 'file_rename', 'note_write', 'notes_ask', 'note_open', 'whatsapp_send', 'claude_project_make', 'remember_project', 'codemap_build', 'donecheck_run', 'donecheck_fix', 'claude_activity', 'code_changes', 'code_tests', 'claude_usage']); // whatsapp_send: the user's decision 2026-10-17 — their command is the yes
 const ASK_ANYWAY = new Set(['file_gather', 'file_undo_move', 'laptop_run', 'preview_show', 'preview_open']); // preview_show/open: only its first start of a project's own command asks
@@ -344,6 +345,8 @@ export class Agent {
     this._turnRuns = runs;
     try {
       const out = await this._handle(text, opts);
+      // Open / type / enter worked: it's on the screen, so nothing is read out (user, 2026-11-04).
+      this._silent = runs.length > 0 && runs.every((r) => STEP_TOOLS.has(r.tool) && !r.output?.error && (!r.output?.note || DONE_NOTE.test(r.output.note)));
       this.activity?.end(rec, out);
       try { this.learning?.observe({ heard: text, reply: out, tools: rec?.tools || runs.map((r) => ({ name: r.tool, ok: !r.output?.error, error: r.output?.error })), runs }); } catch { /* never break a request */ }
       return out;
@@ -1105,6 +1108,7 @@ export class Agent {
   // Working step by step ("open youtube", "type …", "enter"): the laptop mic waits longer between
   // steps and a bare "enter" means Enter. Each open / type step keeps it going for 2 minutes.
   stepsOn() { return this._stepsUntil > Date.now(); }
+  silentTurn() { return Boolean(this._silent); }
   screenModeOn() { return Boolean(this._screenMode && this.tools.get('screen_command')); }
 
   // One step inside the phone app the user is in. The plugin reads the words; null = not a phone step.

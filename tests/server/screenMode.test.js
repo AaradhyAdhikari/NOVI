@@ -136,7 +136,7 @@ describe('screen mode: doing it', () => {
 
   it('"type Novi AI" types into the app in front (brought forward first)', async () => {
     const s = await on(setup({ front: 'NOVI - Google Chrome' }));
-    expect((await s.say('type Novi AI')).note).toBe("Typed it. Say enter when you're ready.");
+    expect((await s.say('type Novi AI')).note).toBe("Typed it.");
     expect(s.actions).toEqual([['focus', GOOGLE.title], ['type', 'Novi AI']]);
   });
 
@@ -394,16 +394,18 @@ describe('typing on her own (user, 2026-10-29: "she should do all that on her ow
   it('no text box has the cursor: she picks the page\'s search box, types, and searches', async () => {
     const s = mk();
     await s.say('start screen control');
-    expect((await s.say('type Novi AI')).note).toBe("Typed it. Say enter when you're ready.");
+    expect((await s.say('type Novi AI')).note).toBe("Typed it.");
     expect((await s.say('type Novi AI and send')).note).toBe('Searched for “Novi AI”.');
+    await s.say('type lofi music.'); // Whisper's full stop stays out of a search
+    expect(s.acts.filter(([k]) => k === 'type').at(-1)).toEqual(['type', 'lofi music']);
     expect(s.acts.slice(0, 3)).toEqual([['click', 400, 120], ['key', 'ctrl+a'], ['type', 'Novi AI']]);
-    expect(s.acts.at(-1)).toEqual(['key', 'enter']); // only on "… and send" (2026-11-04)
+    expect(s.acts).toContainEqual(['key', 'enter']); // only on "… and send" (2026-11-04)
   });
 
   it('in a chat she types into the message box and presses Enter only when told to send', async () => {
     const s = mk({ screen: WA });
     await s.say('start screen control');
-    expect((await s.say('type hi there')).note).toBe("Typed it. Say enter when you're ready.");
+    expect((await s.say('type hi there')).note).toBe("Typed it.");
     expect(s.acts).toEqual([['click', 800, 1000], ['type', 'hi there']]);
     expect(await s.gate('screen_command', { text: 'type see you and send' })).toEqual({}); // the user's words are the yes
     expect((await s.say('type see you and send')).note).toBe('Sent.');
@@ -456,7 +458,7 @@ describe('the cursor arrives a moment after the window (live: Notepad)', () => {
     const acts = [];
     const host = new PluginHost({ runtime: { callTool: async () => ({ note: 'ok' }) }, env: {}, logger: { warn() {} } });
     host.register(createScreenPlugin({ focusPauseMs: 1, driver: { items: async () => ({ title: 'Untitled - Notepad', items: [] }), window: async () => 'Untitled - Notepad', focus: async () => true, focused: async () => ({ type: 'Document', name: 'Text editor', editable: n++ > 0 }), type: async (t) => acts.push(['type', t]), key: async (k) => acts.push(['key', k]) } }));
-    expect((await host.get('screen_type_into').run({ text: 'third line' })).note).toBe("Typed it. Say enter when you're ready.");
+    expect((await host.get('screen_type_into').run({ text: 'third line' })).note).toBe("Typed it.");
     expect(acts).toEqual([['type', 'third line']]);
   });
 });

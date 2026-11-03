@@ -818,6 +818,17 @@ describe('Novi server', () => {
     c.ws.close();
   });
 
+  it('a silent step shows in the chat but is not spoken (2026-11-04)', async () => {
+    const { ws: url } = await start({ agent: { handle: async () => 'Typed it.', silentTurn: () => true } });
+    const c = connect(url);
+    await c.opened;
+    c.ws.send(JSON.stringify({ type: 'user_message', text: 'type lofi' }));
+    await c.waitFor((m) => m.type === 'chat' && m.entry?.text === 'Typed it.');
+    await new Promise((r) => setTimeout(r, 50));
+    expect(c.messages.some((m) => m.type === 'speak')).toBe(false);
+    c.ws.close();
+  });
+
   it('runtime.say can speak a short version while the chat gets the whole text (file summaries)', async () => {
     const { ws, novi } = await start();
     const c = connect(ws);
@@ -960,7 +971,7 @@ describe('Novi server', () => {
 
   it('a laptop-mic command returns what was heard and the reply (for conversation mode)', async () => {
     const { novi } = await start();
-    expect(await novi.runVoiceCommand(Buffer.from('wav'))).toEqual({ text: 'heard 3 bytes of audio/wav', reply: 'echo: heard 3 bytes of audio/wav', screenMode: false });
+    expect(await novi.runVoiceCommand(Buffer.from('wav'))).toEqual({ text: 'heard 3 bytes of audio/wav', reply: 'echo: heard 3 bytes of audio/wav', screenMode: false, silent: false });
   });
 
   it('plugins get a private-only AI call (Groq), never another provider', async () => {

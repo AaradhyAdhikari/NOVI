@@ -49,15 +49,31 @@ public static class NoviScreen {
   // The front-most app window that isn't Novi's own page ("NOVI …") or work window ("Novi work …"):
   // what the user means by "on the screen" while talking to Novi on the laptop.
   public static IntPtr FrontApp() {
+    // The window the user is really in, when that isn't Novi. Only then the stack, past popups that
+    // float over everything (live 2026-11-04: "Meeting Notification [app:state:1]" took the typing).
+    IntPtr front = GetForegroundWindow();
+    if (Usable(front) && !Floating(front)) return front;
     IntPtr found = IntPtr.Zero;
     EnumWindows((h, l) => {
-      if (!IsWindowVisible(h) || IsIconic(h) || GetWindow(h, 4) != IntPtr.Zero || (GetWindowLong(h, -20) & 0x80) != 0) return true;
-      var sb = new StringBuilder(512); GetWindowText(h, sb, 512); var t = sb.ToString();
-      // (a browser's floating video window sits on top but isn't the page the user means)
-      if (t.Length == 0 || t.StartsWith("NOVI") || t.StartsWith("Novi work") || t == "Program Manager" || t.StartsWith("Picture in picture") || t.StartsWith("Picture-in-picture")) return true;
+      if (!Usable(h) || Floating(h)) return true;
       found = h; return false;
     }, IntPtr.Zero);
     return found;
+  }
+  [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr h, int a, out int v, int s);
+  // On top of everything, unable to take the keyboard, hidden by Windows, or a small popup.
+  static bool Floating(IntPtr h) {
+    int ex = GetWindowLong(h, -20), cloaked;
+    if ((ex & 0x08000000) != 0 || (DwmGetWindowAttribute(h, 14, out cloaked, 4) == 0 && cloaked != 0)) return true;
+    RECT r; GetWindowRect(h, out r);
+    return (ex & 0x8) != 0 && (r.Right - r.Left < 700 || r.Bottom - r.Top < 400);
+  }
+  static bool Usable(IntPtr h) {
+      if (!IsWindowVisible(h) || IsIconic(h) || GetWindow(h, 4) != IntPtr.Zero || (GetWindowLong(h, -20) & 0x80) != 0) return false;
+      var sb = new StringBuilder(512); GetWindowText(h, sb, 512); var t = sb.ToString();
+      // (a browser's floating video window sits on top but isn't the page the user means)
+      if (t.Length == 0 || t.StartsWith("NOVI") || t.StartsWith("Novi work") || t.Contains("[app:") || t == "Program Manager" || t.StartsWith("Picture in picture") || t.StartsWith("Picture-in-picture")) return false;
+            return true;
   }
 }
 "@
