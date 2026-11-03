@@ -45,6 +45,18 @@ describe('claudeArgs', () => {
     // A project with a code map (plugins/codemap): Claude starts from it instead of opening many files.
     expect(args[args.indexOf('--append-system-prompt') + 1]).toMatch(/graphify-out\/GRAPH_REPORT\.md exists, read it first/);
   });
+
+  it('asks Claude to use the ECC plugin\'s skills and agents (user, 2026-11-03), carrying on when ECC is missing', () => {
+    const args = claudeArgs();
+    const prompt = args[args.indexOf('--append-system-prompt') + 1];
+    expect(prompt).toMatch(/ECC plugin/);
+    expect(prompt).toMatch(/ecc:\* skill/);
+    expect(prompt).toMatch(/ecc:\* agents/);
+    // Headless: a skill or agent waiting for a yes would stall the task; small edits spend no agent runs.
+    expect(prompt).toMatch(/Never wait for a skill or agent to be confirmed/);
+    expect(prompt).toMatch(/no agents for a small edit/);
+    expect(prompt).toMatch(/not installed, carry on without it/);
+  });
 });
 
 describe('ClaudeSession (against fake CLI)', () => {
