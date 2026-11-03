@@ -52,9 +52,10 @@ export function createDiagramPlugin({ gitOrigin = originOf, fetchImpl = fetch } 
           properties: {
             project: { type: 'string', description: "One of the user's projects, any spelling. Leave out for the current project." },
             repo: { type: 'string', description: 'A GitHub link or owner/name, if the user gave one' },
+            phone: { type: 'boolean', description: 'True when the user asked for it on their phone' },
           },
         },
-        async execute(_id, { project, repo } = {}) {
+        async execute(_id, { project, repo, phone } = {}) {
           const slug = repoFrom(repo) || repoFrom(project) || await findRepo(project);
           if (!slug) {
             return reply(project
@@ -63,6 +64,10 @@ export function createDiagramPlugin({ gitOrigin = originOf, fetchImpl = fetch } 
           }
           const url = diagramUrl(slug);
           const name = slug.split('/')[1];
+          if (phone) {
+            if (!rt.linkToPhone?.({ url, label: `Open the ${name} diagram` })) return reply({ link: url, error: `Your phone isn't connected to Novi. Open the Novi app on it. The link is ${url}` });
+            return reply({ link: url, note: `Sent the ${name} diagram to your phone. It's in Novi's chat there.` });
+          }
           const opened = await rt.callTool('open_website', { target: url });
           if (opened?.on !== 'phone') rt.showLink?.({ url, label: `Open the ${name} diagram` });
           const secret = await isPrivate(slug);

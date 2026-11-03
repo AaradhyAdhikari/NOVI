@@ -36,7 +36,7 @@ describe('project_diagram', () => {
     const host = new PluginHost({ runtime, logger: { warn() {}, info() {} } });
     const plugin = createDiagramPlugin({ gitOrigin: async () => origin, fetchImpl: async () => ({ status }) });
     expect(host.register(plugin)).toBe(true);
-    return { tool: host.get('project_diagram'), did, links };
+    return { tool: host.get('project_diagram'), did, links, runtime };
   }
 
   it('a link or owner/name goes straight to GitDiagram, opens, and leaves a link on the laptop', async () => {
@@ -53,6 +53,18 @@ describe('project_diagram', () => {
     const s = setup({ on: 'phone' });
     await s.tool.run({ repo: 'facebook/react' });
     expect(s.links).toEqual([]);
+  });
+
+  it('"to my phone" from the laptop: the link goes to the phone and nothing opens here; no phone connected is said', async () => {
+    const s = setup();
+    const sent = [];
+    s.runtime.linkToPhone = (l) => { sent.push(l); return true; };
+    const out = await s.tool.run({ repo: 'facebook/react', phone: true });
+    expect(sent).toEqual([{ url: 'https://gitdiagram.com/facebook/react', label: 'Open the react diagram' }]);
+    expect(s.did).toEqual([]);
+    expect(out.note).toMatch(/your phone/);
+    s.runtime.linkToPhone = () => false;
+    expect((await s.tool.run({ repo: 'facebook/react', phone: true })).error).toMatch(/isn't connected/);
   });
 
   it('a project: its folder\'s GitHub remote first, else the user\'s repo by name', async () => {
@@ -98,6 +110,12 @@ describe('diagram by voice', () => {
     expect(diagramCommand('diagram of medikiosk')).toEqual(p('medikiosk'));
     expect(diagramCommand('generate a system diagram of this project')).toEqual({ tool: 'project_diagram', args: {} });
     expect(diagramCommand('make a diagram')).toEqual({ tool: 'project_diagram', args: {} });
+  });
+  it('"to my phone" sends it there', () => {
+    const phone = { tool: 'project_diagram', args: { project: 'Novi', phone: true } };
+    expect(diagramCommand('send the diagram of Novi to my phone')).toEqual(phone);
+    expect(diagramCommand('make me a diagram of Novi on my phone')).toEqual(phone);
+    expect(diagramCommand('Novi ka diagram phone pe bhejo')).toEqual(phone);
   });
   it('a repo link or owner/name is the repo', () => {
     const r = (repo) => ({ tool: 'project_diagram', args: { repo } });

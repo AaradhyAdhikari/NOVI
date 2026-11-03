@@ -169,6 +169,17 @@ export function createNovi(config, overrides = {}) {
         transcript.push({ role: 'novi', text: label, at, device: deviceKey(active), link: url });
         sendTo(active, { type: 'chat', entry: { role: 'novi', text: label, at, link: url } });
       },
+      // The same link in the chat of the phone used last, whoever asked, with a popup. false = no phone connected.
+      linkToPhone: ({ url, label = '' }) => {
+        const deviceId = [...clients].filter((c) => c.deviceId).sort((a, b) => (b.usedAt || 0) - (a.usedAt || 0))[0]?.deviceId;
+        if (!deviceId) return false;
+        const to = { deviceId };
+        const at = new Date().toISOString();
+        transcript.push({ role: 'novi', text: label, at, device: deviceKey(to), link: url });
+        sendTo(to, { type: 'chat', entry: { role: 'novi', text: label, at, link: url } });
+        push.sendCard(deviceId, { id: `link-${Date.now()}`, title: 'Novi sent a link', body: label, actions: [], always: true }).catch(() => {});
+        return true;
+      },
       // The host name the asking device used to reach Novi (its Tailscale name / IP; the laptop: localhost).
       deviceHost: () => {
         const key = deviceKey(active);

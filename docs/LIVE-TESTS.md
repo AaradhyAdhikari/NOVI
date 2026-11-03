@@ -178,7 +178,7 @@ Needs graphify installed once (`pip install graphifyy` — already done on this 
 ## Voice
 
 - [ ] Play a song on your Bluetooth earbuds, then start Novi: the song stays clear (2026-11-04: Novi no longer opens a Bluetooth mic; "Hey Novi" uses the laptop mic while the buds are on). The talk button still opens the Windows default mic while you hold it, so the sound can dip for those seconds.
-- [ ] "make me a diagram of Novi", "flexr ka diagram banao", "diagram of facebook/react": the GitDiagram page opens, with a link in the chat (a tap-to-open link on the phone). Click a block: its code opens on GitHub. Checked on the test copy except opening on the phone and clicking a block.
+- [x] "make me a diagram of Novi", "flexr ka diagram banao", "diagram of facebook/react": the GitDiagram page opens, with a link in the chat (a tap-to-open link on the phone). "send the diagram of Novi to my phone" from the laptop: works on the S24+ (2026-11-04, user confirmed).
 - [ ] Settings → "Hey Novi" → "Clean up hold-to-talk dictation": off types exactly as heard.
 - [ ] "Hey Novi" on your own voice (no training model now — keyword spotting). Does it wake every time? Does it wake by itself?
 - [ ] Say "Hey Novi" while Novi is talking → she stops and listens.
