@@ -1,0 +1,9 @@
+{
+  "id": "diagram",
+  "name": "System diagrams",
+  "description": "Opens an interactive system diagram of any GitHub repo on GitDiagram.",
+  "categories": ["other"],
+  "contracts": { "tools": ["project_diagram"] },
+  "activation": { "onStartup": true },
+  "configSchema": { "type": "object", "additionalProperties": false }
+}

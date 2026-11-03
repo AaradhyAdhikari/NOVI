@@ -133,3 +133,33 @@ describe('orb plugin', () => {
     for (const e of ['tap', 'hold_start', 'hold_end', 'moved', 'open']) expect(ps).toContain(`'${e}'`);
   });
 });
+
+describe('Settings: clean up dictation (2026-11-04)', () => {
+  it('the setting turns the tidying off and on, is remembered, and starts from NOVI_DICTATION_CLEANUP', async () => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'novi-orb-'));
+    const make = (env = {}) => {
+      const did = [];
+      let fire = null;
+      const runtime = {
+        dataDir, wake: { release: () => Buffer.from('wav') }, hear: async () => 'um hello',
+        callTool: async (name, p) => { did.push(p.text); return {}; },
+      };
+      const host = new PluginHost({ runtime, logger: { warn() {}, info() {} } });
+      host.register(createOrbPlugin({ platform: 'win32', env, createProcess: (o) => { fire = o.onEvent; return { start() {}, stop() {}, send() {} }; } }));
+      return { host, did, fire: async () => { await host.startServices(); await fire({ event: 'hold_end' }); } };
+    };
+    const a = make();
+    const route = a.host.route('dictation-cleanup');
+    expect(await route({})).toEqual({ on: true });
+    expect(await route({ on: false })).toEqual({ on: false });
+    await a.fire();
+    expect(a.did).toEqual(['um hello']);
+    const b = make();
+    expect(await b.host.route('dictation-cleanup')({})).toEqual({ on: false }); // remembered
+    expect(await b.host.route('dictation-cleanup')({ on: true })).toEqual({ on: true });
+    await b.fire();
+    expect(b.did).toEqual(['Hello']);
+    fs.rmSync(path.join(dataDir, 'dictation.json'));
+    expect(await make({ NOVI_DICTATION_CLEANUP: 'off' }).host.route('dictation-cleanup')({})).toEqual({ on: false });
+  });
+});

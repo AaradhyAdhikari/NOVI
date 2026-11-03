@@ -104,9 +104,21 @@ describe('picking the wake-word microphone', async () => {
   const { pickMicIndex } = await import('../../server/voice/wakeword/service.js');
   const devices = ['Microphone Array (Realtek(R) Audio)', 'Microphone (AB13X USB Audio)'];
   it('prefers connected earphones / a headset over the built-in mic when nothing is set', () => expect(pickMicIndex(devices, undefined)).toBe(1));
-  it('prefers a Bluetooth headset over other external mics', () => {
-    expect(pickMicIndex(['Microphone Array (Realtek(R) Audio)', 'Microphone (USB PnP Sound Device)', 'Headset (OnePlus Buds 3)'], undefined)).toBe(2);
-    expect(pickMicIndex(['Microphone Array (Realtek(R) Audio)', 'Headset Microphone (Hands-Free AG Audio)'], '')).toBe(1);
+  // Opening a Bluetooth mic drops the earbuds to call quality: the user's music goes muffled (2026-11-04).
+  it('never opens a Bluetooth mic by itself, and names the laptop mic because Windows may default to the buds', () => {
+    expect(pickMicIndex(['Microphone Array (Realtek(R) Audio)', 'Microphone (USB PnP Sound Device)', 'Headset (OnePlus Buds 3)'], undefined)).toBe(1);
+    expect(pickMicIndex(['Headset (OnePlus Buds 3)', 'Microphone Array (Realtek(R) Audio)'], undefined)).toBe(1);
+    expect(pickMicIndex(['Microphone Array (Realtek(R) Audio)', 'Headset Microphone (Hands-Free AG Audio)'], '')).toBe(0);
+    expect(pickMicIndex(['Stereo Mix (Realtek(R) Audio)', 'Microphone Array (Realtek(R) Audio)', 'Headset (AirPods Pro)'], undefined)).toBe(1);
+  });
+  it('a mic whose name doesn\'t say USB or wired may be Bluetooth: the laptop mic is used', () => {
+    expect(pickMicIndex(['Microphone (JBL Tune 230NC)', 'Microphone Array (Realtek(R) Audio)'], undefined)).toBe(1);
+    expect(pickMicIndex(['Microphone Array (Realtek(R) Audio)', 'Headset (Soundcore Q30)'], undefined)).toBe(0);
+  });
+  it('still prefers a wired or USB headset, and a named Bluetooth mic is the user\'s choice', () => {
+    expect(pickMicIndex(['Microphone Array (Realtek(R) Audio)', 'Headset (Jabra USB)'], undefined)).toBe(1);
+    expect(pickMicIndex(['Microphone Array (Realtek(R) Audio)', 'Headset Microphone (Realtek(R) Audio)'], undefined)).toBe(1);
+    expect(pickMicIndex(['Microphone Array (Realtek(R) Audio)', 'Headset (OnePlus Buds 3)'], 'oneplus')).toBe(1);
   });
   it('uses the Windows default when only the built-in mic is there', () => expect(pickMicIndex(['Microphone Array (Realtek(R) Audio)', 'Microphone Array (Intel® Smart Sound Technology)'], undefined)).toBe(-1));
   it('accepts an index', () => expect(pickMicIndex(devices, '1')).toBe(1));

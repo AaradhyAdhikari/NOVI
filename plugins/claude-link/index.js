@@ -222,7 +222,7 @@ export function createClaudeLinkPlugin({ driver = null, listCode = () => listCla
           const p = findWeb(project);
           if (!p) return reply({ error: `I don't know a claude.ai project called ${project}. Say "sync my Claude projects" first.` });
           if (!p.url) return reply({ error: `I don't have the link for ${p.name} yet. Say "sync my Claude projects" with Chrome open.` });
-          await rt.callTool('open_website', { url: p.url });
+          await rt.callTool('open_website', { target: p.url });
           return reply({ opened: p.name, note: `Opened ${p.name} on claude.ai.` });
         },
       });

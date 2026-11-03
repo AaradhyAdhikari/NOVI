@@ -28,17 +28,25 @@ export function speakerOptions({ novi, env, logger }) {
   };
 }
 
-// Unset NOVI_WAKEWORD_MIC: connected earphones / a headset (Bluetooth or wired) first, then any
-// other external mic, else the Windows default. Set it to a device index or part of its name
-// (e.g. "Realtek") to always use that one.
-const HEADSET = /headset|headphone|earphone|earbud|\bbuds?\b|airpods|hands-?free|bluetooth|\bbt\b/i;
+// Unset NOVI_WAKEWORD_MIC: a wired or USB headset first, then any other USB mic, else the laptop's
+// own. Never a Bluetooth mic: opening one drops the earbuds to call quality and the user's music
+// goes muffled. Names can't always show Bluetooth ("Microphone (JBL Tune 230NC)"), so only a mic
+// that says USB or wired is picked, and with any other mic around the laptop's is named, because
+// Windows may default to that one. Set NOVI_WAKEWORD_MIC to a device index or part of its name
+// (e.g. "Realtek", or the earbuds if that's wanted) to always use that one.
+const HEADSET = /headset|headphone|earphone/i;
+const WIRED = /usb|realtek/i;
 const BUILT_IN = /microphone array|realtek|intel|smart sound|internal|built-?in|stereo mix/i;
+const NOT_A_MIC = /stereo mix/i;
 
 export function pickMicIndex(devices, value) {
   if (value === undefined || value === '') {
-    const headset = devices.findIndex((d) => HEADSET.test(d));
+    const wired = (d) => WIRED.test(d) && !NOT_A_MIC.test(d);
+    const headset = devices.findIndex((d) => wired(d) && HEADSET.test(d));
     if (headset >= 0) return headset;
-    return devices.findIndex((d) => !BUILT_IN.test(d)); // -1 = Windows default
+    const external = devices.findIndex((d) => wired(d) && !BUILT_IN.test(d));
+    if (external >= 0 || devices.every((d) => BUILT_IN.test(d))) return external; // -1 = Windows default
+    return devices.findIndex((d) => BUILT_IN.test(d) && !NOT_A_MIC.test(d));
   }
   if (/^-?\d+$/.test(String(value))) return Number(value);
   const i = devices.findIndex((d) => d.toLowerCase().includes(String(value).toLowerCase()));

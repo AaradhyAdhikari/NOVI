@@ -6,6 +6,20 @@ import { Mic, Loader2 } from 'lucide-react';
 // suggests a trigger level from your own voice. The clips are also for retraining the model.
 const TIPS = ['normal', 'quietly', 'quickly', 'from a bit further away', 'with some background noise', 'the way you say it when tired', 'a little louder'];
 
+// Hold Ctrl+Shift+Space: drop "um"s and stutters, fix capitals. "type: …" always stays exact.
+function DictationCleanup({ api }) {
+  const [on, setOn] = useState(null);
+  const send = (body) => api('/api/plugin/dictation-cleanup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    .then((r) => r.json()).then((d) => setOn((old) => d.on ?? old)).catch(() => {});
+  useEffect(() => { send({}); }, [api]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (on === null) return null;
+  return (
+    <label className="row">
+      <input type="checkbox" checked={on} onChange={(e) => send({ on: e.target.checked })} /> Clean up hold-to-talk dictation (removes “um”, repeated words, fixes capitals)
+    </label>
+  );
+}
+
 export default function WakeTraining({ api }) {
   const [info, setInfo] = useState(null);
   const [phase, setPhase] = useState('idle'); // idle | recording
@@ -41,6 +55,7 @@ export default function WakeTraining({ api }) {
   const tip = TIPS[info.count % TIPS.length];
   return (
     <div>
+      <DictationCleanup api={api} />
       <p className="muted">Press the button, then say <strong>“Hey Novi”</strong> once ({tip}). It records with the same microphone Novi listens on, so stand or sit where you usually talk to it. Aim for 30 clips.</p>
       <button className="btn primary" onClick={record} disabled={phase !== 'idle'}>
         {phase === 'recording' ? <Loader2 size={16} className="spin" /> : <Mic size={16} />}

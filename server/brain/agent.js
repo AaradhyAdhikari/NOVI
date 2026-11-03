@@ -18,6 +18,7 @@ import { dictationCommand } from './dictationCommand.js';
 import { claudeLinkCommand, linkFolderCommand, projectStatusCommand, projectAboutCommand, claudeActivityCommand, claudeUsageCommand } from './claudeLinkCommand.js';
 import { changesCommand } from './changesCommand.js';
 import { codemapCommand } from './codemapCommand.js';
+import { diagramCommand } from './diagramCommand.js';
 import { doneCheckCommand } from './doneCheckCommand.js';
 import { isScreenModeStart } from './screenModeCommand.js';
 import { parseApproval } from './approvalIntent.js';
@@ -437,6 +438,12 @@ export class Agent {
       const { output } = await this._runTool({ id: `map-${Date.now()}`, function: { name: map.tool, arguments: JSON.stringify(map.args) } }, { direct: true });
       if (!output?.unknown) return this._remember(text, output?.error || output?.note || 'Done.');
     }
+    // "Make me a diagram of X" (plugins/diagram), no AI; a name GitHub doesn't know goes on to the AI.
+    const diagram = diagramCommand(text);
+    if (diagram && this.tools.get(diagram.tool)) {
+      const { output } = await this._runTool({ id: `diagram-${Date.now()}`, function: { name: diagram.tool, arguments: JSON.stringify(diagram.args) } }, { direct: true });
+      if (!output?.unknown) return this._remember(text, output?.error || output?.note || 'Done.');
+    }
     const control = await this._controlCommand(text);
     if (control != null) return this._remember(text, control); // '' = a picture already said it all
     const browse = await this._browserCommand(text);
@@ -687,6 +694,8 @@ export class Agent {
     if (check && this.tools.get(check.tool)) return { quick: null, calls: [{ name: check.tool, args: check.args }], reply: null, provider: 'direct' };
     const map = codemapCommand(text);
     if (map && this.tools.get(map.tool)) return { quick: null, calls: [{ name: map.tool, args: map.args }], reply: null, provider: 'direct' };
+    const diagram = diagramCommand(text);
+    if (diagram && this.tools.get(diagram.tool)) return { quick: null, calls: [{ name: diagram.tool, args: diagram.args }], reply: null, provider: 'direct' };
     const ctl = controlCommand(text);
     if (ctl && this.tools.get(ctl.tool)) return { quick: null, calls: [{ name: ctl.tool, args: ctl.args }], reply: null, provider: 'direct' };
     const link = claudeLinkCommand(text);

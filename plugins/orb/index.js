@@ -23,12 +23,29 @@ export function createOrbPlugin({ platform = process.platform, env = process.env
       const file = path.join(rt.dataDir || 'data', 'orb.json');
       const place = () => { try { const p = JSON.parse(fs.readFileSync(file, 'utf8')); return Number.isFinite(p.x) && Number.isFinite(p.y) ? p : null; } catch { return null; } };
 
+      // Settings → "Hey Novi" → Clean up dictation; until it is touched, NOVI_DICTATION_CLEANUP decides.
+      const cleanupFile = path.join(rt.dataDir || 'data', 'dictation.json');
+      const cleanupOn = () => {
+        try { return JSON.parse(fs.readFileSync(cleanupFile, 'utf8')).cleanup !== false; } catch { /* not set yet */ }
+        return String(env.NOVI_DICTATION_CLEANUP || '').toLowerCase() !== 'off';
+      };
+      api.registerHttpRoute({
+        path: 'dictation-cleanup',
+        handler: ({ on } = {}) => {
+          if (typeof on === 'boolean') {
+            fs.mkdirSync(path.dirname(cleanupFile), { recursive: true });
+            fs.writeFileSync(cleanupFile, JSON.stringify({ cleanup: on }));
+          }
+          return { on: cleanupOn() };
+        },
+      });
+
       async function dictate() {
         const wav = rt.wake?.release?.();
         if (!wav) return;
         const text = String((await rt.hear(wav)) || '').trim();
         if (!text || text === '.') return;
-        const tidy = String(env.NOVI_DICTATION_CLEANUP || '').toLowerCase() === 'off' ? text : cleanDictation(text);
+        const tidy = cleanupOn() ? cleanDictation(text) : text;
         if (!tidy) return; // nothing left but fillers ("um")
         await rt.callTool('dictate_type', { text: tidy });
       }

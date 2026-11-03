@@ -12,6 +12,7 @@ const GROUP = {
   laptop_run: 'commands', commands_history: 'commands', laptop_disk: 'commands',
   whatsapp_prepare: 'whatsapp', whatsapp_send: 'whatsapp',
   preview_show: 'preview', preview_open: 'preview', preview_stop: 'preview',
+  project_diagram: 'diagram',
 };
 const groupOf = (name) => GROUP[name] || name.split('_')[0];
 
@@ -29,6 +30,8 @@ const WORDS = {
   memory: 'remember forget memory memories told yesterday earlier talked said ago',
   // codemap_build / codemap_ask / codemap_show (plugins/codemap: graphify, no AI).
   codemap: 'map graph graphify connect connects connected class function method module architecture structure codebase',
+  // project_diagram (plugins/diagram: GitDiagram link for any GitHub repo).
+  diagram: 'diagram flowchart architecture',
   backup: 'backup backups drive',
   sheets: 'study studied studying log logged hours sheet sheets spreadsheet',
   clock: 'announce announcement',

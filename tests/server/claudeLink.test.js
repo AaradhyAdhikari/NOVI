@@ -266,7 +266,7 @@ describe('claude-link plugin', () => {
     const s = setup({ web: { list: { names: ['MediKiosk AI'], projects: [{ name: 'MediKiosk AI', url: 'https://claude.ai/project/m' }] } } });
     await s.run('claude_projects_sync');
     expect((await s.run('claude_project_open', { project: 'medikiosk' })).note).toBe('Opened MediKiosk AI on claude.ai.');
-    expect(s.opened).toEqual([['open_website', { url: 'https://claude.ai/project/m' }]]);
+    expect(s.opened).toEqual([['open_website', { target: 'https://claude.ai/project/m' }]]);
     expect((await s.run('claude_project_open', { project: 'nothing here' })).error).toMatch(/don't know a claude\.ai project called nothing here/);
   });
 
