@@ -134,6 +134,36 @@ describe('orb plugin', () => {
   });
 });
 
+describe('held-key dictation live (2026-11-04: "the cursor moves, nothing gets typed")', () => {
+  const read = (p) => fs.readFileSync(new URL(p, import.meta.url), 'utf8');
+  it('the keys are taken from the app in front, and letting go means all three are up', () => {
+    const ps = read('../../plugins/orb/orb.ps1');
+    expect(ps).toMatch(/RegisterHotKey\(\[IntPtr\]::Zero, 1, 0x4006, 0x20\)/); // Ctrl+Shift+Space no longer types spaces
+    expect(ps).toMatch(/\$anyDown/);
+    expect(ps).toMatch(/-not \$anyDown -and \$script:held/); // never Ctrl+V with Ctrl+Shift still held
+  });
+  it('bringing a window forward never taps Alt (Notepad goes into menu mode and the paste is lost)', () => {
+    const ps = read('../../plugins/laptop-control/control.ps1');
+    const focus = /public static void Focus\(long id\) \{[\s\S]*?\n  \}/.exec(ps)[0];
+    expect(focus).not.toMatch(/0x12/);
+    expect(focus).toMatch(/AttachThreadInput/);
+  });
+  it('words that could not be typed are said, not lost', async () => {
+    const said = [];
+    let fire = null;
+    const runtime = {
+      dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'novi-orb-')), wake: { release: () => Buffer.from('wav') }, hear: async () => 'hello',
+      callTool: async () => ({ error: "I don't see a window for that." }),
+      say: (text) => said.push(text),
+    };
+    const host = new PluginHost({ runtime, logger: { warn() {}, info() {} } });
+    host.register(createOrbPlugin({ platform: 'win32', env: {}, createProcess: (o) => { fire = o.onEvent; return { start() {}, stop() {}, send() {} }; } }));
+    await host.startServices();
+    await fire({ event: 'hold_end' });
+    expect(said).toEqual(["I couldn't type that: I don't see a window for that."]);
+  });
+});
+
 describe('Settings: clean up dictation (2026-11-04)', () => {
   it('the setting turns the tidying off and on, is remembered, and starts from NOVI_DICTATION_CLEANUP', async () => {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'novi-orb-'));

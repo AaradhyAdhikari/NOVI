@@ -62,6 +62,10 @@ public static class NoviWin {
   [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr h, int a, out int v, int s);
   [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h, int c);
   [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr h);
+  [DllImport("user32.dll")] static extern bool BringWindowToTop(IntPtr h);
+  [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] static extern bool AttachThreadInput(uint a, uint b, bool on);
+  [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
   [DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);
   [DllImport("user32.dll")] static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
   [DllImport("user32.dll")] static extern void keybd_event(byte k, byte s, uint f, UIntPtr e);
@@ -91,8 +95,14 @@ public static class NoviWin {
   public static void Focus(long id) {
     var h = new IntPtr(id);
     if (IsIconic(h)) ShowWindow(h, 9);
-    Key(0x12, false); // a key press lets this process bring another window to the front
+    // Joined to the front window's input so Windows lets us switch. No Alt tap: it left Notepad and
+    // Chrome in menu mode, and the Ctrl+V after it was lost (2026-11-04).
+    uint pid;
+    uint front = GetWindowThreadProcessId(GetForegroundWindow(), out pid), me = GetCurrentThreadId();
+    bool joined = front != 0 && front != me && AttachThreadInput(me, front, true);
+    BringWindowToTop(h);
     SetForegroundWindow(h);
+    if (joined) AttachThreadInput(me, front, false);
   }
   public static void Show(long id, int how) { ShowWindow(new IntPtr(id), how); }
   public static void Close(long id) { PostMessage(new IntPtr(id), 0x0010, IntPtr.Zero, IntPtr.Zero); } // WM_CLOSE: the app may ask to save

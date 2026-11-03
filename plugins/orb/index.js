@@ -47,7 +47,8 @@ export function createOrbPlugin({ platform = process.platform, env = process.env
         if (!text || text === '.') return;
         const tidy = cleanupOn() ? cleanDictation(text) : text;
         if (!tidy) return; // nothing left but fillers ("um")
-        await rt.callTool('dictate_type', { text: tidy });
+        const out = await rt.callTool('dictate_type', { text: tidy });
+        if (out?.error) rt.say?.(`I couldn't type that: ${out.error}`, { kind: null, local: true });
       }
       const onEvent = (e = {}) => {
         if (e.event === 'tap') return rt.wake?.listen?.();

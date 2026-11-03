@@ -10,6 +10,7 @@ using System;
 using System.Runtime.InteropServices;
 public static class NoviOrbNative {
   [DllImport("user32.dll")] public static extern short GetAsyncKeyState(int vKey);
+  [DllImport("user32.dll")] public static extern bool RegisterHotKey(IntPtr hWnd, int id, uint mods, uint vk);
   [DllImport("user32.dll")] public static extern int GetWindowLong(IntPtr hWnd, int nIndex);
   [DllImport("user32.dll")] public static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
 }
@@ -140,10 +141,12 @@ $timer.Add_Tick({
       if ($msg.state -and $colors.ContainsKey([string]$msg.state)) { $script:state = [string]$msg.state; Set-Look }
     } catch { }
   }
-  # Ctrl + Shift + Space held = dictation (the keys still reach the app; Novi only watches them).
+  # Ctrl + Shift + Space held = dictation. The hotkey below keeps the keys from the app in front;
+  # letting go = all three up, so the paste never runs with Ctrl or Shift still held.
   $down = (([NoviOrbNative]::GetAsyncKeyState(0x11) -band 0x8000) -ne 0) -and (([NoviOrbNative]::GetAsyncKeyState(0x10) -band 0x8000) -ne 0) -and (([NoviOrbNative]::GetAsyncKeyState(0x20) -band 0x8000) -ne 0)
   if ($down -and -not $script:held) { $script:held = $true; Send-Event 'hold_start'; $script:state = 'listening'; Set-Look }
-  elseif (-not $down -and $script:held) { $script:held = $false; Send-Event 'hold_end' }
+  $anyDown = (([NoviOrbNative]::GetAsyncKeyState(0x11) -band 0x8000) -ne 0) -or (([NoviOrbNative]::GetAsyncKeyState(0x10) -band 0x8000) -ne 0) -or (([NoviOrbNative]::GetAsyncKeyState(0x20) -band 0x8000) -ne 0)
+  if (-not $anyDown -and $script:held) { $script:held = $false; Send-Event 'hold_end' }
   $script:t += 1
   $pulse = switch ($script:state) {
     'listening' { 1 + 0.12 * [Math]::Sin($script:t / 3) }
@@ -153,6 +156,9 @@ $timer.Add_Tick({
   $scale.ScaleX = $pulse; $scale.ScaleY = $pulse
   if ($script:state -eq 'thinking') { $spin.Angle = ($spin.Angle + 12) % 360 }
 })
+# Ctrl+Shift+Space (no repeat), no window: taken from every app on this thread. If another app already
+# owns it the polling above still works, the keys just reach the app too.
+[void][NoviOrbNative]::RegisterHotKey([IntPtr]::Zero, 1, 0x4006, 0x20)
 $timer.Start()
 
 $app = New-Object System.Windows.Application
