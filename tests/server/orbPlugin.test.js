@@ -69,7 +69,8 @@ describe('orb plugin', () => {
       openUrl: async (u) => did.push(['open', u]),
     };
     const host = new PluginHost({ runtime, logger: { warn() {}, info() {} } });
-    expect(host.register(createOrbPlugin({ platform, env, createProcess: fakeProc }))).toBe(true);
+    let clock = 0; // each look at the clock is a second later: a hold, not a tap
+    expect(host.register(createOrbPlugin({ platform, env, createProcess: fakeProc, now: () => (clock += 1000) }))).toBe(true);
     return { host, did, sent, dataDir, fire: (e) => handlers.onEvent(e), state: (s) => onState(s), handlers: () => handlers };
   }
   const startServices = (host) => host.startServices();
@@ -84,7 +85,7 @@ describe('orb plugin', () => {
     t.fire({ event: 'tap' });
     expect(t.did.at(-1)).toBe('listen');
     t.fire({ event: 'hold_start' });
-    expect(t.did.at(-1)).toEqual(['hold', { maxMs: 60_000 }]);
+    expect(t.did.at(-1)).toEqual(['hold', { maxMs: 300_000 }]);
     await t.fire({ event: 'hold_end' });
     expect(t.did.at(-1)).toEqual(['dictate_type', { text: 'See you at 5' }]); // tidied: capital letter
     t.fire({ event: 'moved', x: 100, y: 200 });
@@ -161,6 +162,63 @@ describe('held-key dictation live (2026-11-04: "the cursor moves, nothing gets t
     await host.startServices();
     await fire({ event: 'hold_end' });
     expect(said).toEqual(["I couldn't type that: I don't see a window for that."]);
+  });
+});
+
+describe('hands-free dictation: tap to start, tap to stop (2026-11-04)', () => {
+  function make() {
+    let clock = 1000;
+    const timers = [];
+    const did = [];
+    let fire = null;
+    const runtime = {
+      dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'novi-orb-')),
+      wake: { hold: (o) => did.push(['hold', o.maxMs]), release: () => { did.push('release'); return Buffer.from('wav'); } },
+      hear: async () => 'a long note',
+      callTool: async (name, p) => { did.push(['type', p.text]); return {}; },
+    };
+    const host = new PluginHost({ runtime, logger: { warn() {}, info() {} } });
+    host.register(createOrbPlugin({
+      platform: 'win32', env: {}, now: () => clock,
+      setTimer: (fn, ms) => { const t = { fn, ms }; timers.push(t); return t; },
+      clearTimer: (t) => { timers.splice(timers.indexOf(t), 1); },
+      createProcess: (o) => { fire = o.onEvent; return { start() {}, stop() {}, send() {} }; },
+    }));
+    return { host, did, timers, fire: (event) => fire({ event }), pass: (ms) => { clock += ms; } };
+  }
+  const press = async (s, ms) => { await s.fire('hold_start'); s.pass(ms); await s.fire('hold_end'); };
+
+  it('a quick tap keeps listening with the keys up; the next tap stops and types, once', async () => {
+    const s = make();
+    await s.host.startServices();
+    await press(s, 150);
+    expect(s.did).toEqual([['hold', 300000]]); // still recording, nothing typed
+    s.pass(60000); // a long pause in the middle changes nothing
+    await press(s, 150);
+    expect(s.did).toEqual([['hold', 300000], 'release', ['type', 'A long note']]);
+    expect(s.timers).toEqual([]);
+  });
+
+  it('holding the keys is the same as before: letting go types at once', async () => {
+    const s = make();
+    await s.host.startServices();
+    await press(s, 2000);
+    expect(s.did).toEqual([['hold', 300000], 'release', ['type', 'A long note']]);
+  });
+
+  it('forgotten: it stops by itself at 5 minutes and still types', async () => {
+    const s = make();
+    await s.host.startServices();
+    await press(s, 150);
+    expect(s.timers[0].ms).toBe(300000);
+    await s.timers[0].fn();
+    expect(s.did.at(-1)).toEqual(['type', 'A long note']);
+    await press(s, 150); // the next tap starts afresh
+    expect(s.did.at(-1)).toEqual(['hold', 300000]);
+  });
+
+  it('the orb tells you about the tap', () => {
+    expect(fs.readFileSync(new URL('../../plugins/orb/orb.ps1', import.meta.url), 'utf8')).toMatch(/tap .* to start and stop/i);
   });
 });
 

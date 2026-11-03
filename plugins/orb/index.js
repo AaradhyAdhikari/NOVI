@@ -10,10 +10,14 @@ import { cleanDictation } from '../../server/voice/dictationCleanup.js';
 // holding Ctrl+Shift+Space records, and letting go types the words into the app in front
 // (plugins/dictation). Windows only; NOVI_ORB=off turns it off. The held-key words are tidied first
 // (fillers, stutters, capitals: server/voice/dictationCleanup.js, 2026-11-03); NOVI_DICTATION_CLEANUP=off
-// types them exactly as heard. "type: …" by voice is never changed.
+// types them exactly as heard. "type: …" by voice is never changed. Hands-free (2026-11-04): a quick
+// tap of the keys keeps listening with them up, the next tap stops and types (5 minutes at most).
+const TAP_MS = 600; // keys let go sooner than this = a tap
+const LONG_MS = 5 * 60_000; // the longest one dictation
+
 const SCRIPT = path.join(path.dirname(fileURLToPath(import.meta.url)), 'orb.ps1');
 
-export function createOrbPlugin({ platform = process.platform, env = process.env, createProcess = createOrbProcess } = {}) {
+export function createOrbPlugin({ platform = process.platform, env = process.env, createProcess = createOrbProcess, now = Date.now, setTimer = setTimeout, clearTimer = clearTimeout } = {}) {
   return definePluginEntry({
     id: 'orb',
     name: 'Desktop orb',
@@ -42,7 +46,7 @@ export function createOrbPlugin({ platform = process.platform, env = process.env
 
       async function dictate() {
         const wav = rt.wake?.release?.();
-        if (!wav) return;
+        if (!wav?.length) return;
         const text = String((await rt.hear(wav)) || '').trim();
         if (!text || text === '.') return;
         const tidy = cleanupOn() ? cleanDictation(text) : text;
@@ -50,10 +54,28 @@ export function createOrbPlugin({ platform = process.platform, env = process.env
         const out = await rt.callTool('dictate_type', { text: tidy });
         if (out?.error) rt.say?.(`I couldn't type that: ${out.error}`, { kind: null, local: true });
       }
+      let heldAt = 0;
+      let open = null; // the 5-minute timer while a tap keeps the mic open
+      const finish = () => {
+        if (open) clearTimer(open);
+        open = null;
+        return dictate().catch((err) => api.logger?.warn?.(`[orb] dictation failed: ${err.message}`));
+      };
       const onEvent = (e = {}) => {
         if (e.event === 'tap') return rt.wake?.listen?.();
-        if (e.event === 'hold_start') return rt.wake?.hold?.({ maxMs: 60_000 });
-        if (e.event === 'hold_end') return dictate().catch((err) => api.logger?.warn?.(`[orb] dictation failed: ${err.message}`));
+        if (e.event === 'hold_start') {
+          if (open) return undefined; // the second tap: its key-up ends it
+          heldAt = now();
+          return rt.wake?.hold?.({ maxMs: LONG_MS });
+        }
+        if (e.event === 'hold_end') {
+          if (!open && now() - heldAt < TAP_MS) {
+            open = setTimer(finish, LONG_MS);
+            open.unref?.();
+            return undefined;
+          }
+          return finish();
+        }
         if (e.event === 'open') return rt.openUrl?.('https://localhost:3001');
         if (e.event === 'moved' && Number.isFinite(e.x) && Number.isFinite(e.y)) {
           fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -72,7 +94,7 @@ export function createOrbPlugin({ platform = process.platform, env = process.env
           orb.start();
           unsubscribe = rt.laptopState?.on?.((state) => orb?.send({ state }));
         },
-        stop() { unsubscribe?.(); orb?.stop(); orb = null; },
+        stop() { if (open) clearTimer(open); open = null; unsubscribe?.(); orb?.stop(); orb = null; },
       });
     },
   });

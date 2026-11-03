@@ -78,7 +78,7 @@ $ring.RenderTransform = $spin
 [void]$grid.Children.Add($core)
 [void]$grid.Children.Add($ring)
 $win.Content = $grid
-$win.ToolTip = 'Novi: tap to talk, hold Ctrl+Shift+Space to type by voice'
+$win.ToolTip = 'Novi: click to talk. Ctrl+Shift+Space: hold to type by voice, or tap it to start and stop'
 
 $colors = @{
   idle = '#00f2fe'; listening = '#00f2fe'; thinking = '#b18cff'; speaking = '#7cf29a'; quiet = '#8a94a8'

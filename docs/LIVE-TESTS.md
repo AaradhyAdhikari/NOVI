@@ -179,9 +179,10 @@ Needs graphify installed once (`pip install graphifyy` — already done on this 
 
 - [ ] Play a song on your Bluetooth earbuds, then start Novi: the song stays clear (2026-11-04: Novi no longer opens a Bluetooth mic; "Hey Novi" uses the laptop mic while the buds are on). The talk button still opens the Windows default mic while you hold it, so the sound can dip for those seconds.
 - [x] "make me a diagram of Novi", "flexr ka diagram banao", "diagram of facebook/react": the GitDiagram page opens, with a link in the chat (a tap-to-open link on the phone). "send the diagram of Novi to my phone" from the laptop: works on the S24+ (2026-11-04, user confirmed).
-- [ ] By voice, step by step: "Hey Novi, open youtube", then (no wake word, mic stays on 20 s) "type lofi music": it sits in the box, then "enter". Typed lines checked 2026-11-04; the mic part is not.
+- [x] By voice, step by step: "Hey Novi, open youtube", then (no wake word, mic stays on 20 s) "type lofi music": it sits in the box, then "enter". Works by voice on YouTube and Notepad (user, 2026-11-04).
 - [ ] One go: "open youtube type claude code and enter" (checked with typed lines), "open notepad and type hello".
 - [ ] WhatsApp with a chat open: "type hi", then "enter" (really sends to that chat). And a Hindi line.
+- [x] Hands-free dictation (worked live, 2026-11-04): click in Notepad, quick tap of Ctrl+Shift+Space, talk as long as you like (pauses are fine), tap again: it all types at once. Stops by itself at 5 minutes.
 - [ ] Settings → "Hey Novi" → "Clean up hold-to-talk dictation": off types exactly as heard.
 - [ ] "Hey Novi" on your own voice (no training model now — keyword spotting). Does it wake every time? Does it wake by itself?
 - [ ] Say "Hey Novi" while Novi is talking → she stops and listens.
