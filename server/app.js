@@ -62,7 +62,7 @@ import { PairRequests } from './pairRequests.js';
 import { enrollVoice, readClips, createVoiceprintStore } from './voice/speaker/enroll.js';
 import { readWavInt16 } from './voice/wakeword/detector.js';
 import { createVocabulary } from './voice/vocabulary.js';
-import { judgeHeard } from './voice/heardFilter.js';
+import { judgeHeard, cardSlack } from './voice/heardFilter.js';
 import { hintNames, fixNames } from './voice/techWords.js';
 import { createVoiceLog } from './voice/voiceLog.js';
 import { createWatchWindows } from './claude/watchWindow.js';
@@ -213,8 +213,10 @@ export function createNovi(config, overrides = {}) {
       // The brief was the yes, so Claude doesn't show a second plan ($planFirst: false).
       // Both are told to the plugins' after_tool_call hooks like any tool run (claude-link makes the
       // claude.ai project for them).
-      startCoding: async ({ project, instruction }) => {
-        const params = { project, instruction, agent: 'claude', $planFirst: false };
+      // A message to the Claude task already running (plugins/ai-cards).
+      tellCoder: (text) => tasks.send(text),
+      startCoding: async ({ project, instruction, planFirst = false }) => {
+        const params = { project, instruction, agent: 'claude', ...(planFirst ? {} : { $planFirst: false }) };
         const result = await plugins.get('code_start_task').run(params);
         plugins.afterToolCall({ toolName: 'code_start_task', params, result }).catch(() => {});
         return result;
@@ -349,12 +351,12 @@ export function createNovi(config, overrides = {}) {
   // can't be checked (not 16 kHz WAV, too short, no voiceprint, check off) goes through: never deaf.
   const NOT_YOU = "That didn't sound like you.";
   const notYouSaid = new Map(); // device → when NOT_YOU was last said (said once, not on every clip)
-  function voiceVerdict(audio) {
+  function voiceVerdict(audio, slack = 0) {
     if (!usableVoiceprint()) return null;
     let samples;
     try { samples = readWavInt16(Buffer.from(audio)); } catch { return null; }
     const t0 = Date.now();
-    const { ok, score } = checkVoice(samples.subarray(0, 16000 * 4)); // 4 s is plenty to know a voice (~230 ms; 8 s took 527 ms)
+    const { ok, score } = checkVoice(samples.subarray(0, 16000 * 4), slack); // 4 s is plenty to know a voice (~230 ms; 8 s took 527 ms)
     const ms = Date.now() - t0;
     console.log(`[timing] voice check ${ms} ms (${ok === false ? 'not the owner' : ok ? 'owner' : 'unchecked'})`);
     return { ok, score, ms };
@@ -371,7 +373,11 @@ export function createNovi(config, overrides = {}) {
   // Speech → text with your fixes applied; logged (with the recording) for Settings → Words.
   // voiceChecked: the wake listener already checked this very clip (a follow-up).
   async function hear(audio, mimeType, source, { from = 'local', voiceChecked = false } = {}) {
-    const verdict = voiceChecked ? null : voiceVerdict(audio);
+    // A card waits: the words are on their way while the voice is checked, a second off every answer.
+    const waiting = approvals.pending();
+    const early = waiting.length ? stt(audio, mimeType) : null;
+    early?.catch(() => {});
+    const verdict = voiceChecked ? null : voiceVerdict(audio, cardSlack(waiting));
     // Not the owner: only a PIN for a card that waits for one is worth transcribing.
     if (verdict?.ok === false && !agent.wantsPin?.(from)) {
       notYou(from, verdict);
@@ -381,7 +387,7 @@ export function createNovi(config, overrides = {}) {
     let heard;
     let confidence;
     try {
-      const out = await stt(audio, mimeType);
+      const out = await (early || stt(audio, mimeType));
       heard = String(out && typeof out === 'object' ? out.text : out).trim();
       confidence = out && typeof out === 'object' ? out.confidence : undefined;
     } finally { working -= 1; }
@@ -781,12 +787,12 @@ export function createNovi(config, overrides = {}) {
     return speaker.verifier && saved?.enabled && saved.voiceprint.length === speaker.verifier.dim ? saved : null;
   };
   // ok: true = the owner, false = someone else, null = check off (never makes Novi deaf).
-  function checkVoice(audio) {
+  function checkVoice(audio, slack = 0) {
     const saved = usableVoiceprint();
     if (!saved) return { ok: null, score: null };
     try {
       const score = Math.round(speaker.verifier.score(speaker.verifier.embed(audio), saved.voiceprint) * 1000) / 1000;
-      return { ok: score >= saved.strictness, score };
+      return { ok: score >= saved.strictness - slack, score };
     } catch {
       return { ok: null, score: null };
     }

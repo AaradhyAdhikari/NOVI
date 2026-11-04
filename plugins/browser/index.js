@@ -41,7 +41,11 @@ export function createBrowserPlugin({ bridge = null, showImage = null, webDriver
       if (!link) {
         const file = path.join(api.runtime?.dataDir || 'data', 'browser.json');
         // A tap on a card's Windows notification (the extension shows it) answers the card (app.js answerCard).
-        const onEvent = (e) => (e.event === 'card' ? api.runtime?.answerCard?.(String(e.id || ''), String(e.action || '')) : null);
+        const onEvent = (e) => {
+          if (e.event === 'card') return api.runtime?.answerCard?.(String(e.id || ''), String(e.action || ''));
+          if (e.event === 'ai_answer') return api.runtime?.aiAnswer?.({ site: e.site, text: e.text });
+          return null;
+        };
         link = createBridge({ port: Number(api.pluginConfig?.port) || 3003, code: loadCode(file), logger: api.logger, wantVersion: extensionVersion(), onEvent });
         // Settings → Browser (laptop-only routes in app.js) read and rotate the pairing code here.
         if (api.runtime) {

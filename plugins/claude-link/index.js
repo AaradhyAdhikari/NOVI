@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { definePluginEntry } from '#plugin-sdk';
@@ -5,6 +6,7 @@ import { listClaudeCodeProjects, CONTAINER } from './codeProjects.js';
 import { createClaudeWeb } from './claudeWeb.js';
 import { activeSessions, activityLine } from './activity.js';
 import { parseUsage, usageLine } from './usage.js';
+import { createHookHandler } from './hooks.js';
 
 // Novi ⇄ Claude (user, 2026-10-18): every folder Claude Code has worked in becomes one of Novi's
 // projects (with a note in Novi Memory), so old projects can be driven by voice like new ones; and
@@ -25,6 +27,27 @@ export function createClaudeLinkPlugin({ driver = null, listCode = () => listCla
     register(api) {
       const rt = api.runtime || {};
       const log = (m) => api.logger?.info?.(m);
+      // Every Claude Code session reports here through tools/claude-hook.mjs. Only something that can read
+      // Novi's data folder has this secret, so another local program can't answer Claude's questions.
+      const hookFile = rt.dataDir ? path.join(rt.dataDir, 'claude-hook.json') : null;
+      const hookToken = () => {
+        if (!hookFile) return crypto.randomBytes(24).toString('hex'); // never a secret file outside data/
+        try { return JSON.parse(fs.readFileSync(hookFile, 'utf8')).token; } catch { /* first run */ }
+        const token = crypto.randomBytes(24).toString('hex');
+        fs.mkdirSync(path.dirname(hookFile), { recursive: true });
+        fs.writeFileSync(hookFile, JSON.stringify({ token }));
+        return token;
+      };
+      const secret = Buffer.from(hookToken());
+      const claudeHook = createHookHandler({ ask: (card) => rt.ask(card), say: (text) => rt.say?.(text, { kind: 'claude' }) });
+      api.registerHttpRoute({
+        path: 'claude-hook',
+        handler: (body, { headers = {} } = {}) => {
+          const given = Buffer.from(String(headers['x-novi-hook'] || ''));
+          if (given.length !== secret.length || !crypto.timingSafeEqual(given, secret)) return {};
+          return claudeHook(body);
+        },
+      });
       const file = path.join(rt.dataDir || '.', 'claude-link.json');
       const load = () => { try { return { linked: {}, about: {}, web: [], ...JSON.parse(fs.readFileSync(file, 'utf8')) }; } catch { return { linked: {}, about: {}, web: [] }; } };
       const state = load();

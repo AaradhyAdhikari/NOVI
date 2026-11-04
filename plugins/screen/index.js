@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { definePluginEntry } from '#plugin-sdk';
 import { pageShot } from './pageShot.js';
 import { createControlWorker } from '../laptop-control/worker.js';
-import { parseScreenCommand, pickResult, webResults, findTarget, clickRisk, riskRank, sensitiveScreen, secretWords, chatApp, shortTitle, capital, createSession, clickPoint, pickBox, SEARCH_BOX, KEY_LABEL } from './mode.js';
+import { parseScreenCommand, pickResult, webResults, findVideo, findTarget, clickRisk, riskRank, sensitiveScreen, secretWords, chatApp, shortTitle, capital, createSession, clickPoint, pickBox, SEARCH_BOX, KEY_LABEL } from './mode.js';
 
 // Screen control: look at the screen (Gemini vision — the user agreed screenshots may go to Gemini),
 // click a described element, type, press a key. Every action needs approval (category "screen",
@@ -411,6 +411,23 @@ export function createScreenPlugin({ driver = windowsDriver, now = Date.now, foc
             if (spot.sensitive) return { note: SENS };
             const out = await clickAt({ ...spot, name: spot.name || intent.target }, s.title, level);
             return { ...out, vision: true };
+          }
+          case 'video': {
+            const s = await look(true);
+            const browser = BROWSER_TITLE.test(s.title);
+            if (!browser && !intent.onScreen) return null; // nothing to pick from: the normal YouTube search
+            if (sensitiveScreen(s.title, s.raw)) return { note: SENS };
+            let it = findVideo(s.list, intent.who, intent.n);
+            let usedVision = false;
+            if (!it) {
+              const word = ORD_WORD[intent.n] || `number ${intent.n}`;
+              const spot = await byVision(s.title, `Find the ${word} video by or about "${intent.who}" on this screenshot, and point at its thumbnail.`);
+              if (spot?.sensitive) return { note: SENS };
+              if (spot) { it = { ...spot, name: spot.name || intent.who, type: 'Hyperlink' }; usedVision = true; }
+            }
+            if (!it) return intent.onScreen ? { note: `I can't see a video by ${intent.who} on the screen.` } : null;
+            const out = await clickAt(it, s.title, null);
+            return usedVision && out.target ? { ...out, note: `Clicked what looks like the video by ${intent.who}.` } : out;
           }
           case 'result': {
             const s = await look();

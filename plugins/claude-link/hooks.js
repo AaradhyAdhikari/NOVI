@@ -55,7 +55,9 @@ export function createHookHandler({ ask, say, now = Date.now }) {
       : claudeAsk(tool, input, input.description || '', `Claude (${project})`);
     const tier = classifyClaudeTool(tool, input, h.cwd) === 'high' ? 'high' : 'medium';
     note(h, 'asking', card.title);
-    const d = await ask({ ...card, tier, source: 'claude', timeoutMs: WAIT_MS });
+    // Read out short: every word is a wait before the answer.
+    const prompt = String(card.prompt || '').replace(/^Claude \([^)]*\) wants to /, `${project}: `);
+    const d = await ask({ ...card, prompt, tier, source: 'claude', timeoutMs: WAIT_MS });
     if (d?.timedOut) { note(h, 'waiting', card.title); return {}; }
     note(h, 'working');
     return { hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: d?.allow ? { behavior: 'allow' } : { behavior: 'deny', message: 'The user said no on Novi.' } } };

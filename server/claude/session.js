@@ -39,6 +39,7 @@ export class ClaudeSession extends EventEmitter {
     this.exited = false;
     this.proc = spawnImpl(command, [...argsPrefix, ...claudeArgs({ resumeSessionId, permissionMode })], {
       cwd,
+      env: { ...process.env, NOVI_TASK: '1' }, // its questions already reach Novi: tools/claude-hook.mjs stands aside
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
     });

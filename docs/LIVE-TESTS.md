@@ -27,11 +27,23 @@ Last updated: 2026-10-22.
 - [ ] Leave it 15 minutes without touching: it closes and needs the PIN again.
 - [ ] "list the screen" answers "Found N things" with no list; "click 3" still works after it.
 
+## AI answer cards (2026-11-04, tests only so far)
+- [ ] Install the Novi extension in your everyday Chrome profile: chrome://extensions, Developer mode, Load unpacked, pick C:\dev\NOVI\extension, paste the code from Novi Settings → Browser. Its popup says connected.
+- [ ] Ask ChatGPT something: when it finishes, a card "ChatGPT answered: …. Send it to Claude?" comes with voice on the phone and laptop. Yes sends it to Claude; no does nothing.
+- [ ] The same in Gemini, Perplexity and Gamma. Opening an old chat gives no card.
+
+## Every Claude Code session through Novi (2026-11-04, hooks installed in ~/.claude/settings.json)
+- [ ] A Claude Code session asks for permission: a card on the laptop and phone, read out; yes, no or a tap answers it. No answer in 2 minutes: Claude asks in its own window.
+- [ ] Claude asks a multiple-choice question: the same card with its options.
+- [ ] Claude finishes: "Claude finished in X: ..." is said. Claude waiting: "Claude in X is waiting for you."
+- [ ] To turn it all off: remove the "hooks" block from ~/.claude/settings.json.
+
 ## Quiet steps, select, mute, copy lines (2026-11-04, tests only so far)
 - [ ] By voice at the laptop: "skip 10 seconds", "make it shorter", "pause": nothing written in Novi. Questions, answers and problems are still written. Typed lines and the phone still show.
 - [ ] Notepad: "select all" or "select the first three lines", then "make it shorter", then "turn it into bullets" (the new text stays selected). Nothing selected: Novi tells you to select first.
 - [ ] "Mute the video" and "unmute the video" on YouTube and Kick: only the video goes quiet, not the laptop.
 - [ ] On the phone, tap a laptop picture Novi sent: pinch to zoom, drag to move, double tap in and out, one tap at normal size closes it.
+- [ ] YouTube home open: "play the video of Raj Shamani on the screen", "second video of Raj Shamani". It clicks that tile, no search. Not on the page: "I can't see a video by X on the screen."
 - [ ] "Copy the first three lines" on a ChatGPT answer and in Notepad, then paste. "Copied 3 lines" is spoken, not written.
 
 ## Screen Mode: the whole screen by voice (2026-10-29, checked by Claude on the test copy)

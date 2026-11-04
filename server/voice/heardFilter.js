@@ -25,3 +25,8 @@ export function judgeHeard({ text, confidence, followUp = false } = {}) {
   if (!words.includes(' ') && !ONE_WORD_OK.has(words)) return 'one word that is not an answer';
   return null;
 }
+
+// A one-word answer gives the voice check little to go on, so an ordinary card gets a little slack. Anything
+// riskier keeps the full check (and needs its PIN or a tap anyway).
+const CARD_SLACK = 0.08;
+export const cardSlack = (pending = []) => (pending.length && pending.every((a) => a.tier !== 'high' && !a.pin && !a.kind) ? CARD_SLACK : 0);

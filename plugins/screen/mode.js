@@ -32,6 +32,20 @@ const BOX = '(?:the |this |that )?(?:(?:text|search|message|chat|prompt|input) )
 // "click Novi in the projects section": the words after it say where to look, not what to click.
 const WHERE_TAIL = /\s+(?:in|on|from|under|at)\s+(?:the\s+|my\s+)?(?:\w+\s+){0,3}(?:section|panel|sidebar|menu|list|bar|page|screen|side|corner)$/i;
 
+// "(the) (second) video of X": which video on the screen. Words like "on the screen" are taken off first.
+const ON_SCREEN = /[.,]?\s*(?:just\s+)?(?:(?:seen|shown|showing|visible|that(?:'s| is))\s+)?(?:(?:on|in)\s+(?:the\s+|my\s+)screen|here)$/i;
+const VIDEO_OF = new RegExp(`^(?:(?:play|open|click|start|chalao|lagao)\\s+)?(?:the\\s+)?(?:${'(' + Object.keys(ORDINAL).join('|') + '|\\d+(?:st|nd|rd|th))'}\\s+)?video\\s+(?:of|by|from)\\s+(.+)$`, 'i');
+const NAMED_VIDEO = /^(?:play|open|click|start)\s+(?:the\s+)?(.+?)\s+video$/i;
+const WALA_VIDEO = /^(.+?)\s+(?:wala|wali|ka|ki)\s+video\s+(?:chalao|lagao|play karo|kholo)$/i;
+function videoIntent(said) {
+  const onScreen = ON_SCREEN.test(said);
+  const t = said.replace(ON_SCREEN, '').trim();
+  const of = VIDEO_OF.exec(t);
+  if (of) return { do: 'video', who: of[2].trim(), n: of[1] ? num(of[1]) : 1, onScreen };
+  const named = (onScreen && NAMED_VIDEO.exec(t)) || WALA_VIDEO.exec(t);
+  return named ? { do: 'video', who: named[1].trim(), n: 1, onScreen } : null;
+}
+
 const RULES = [
   [re('(?:start|turn on|switch on|begin|enable|open) (?:the )?screen (?:control|mode)(?: mode)?|screen (?:control|mode) (?:on|start)'), () => ({ do: 'start' })],
   [re("(?:stop|end|exit|quit|turn off|switch off|disable|close) (?:the )?screen (?:control|mode)(?: mode)?|screen (?:control|mode) off|stop(?: it| now)?|that'?s all"), () => ({ do: 'stop' })],
@@ -91,7 +105,7 @@ const SAID_AS_STEP = /^\W*(?:(?:ok(?:ay)?|hey novi|novi|please)[, ]+)*(?:click|t
 export function isScreenStep(text, { phone = false } = {}) {
   const it = parseScreenCommand(text);
   if (!it) return false;
-  if (it.do === 'scroll' || it.do === 'result' || it.do === 'list') return true;
+  if (it.do === 'scroll' || it.do === 'result' || it.do === 'list' || it.do === 'video') return true;
   if (it.do === 'click') return SAID_AS_STEP.test(text);
   if (it.do === 'type') return Boolean(it.box) || phone;
   if (it.do === 'key') return SAID_AS_STEP.test(text) || (phone && Boolean(it.say) && it.say !== 'Sent.');
@@ -103,6 +117,8 @@ export function parseScreenCommand(text) {
   for (let i = 0; i < 4 && LEAD.test(t); i++) t = t.replace(LEAD, '');
   t = t.replace(/,?\s*(?:please|for me|right now)$/i, '').trim();
   if (!t || TIME_JUMP.test(t)) return null;
+  const video = videoIntent(t);
+  if (video) return video;
   for (const [pattern, make] of RULES) {
     const m = pattern.exec(t);
     if (m) return withSend(make(m));
@@ -116,6 +132,17 @@ const NAV = /^(?:all|images|videos|news|shopping|maps|books|flights|finance|more
 // A web result's link names its address (Google: "Title … https://github.com"); when the page has
 // those, only they count (live: the logo "Go to Google Home" and the sitelinks were counted too).
 const ADDRESS = /https?:\/\/|\s›\s/;
+// The n-th video on the page by a channel or title, however the name was heard ("Rajshamani" = "Raj
+// Shamani"). Reading order; a short link is the channel's own page, not a video.
+const squash = (s) => String(s).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+export function findVideo(list, who, n = 1) {
+  const want = squash(who);
+  if (!want) return null;
+  const tiles = (list || []).filter((it) => it.type === 'Hyperlink' && it.name.length >= 20 && squash(it.name).includes(want));
+  tiles.sort((a, b) => (Math.abs(a.y - b.y) < 30 ? a.x - b.x : a.y - b.y));
+  return tiles[n - 1] || null;
+}
+
 // The results that name their address, top to bottom: real web results, one per row.
 export function webResults(list) {
   const rows = [];

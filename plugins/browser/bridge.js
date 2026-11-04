@@ -26,7 +26,8 @@ const older = (a, b) => {
 export function createBridge({ port = 3003, host = '127.0.0.1', code, timeoutMs = 15_000, helloMs = 5_000, logger = console, wantVersion = null, onEvent = null } = {}) {
   const reloadAsked = new Set();
   let server = null;
-  let ext = null; // the paired extension socket
+  let ext = null; // the paired extension socket that gets the jobs
+  const others = new Set(); // Novi's extension in another Chrome profile: its events count, and it takes over if ext goes
   let secret = code;
   let nextId = 1;
   const pending = new Map();
@@ -50,14 +51,14 @@ export function createBridge({ port = 3003, host = '127.0.0.1', code, timeoutMs 
           if (!paired) {
             clearTimeout(hello);
             if (msg.type !== 'hello' || !same(msg.code, secret)) return ws.close(1008, 'wrong code');
-            if (ext && ext.readyState === ext.OPEN) return ws.close(1013, 'already connected');
             paired = true;
-            ext = ws;
-            this.version = msg.version || null;
+            if (ext && ext.readyState === ext.OPEN) others.add(ws);
+            else { ext = ws; this.version = msg.version || null; }
             ws.send(JSON.stringify({ type: 'welcome' })); // the extension says "connected" only now
-            if (wantVersion && older(this.version, wantVersion) && !reloadAsked.has(this.version)) {
-              reloadAsked.add(this.version);
-              logger.info?.(`[browser] the Novi extension is ${this.version}, Novi has ${wantVersion}: asking it to reload`);
+            const theirs = msg.version || null;
+            if (wantVersion && older(theirs, wantVersion) && !reloadAsked.has(`${theirs}:${others.has(ws)}`)) {
+              reloadAsked.add(`${theirs}:${others.has(ws)}`);
+              logger.info?.(`[browser] the Novi extension is ${theirs}, Novi has ${wantVersion}: asking it to reload`);
               ws.send(JSON.stringify({ type: 'reload' }));
             }
             return;
@@ -76,16 +77,24 @@ export function createBridge({ port = 3003, host = '127.0.0.1', code, timeoutMs 
           const { id, ok, error, ...result } = msg;
           if (ok) p.resolve(result); else p.reject(new Error(error || 'failed'));
         });
-        ws.on('close', () => { clearTimeout(hello); if (ws === ext) { ext = null; drop(NOT_CONNECTED); } });
+        ws.on('close', () => {
+          clearTimeout(hello);
+          others.delete(ws);
+          if (ws !== ext) return;
+          ext = null;
+          drop(NOT_CONNECTED);
+          const next = [...others].find((o) => o.readyState === o.OPEN);
+          if (next) { others.delete(next); ext = next; }
+        });
         ws.on('error', (err) => logger.warn?.(`[browser] ${err.message}`));
       });
       await new Promise((resolve, reject) => { server.once('listening', resolve); server.once('error', reject); });
     },
-    stop() { drop('stopped'); ext?.close(); server?.close(); server = null; },
+    stop() { drop('stopped'); ext?.close(); for (const o of others) o.close(); server?.close(); server = null; },
     port: () => server?.address()?.port,
     address: () => server?.address()?.address,
     connected: () => Boolean(ext && ext.readyState === ext.OPEN),
-    setCode(c) { secret = c; ext?.close(1008, 'new code'); },
+    setCode(c) { secret = c; for (const o of others) o.close(1008, 'new code'); ext?.close(1008, 'new code'); },
     request(cmd, args = {}, { timeoutMs: ms = timeoutMs } = {}) {
       if (!ext || ext.readyState !== ext.OPEN) return Promise.reject(new Error(NOT_CONNECTED));
       const id = nextId++;

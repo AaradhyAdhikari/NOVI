@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { PluginHost } from '../../server/plugins/host.js';
 import { createScreenPlugin } from '../../plugins/screen/index.js';
-import { parseScreenCommand, pickResult, isScreenStep } from '../../plugins/screen/mode.js';
+import { parseScreenCommand, pickResult, isScreenStep, findVideo } from '../../plugins/screen/mode.js';
 import { isScreenModeStart } from '../../server/brain/screenModeCommand.js';
 
 const GOOGLE = {
@@ -624,5 +624,57 @@ describe('copying lines', () => {
     const s = copier({ title: 'Sign in - password - Google Chrome' });
     expect((await s.run({ from: 'first', n: 3 })).error).toMatch(/sensitive/);
     expect(s.looked()).toBe(0);
+  });
+});
+
+// Live 2026-11-04, YouTube's home page open: both went to the AI, which searched and played something else.
+describe('a video that is on the screen', () => {
+  const HOME = { title: 'YouTube - Google Chrome', items: [
+    { type: 'Hyperlink', name: 'Raj Shamani', x: 950, y: 645 },
+    { type: 'Hyperlink', name: 'Sam Altman On AI Revolution by Raj Shamani 1.6m views 17 hours ago', x: 1095, y: 420 },
+    { type: 'Hyperlink', name: 'PRIME TenZ IS ACTUALLY BACK by TenZ 289k views 17 hours ago', x: 1620, y: 420 },
+    { type: 'Hyperlink', name: 'How India Thinks by Raj Shamani 900k views 2 days ago', x: 600, y: 900 },
+  ] };
+
+  it('reads the ways it is said', () => {
+    expect(parseScreenCommand('Second video of Rajshamani.')).toEqual({ do: 'video', who: 'Rajshamani', n: 2, onScreen: false });
+    expect(parseScreenCommand('Play the video of Rajshamani. Just seen on the screen.')).toEqual({ do: 'video', who: 'Rajshamani', n: 1, onScreen: true });
+    expect(parseScreenCommand('play the Raj Shamani video on the screen')).toEqual({ do: 'video', who: 'Raj Shamani', n: 1, onScreen: true });
+    expect(parseScreenCommand('open the first video by TenZ')).toEqual({ do: 'video', who: 'TenZ', n: 1, onScreen: false });
+    expect(parseScreenCommand('play the video from TenZ visible on my screen')).toEqual({ do: 'video', who: 'TenZ', n: 1, onScreen: true });
+    expect(parseScreenCommand('Raj Shamani wala video chalao')).toEqual({ do: 'video', who: 'Raj Shamani', n: 1, onScreen: false });
+    expect(isScreenStep('second video of Rajshamani')).toBe(true);
+    expect(parseScreenCommand('play the first video').do).toBe('result');
+    expect(isScreenStep('play lofi music on youtube')).toBe(false);
+  });
+
+  it('finds it however the name was heard, top to bottom, never the channel link', () => {
+    expect(findVideo(HOME.items, 'Rajshamani', 1).name).toMatch(/^Sam Altman/);
+    expect(findVideo(HOME.items, 'raj shamani', 2).name).toMatch(/^How India/);
+    expect(findVideo(HOME.items, 'Rajshamani', 3)).toBe(null);
+  });
+
+  it('clicks the right tile, with no AI', async () => {
+    const s = setup({ screen: HOME });
+    const out = await s.host.get('screen_command').run({ text: 'second video of Rajshamani', anywhere: true });
+    expect(s.actions.at(-1)).toEqual(['click', 600, 900]);
+    expect(out.note).toMatch(/^Clicked How India/);
+  });
+
+  it('the page names no channel: looks at the screen', async () => {
+    const s = setup({ screen: { title: 'YouTube - Google Chrome', items: [] }, found: { found: true, point: [500, 500], label: 'Sam Altman' } });
+    const out = await s.host.get('screen_command').run({ text: 'play the video of Rajshamani on the screen', anywhere: true });
+    expect(out.note).toMatch(/looks like/);
+  });
+
+  it('said to be on screen but not there: says so, plays nothing else', async () => {
+    const s = setup({ screen: { title: 'YouTube - Google Chrome', items: [] }, found: { found: false } });
+    const out = await s.host.get('screen_command').run({ text: 'play the video of Rajshamani on the screen', anywhere: true });
+    expect(out.note).toMatch(/can't see/);
+  });
+
+  it('no browser in front and no "on the screen": left to the normal YouTube search', async () => {
+    const s = setup({ screen: { title: 'Notes - Notepad', items: [] } });
+    expect((await s.host.get('screen_command').run({ text: 'second video of Rajshamani', anywhere: true })).unknown).toBe(true);
   });
 });

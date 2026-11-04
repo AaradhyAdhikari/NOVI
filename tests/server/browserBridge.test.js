@@ -45,14 +45,14 @@ describe('browser bridge (Novi ⇄ extension)', () => {
     expect(bridge.connected()).toBe(false);
   });
 
-  it('one extension at a time', async () => {
+  it('a second Chrome profile stays connected beside the first', async () => {
     const port = await start();
     const first = connect(port);
     await tick();
     const second = connect(port);
     await tick(100);
     expect(first.state.closed).toBe(false);
-    expect(second.state.closed).toBe(true);
+    expect(second.state.closed).toBe(false);
   });
 
   it('requests get their own answers; failures and silence reject', async () => {

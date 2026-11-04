@@ -10,6 +10,7 @@ const MESSAGES = {
   task_failed: { body: 'Task failed', tag: 'task' },
   approval: { body: 'Novi needs your OK', tag: 'approval' },
   reminder: { body: 'Reminder', tag: 'reminder' },
+  claude: { body: 'News from Claude', tag: 'claude' },
   briefing: { body: 'Your briefing is ready', tag: 'briefing' },
   pin_locked: { body: 'Wrong PIN 3 times', tag: 'security' },
 };
