@@ -104,6 +104,7 @@ public static class NoviWin {
     SetForegroundWindow(h);
     if (joined) AttachThreadInput(me, front, false);
   }
+  public static bool IsFront(long id) { return GetForegroundWindow() == new IntPtr(id); }
   public static void Show(long id, int how) { ShowWindow(new IntPtr(id), how); }
   public static void Close(long id) { PostMessage(new IntPtr(id), 0x0010, IntPtr.Zero, IntPtr.Zero); } // WM_CLOSE: the app may ask to save
   public static void Media(byte vk) { Key(vk, true); }
@@ -129,6 +130,14 @@ function Await($op, $type) {
 }
 
 function Clamp($n) { [Math]::Max(0, [Math]::Min(100, [int]$n)) }
+
+# The clipboard can be busy for a moment (another app, Windows' clipboard history): try again, then give up.
+function Retry-Clipboard($action) {
+  for ($i = 0; $i -lt 8; $i++) {
+    try { return & $action } catch { Start-Sleep -Milliseconds 120 }
+  }
+  throw 'clipboard-busy'
+}
 
 $handlers = @{
   ping = { param($a) @{ pong = $true } }
@@ -206,6 +215,68 @@ $handlers = @{
     $n = 0
     foreach ($w in [NoviWin]::List()) { if (([string]$w[1]).StartsWith($p)) { [NoviWin]::Show([long]$w[0], 0); $n++ } }
     @{ hidden = $n }
+  }
+  # Pause / play through Windows' media controls, never a toggle: pause touches only what is playing,
+  # play only when nothing is. sessions = how many players Windows knows, changed = how many were moved.
+  transport = { param($a)
+    [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager, Windows.Media.Control, ContentType = WindowsRuntime] | Out-Null
+    $mgr = Await ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]::RequestAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager])
+    $all = @($mgr.GetSessions())
+    $playing = @($all | Where-Object { [string]$_.GetPlaybackInfo().PlaybackStatus -eq 'Playing' })
+    $changed = 0
+    if ([string]$a.do -eq 'pause') {
+      foreach ($s in $playing) { if (Await ($s.TryPauseAsync()) ([bool])) { $changed++ } }
+    } elseif ([string]$a.do -eq 'play' -and $playing.Count -eq 0) {
+      $s = $mgr.GetCurrentSession()
+      if ($s -and (Await ($s.TryPlayAsync()) ([bool]))) { $changed++ }
+    }
+    @{ sessions = $all.Count; playing = $playing.Count; changed = $changed }
+  }
+  # A link into the address bar of the browser in front. One step with pauses: the browser reads the
+  # clipboard a moment after Ctrl+V (live 2026-11-04: the old copy, put back too soon, got searched).
+  address = { param($a)
+    [NoviWin]::Focus([long]$a.id); Start-Sleep -Milliseconds 250
+    if (-not [NoviWin]::IsFront([long]$a.id)) { return @{ notFront = $true } }
+    Set-Clipboard -Value ([string]$a.url)
+    [NoviWin]::Ctrl([byte]0x4C); Start-Sleep -Milliseconds 200
+    [NoviWin]::Ctrl([byte]0x56); Start-Sleep -Milliseconds 400
+    [NoviWin]::Press([byte]0x0D); Start-Sleep -Milliseconds 400
+    @{}
+  }
+  # Ctrl+V into one exact window, only once it really is in front.
+  'paste-to' = { param($a)
+    [NoviWin]::Focus([long]$a.id); Start-Sleep -Milliseconds 250
+    if (-not [NoviWin]::IsFront([long]$a.id)) { return @{ notFront = $true } }
+    [NoviWin]::Ctrl([byte]0x56)
+    if ($a.back) {
+      Add-Type -AssemblyName System.Windows.Forms
+      Start-Sleep -Milliseconds 250
+      [System.Windows.Forms.SendKeys]::SendWait("+{LEFT $([int]$a.back)}")
+    }
+    @{}
+  }
+  # Selecting in one exact window: keys only, nothing is read.
+  'select-keys' = { param($a)
+    [NoviWin]::Focus([long]$a.id); Start-Sleep -Milliseconds 250
+    if (-not [NoviWin]::IsFront([long]$a.id)) { return @{ notFront = $true } }
+    Add-Type -AssemblyName System.Windows.Forms
+    $n = [int]$a.n
+    $keys = switch ([string]$a.what) {
+      'all' { '^a' }
+      'line' { '{HOME}+{END}' }
+      'first' { "^{HOME}+{DOWN $n}" }
+      'last' { "^{END}+{UP $n}+{HOME}" }
+      default { throw 'bad-select' }
+    }
+    [System.Windows.Forms.SendKeys]::SendWait($keys)
+    @{}
+  }
+  # Keys pressed on a page in a window brought forward first (YouTube's K, J, L and arrows).
+  ytkey = { param($a)
+    [NoviWin]::Focus([long]$a.id); Start-Sleep -Milliseconds 250
+    if (-not [NoviWin]::IsFront([long]$a.id)) { return @{ notFront = $true } }
+    foreach ($k in @($a.keys)) { [NoviWin]::Press([byte]$k); Start-Sleep -Milliseconds 60 }
+    @{}
   }
   # Skip / jump in what's playing through Windows' media controls (YouTube in Chrome, Spotify, most
   # players). by = seconds to move (negative = back), to = seconds from the start. A playing session wins.
@@ -285,6 +356,20 @@ $handlers = @{
     $ctrl = @{ copy = 0x43; paste = 0x56; find = 0x46; selectall = 0x41 }[[string]$a.combo]
     $plain = @{ enter = 0x0D; escape = 0x1B }[[string]$a.combo]
     if ($ctrl) { [NoviWin]::Ctrl([byte]$ctrl) } elseif ($plain) { [NoviWin]::Press([byte]$plain) } else { throw 'bad-keys' }
+    @{}
+  }
+  # The clipboard held aside while Novi borrows it: text, a picture, files or nothing, put back as it was.
+  'clip-keep' = { param($a)
+    Add-Type -AssemblyName System.Windows.Forms
+    $c = [System.Windows.Forms.Clipboard]
+    $script:keptClip = Retry-Clipboard { if ($c::ContainsText()) { @{ text = $c::GetText() } } elseif ($c::ContainsImage()) { @{ image = $c::GetImage() } } elseif ($c::ContainsFileDropList()) { @{ files = $c::GetFileDropList() } } else { @{} } }
+    @{}
+  }
+  'clip-back' = { param($a)
+    Add-Type -AssemblyName System.Windows.Forms
+    $c = [System.Windows.Forms.Clipboard]; $k = $script:keptClip
+    Retry-Clipboard { if ($k -and $k.text) { $c::SetText($k.text) } elseif ($k -and $k.image) { $c::SetImage($k.image) } elseif ($k -and $k.files) { $c::SetFileDropList($k.files) } else { $c::Clear() } }
+    $script:keptClip = $null
     @{}
   }
   'clip-files' = { param($a) Set-Clipboard -Path @($a.paths); @{} }

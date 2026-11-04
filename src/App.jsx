@@ -4,6 +4,7 @@ import { useNovi } from './lib/useNovi.js';
 import { speak, stopSpeaking, speechEvents } from './lib/voice.js';
 import { HandsFree, handsFreeSupported, chime } from './lib/handsFree.js';
 import { getItem, setItem } from './lib/storage.js';
+import LiveScreen from './components/LiveScreen.jsx';
 import StatusBar from './components/StatusBar.jsx';
 import Transcript from './components/Transcript.jsx';
 import Composer from './components/Composer.jsx';
@@ -49,6 +50,7 @@ export default function App() {
   // after Novi asks something the mic opens once through the quiet recorder (answerAt).
   const handsFreeOn = handsFreeSupported && !serverWake && novi.isLocal;
   const sendText = (text) => send({ type: 'user_message', text });
+  const sendVoice = (text) => send({ type: 'user_message', text, voice: true });
   const sendRef = useRef(sendText);
   sendRef.current = sendText;
   const handsFree = useRef(null);
@@ -85,6 +87,7 @@ export default function App() {
         onToggleMute={toggleMute}
         onOpenSettings={() => setSettingsOpen(true)}
         quiet={state.quiet}
+        onLive={novi.isLocal ? null : () => novi.send({ type: 'user_message', text: 'open live screen' })}
         handsFree={serverWake ? { supported: true, on: true, server: true, running: true, awaiting: Boolean(state.wakeHeardAt) && !state.thinking } : { supported: handsFreeSupported, on: handsFreeOn, ...handsFreeState }}
       />
       <main className="layout">
@@ -97,9 +100,10 @@ export default function App() {
           <TaskPanel task={state.task} feed={state.feed} onStop={() => send({ type: 'stop' })} onAllowEdits={(allow) => send({ type: 'allow_edits', allow })} />
         </section>
       </main>
+      {state.live?.open && <LiveScreen send={novi.send} />}
       {novi.isLocal && <PairRequests requests={state.pairRequests} api={novi.api} />}
       <ApprovalCards api={novi.api} approvals={state.approvals} resolved={state.resolvedNote} onAnswer={(id, allow, choice, opts = {}) => send({ type: 'approval', id, allow, ...(choice ? { choice } : {}), ...(opts.always ? { always: true } : {}), ...(typeof opts.answer === 'string' ? { answer: opts.answer } : {}), ...(opts.proof || {}) })} />
-      <TalkButton onText={sendText} api={novi.api} onRecording={(on) => handsFree.current?.enabled && handsFree.current.pause(on)} handsFreeOn={handsFreeOn || serverWake} answerAt={answerAt} />
+      <TalkButton onText={sendVoice} api={novi.api} onRecording={(on) => handsFree.current?.enabled && handsFree.current.pause(on)} handsFreeOn={handsFreeOn || serverWake} answerAt={answerAt} />
       <SettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} projects={state.projects} devices={state.devices} accounts={state.accounts} googleConfigured={state.googleConfigured} api={novi.api} isLocal={novi.isLocal} />
     </div>
   );

@@ -187,6 +187,24 @@ describe('laptop tools', () => {
     await expect(tools.get('play_youtube').run({ position: 40 })).rejects.toThrow(/only 6/);
   });
 
+  // Live 2026-11-04: "open chrome" with Chrome already open showed the profile picker over everything.
+  it('open_app brings an app that is already open to the front instead of starting it again', async () => {
+    const launched = [];
+    const asked = [];
+    const make = (focusOpen) => addLaptopTools(new ToolRegistry(), { catalog: { all: async () => [{ name: 'Google Chrome', appId: 'chrome' }] }, launchApp: async (id) => { launched.push(id); }, focusOpen });
+    const open = await make(async (name) => { asked.push(name); return { note: `Switched to ${name}.` }; }).get('open_app').run({ name: 'chrome' });
+    expect(open).toMatchObject({ opened: 'Google Chrome', note: 'Switched to Google Chrome.' });
+    expect(asked).toEqual(['Google Chrome']);
+    expect(launched).toEqual([]);
+    await make(async () => ({ error: 'no window', notFound: true })).get('open_app').run({ name: 'chrome' });
+    await make(async () => { throw new Error('laptop control is off'); }).get('open_app').run({ name: 'chrome' });
+    expect(launched).toEqual(['chrome', 'chrome']);
+    // A window with the name in its title isn't the app: only browsers are brought forward.
+    const spotify = addLaptopTools(new ToolRegistry(), { catalog: { all: async () => [{ name: 'Spotify', appId: 'spotify' }] }, launchApp: async (id) => { launched.push(id); }, focusOpen: async () => ({ note: 'Switched.' }) });
+    await spotify.get('open_app').run({ name: 'spotify' });
+    expect(launched.at(-1)).toBe('spotify');
+  });
+
   it('open_app launches a matched app, or returns candidates without launching', async () => {
     const { tools, launched } = setup();
     expect(await tools.get('open_app').run({ name: 'calculator' })).toMatchObject({ opened: 'Calculator' });

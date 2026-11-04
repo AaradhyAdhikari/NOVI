@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { PluginHost } from '../../server/plugins/host.js';
 import { createScreenPlugin } from '../../plugins/screen/index.js';
-import { parseScreenCommand, pickResult } from '../../plugins/screen/mode.js';
+import { parseScreenCommand, pickResult, isScreenStep } from '../../plugins/screen/mode.js';
 import { isScreenModeStart } from '../../server/brain/screenModeCommand.js';
 
 const GOOGLE = {
@@ -176,8 +176,7 @@ describe('screen mode: doing it', () => {
   it('"click 3" uses the last numbered list', async () => {
     const s = await on(setup());
     const list = await s.say('list the screen');
-    expect(list.note).toMatch(/^\d+ things on GitHub - Google Search/);
-    expect(list.note).toMatch(/\n1\. box: Search/);
+    expect(list.note).toMatch(/^Found \d+ things on GitHub - Google Search\.$/); // the list itself never goes in the chat
     await s.say('click 1');
     expect(s.actions.at(-1)).toEqual(['click', 400, 120]);
   });
@@ -472,5 +471,158 @@ describe('the cursor arrives a moment after the window (live: Notepad)', () => {
     host.register(createScreenPlugin({ focusPauseMs: 1, driver: { items: async () => ({ title: 'Untitled - Notepad', items: [] }), window: async () => 'Untitled - Notepad', focus: async () => true, focused: async () => ({ type: 'Document', name: 'Text editor', editable: n++ > 0 }), type: async (t) => acts.push(['type', t]), key: async (k) => acts.push(['key', k]) } }));
     expect((await host.get('screen_type_into').run({ text: 'third line' })).note).toBe("Typed it.");
     expect(acts).toEqual([['type', 'third line']]);
+  });
+});
+
+describe('live 2026-11-04: the list the user tried', () => {
+  const FIRST = { title: GOOGLE.title, items: [
+    { type: 'Hyperlink', name: 'GitHub · Change is constant https://github.com', x: 600, y: 360 },
+    { type: 'Hyperlink', name: 'Infino AI', x: 310, y: 516 },
+    { type: 'Hyperlink', name: 'Download GitHub Desktop', x: 414, y: 874 },
+  ] };
+  const SECOND = { title: GOOGLE.title, items: [
+    { type: 'Hyperlink', name: 'GitHub - Wikipedia https://en.wikipedia.org › wiki › GitHub', x: 500, y: 300 },
+    { type: 'Hyperlink', name: 'GitHub Docs https://docs.github.com', x: 500, y: 500 },
+  ] };
+  // The page moves on each scroll; vision must not be needed.
+  function scrolling(pages) {
+    const s = setup({ screen: { get title() { return pages[0].title; }, get items() { return pages[0].items; } }, found: { found: true, point: [310, 516], label: 'Infino AI' } });
+    return s;
+  }
+
+  it('a timestamp is never taken for a window', () => {
+    for (const t of ['go to 2:30', 'jump to 1 minute 15 seconds', 'go to 30 seconds', 'skip to 1:02:03', 'go to minute 12', 'go to timestamp 2:30']) expect(parseScreenCommand(t), t).toBe(null);
+    expect(parseScreenCommand('go to chrome').do).toBe('focus');
+    expect(parseScreenCommand('switch to 3').do).toBe('focus');
+  });
+
+  it('the second result is below the first screen: scrolls to it instead of guessing with vision', async () => {
+    const pages = [FIRST, SECOND];
+    const s = scrolling(pages);
+    await s.say('start screen control');
+    const scroll = s.actions.length;
+    const realPush = s.actions.push.bind(s.actions);
+    s.actions.push = (a) => { if (a[0] === 'scroll' && pages.length > 1) pages.shift(); return realPush(a); };
+    const out = await s.say('open the second result');
+    expect(s.actions.slice(scroll).some((a) => a[0] === 'scroll')).toBe(true);
+    expect(s.actions.at(-1)).toEqual(['click', 500, 300]);
+    expect(out.note).toBe('Opened the second result.');
+  });
+
+  it('a result only vision found is not called opened for sure', async () => {
+    const s = setup({ screen: { title: 'Some shop - Google Chrome', items: [] } });
+    await s.say('start screen control');
+    const out = await s.say('open the second result');
+    expect(out.note).toMatch(/looks like the second result/);
+  });
+
+  it('on a search page a side-panel link is never a result, and no second one is said plainly', async () => {
+    const page = { title: GOOGLE.title, items: [
+      { type: 'Hyperlink', name: 'San Francisco, California, United States', x: 1462, y: 147 },
+      { type: 'Hyperlink', name: 'Everything announced at GitHub Universe 2026 YouTube GitHub 5 days ago', x: 776, y: 996 },
+    ] };
+    const s = setup({ screen: page, found: { found: true, point: [310, 516], label: 'Infino AI' } });
+    await s.say('start screen control');
+    const out = await s.say('open the second result');
+    expect(out.note).toBe("I can't find a second result on this page.");
+    expect(s.actions.some((a) => a[0] === 'click')).toBe(false);
+  }, 10000);
+});
+
+// Live from the phone, 2026-11-04: with Screen Mode off these went to the AI, which clicked and stopped.
+describe('screen steps with Screen Mode off', () => {
+  it('reads "in the text box type X" both ways round', () => {
+    const want = { do: 'type', text: 'do the next task', box: true };
+    expect(parseScreenCommand('In the text box there type do the next task')).toEqual(want);
+    expect(parseScreenCommand('in the text box type do the next task')).toEqual(want);
+    expect(parseScreenCommand('in the box, type: do the next task')).toEqual(want);
+    expect(parseScreenCommand('type do the next task in the text box')).toEqual(want);
+    expect(parseScreenCommand('type do the next task in the prompt box on the screen')).toEqual(want);
+    expect(parseScreenCommand('type do the next task in this box')).toEqual(want);
+  });
+
+  it('"click X in the Y section" looks for X', () => {
+    expect(parseScreenCommand('Click novi in the project section')).toEqual({ do: 'click', target: 'novi' });
+    expect(parseScreenCommand('click settings on the left sidebar')).toEqual({ do: 'click', target: 'settings' });
+    expect(parseScreenCommand('click log in')).toEqual({ do: 'click', target: 'log in' });
+  });
+
+  it('knows which words are clearly screen steps', () => {
+    for (const t of ['click novi', 'tap the login button', 'click 3', 'scroll down', 'scroll up twice', 'open the second result', 'press enter', 'in the text box type hi', 'list the screen']) expect(isScreenStep(t), t).toBe(true);
+    for (const t of ['go back', 'reload', 'send it', 'open chrome', 'stop', 'yes', 'undo', 'type hello', 'what is on the screen', 'option 2']) expect(isScreenStep(t), t).toBe(false);
+  });
+
+  it('from a phone the page moves count too, and bare type; "send it" never does', () => {
+    for (const t of ['go back', 'reload', 'go forward', 'new tab', 'type hello']) expect(isScreenStep(t, { phone: true }), t).toBe(true);
+    for (const t of ['send it', 'stop', 'yes', 'open chrome']) expect(isScreenStep(t, { phone: true }), t).toBe(false);
+  });
+
+  it('runs a step with the mode off only when told it is a clear step', async () => {
+    const s = setup();
+    const run = (args) => s.host.get('screen_command').run(args);
+    expect((await run({ text: 'scroll down' })).unknown).toBe(true);
+    expect((await run({ text: 'scroll down', anywhere: true })).note).toBe('Scrolled down.');
+  });
+});
+
+describe('copying lines', () => {
+  function copier({ title = 'Notes - Notepad', copied = 'one\n\ntwo\nthree\nfour', answer = '{"lines":["a","b","c"]}' } = {}) {
+    let clip = 'old';
+    const set = [];
+    const seen = [];
+    const driver = {
+      screenshot: async () => ({ png: Buffer.from('PNG'), width: 1000, height: 1000 }),
+      window: async () => title,
+      items: async () => ({ title, items: [] }),
+      key: async (k) => { seen.push(k); if (k === 'ctrl+c' && copied) clip = copied; },
+      focus: async () => true,
+    };
+    const callTool = async (name, p) => {
+      if (name !== 'laptop_clipboard') return {};
+      if (p.do === 'read') return { text: clip };
+      if (p.do === 'set') { clip = p.text; set.push(p.text); }
+      if (p.do === 'restore') clip = 'old';
+      return {};
+    };
+    let looked = 0;
+    const vision = async () => { looked += 1; return answer; };
+    const host = new PluginHost({ runtime: { vision, callTool, dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'novi-cl-')) }, env: {}, logger: { warn() {} } });
+    expect(host.register(createScreenPlugin({ driver }))).toBe(true);
+    return { run: (a) => host.get('screen_copy_lines').run(a), clip: () => clip, seen, looked: () => looked };
+  }
+
+  it('a text app: the exact lines, blank ones skipped, no screenshot, selection cleared', async () => {
+    const s = copier();
+    expect((await s.run({ from: 'first', n: 3 })).note).toBe('Copied 3 lines.');
+    expect(s.clip()).toBe('one\ntwo\nthree');
+    expect(s.looked()).toBe(0);
+    expect(s.seen).toEqual(['ctrl+a', 'ctrl+c', 'right']);
+  });
+  it('the last lines', async () => {
+    const s = copier();
+    await s.run({ from: 'last', n: 2 });
+    expect(s.clip()).toBe('three\nfour');
+  });
+  it('a browser: reads the main text on screen, presses nothing', async () => {
+    const s = copier({ title: 'ChatGPT - Google Chrome' });
+    expect((await s.run({ from: 'first', n: 3 })).note).toBe('Copied 3 lines.');
+    expect(s.clip()).toBe('a\nb\nc');
+    expect(s.seen).toEqual([]);
+  });
+  it('an app with no selectable text falls back to reading the screen', async () => {
+    const s = copier({ title: 'ChatGPT', copied: '' });
+    await s.run({ from: 'first', n: 3 });
+    expect(s.looked()).toBe(1);
+    expect(s.clip()).toBe('a\nb\nc');
+  });
+  it('nothing readable: says so, and the old copy stays', async () => {
+    const s = copier({ title: 'x - Google Chrome', answer: 'sorry' });
+    expect((await s.run({ from: 'first', n: 3 })).error).toMatch(/read/);
+    expect(s.clip()).toBe('old');
+  });
+  it('a password page is left alone', async () => {
+    const s = copier({ title: 'Sign in - password - Google Chrome' });
+    expect((await s.run({ from: 'first', n: 3 })).error).toMatch(/sensitive/);
+    expect(s.looked()).toBe(0);
   });
 });

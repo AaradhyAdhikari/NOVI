@@ -15,6 +15,12 @@ const LOSE = "You'll lose the connection to Novi until the laptop is back.";
 const CUTS_LINK = new Set(['sleep', 'shutdown', 'restart']);
 const POWER_ASK = { lock: 'Lock the laptop?', sleep: 'Put the laptop to sleep?', shutdown: 'Shut down the laptop?', restart: 'Restart the laptop?', signout: 'Sign out?' };
 const POWER_NOTE = { lock: 'Locked.', sleep: 'Going to sleep.', signout: 'Signing out.', shutdown: 'Shutting down in 15 seconds. Say cancel to stop.', restart: 'Restarting in 15 seconds. Say cancel to stop.' };
+const WATCHING = /\S - YouTube(?: - |$)/; // a video's window title; the home page is just "YouTube - …"
+const KEY_PAUSE = 0x4b; const KEY_AHEAD_10 = 0x4c; const KEY_BACK_10 = 0x4a; const KEY_AHEAD_5 = 0x27; const KEY_BACK_5 = 0x25; // K L J → ←
+const MAX_PRESSES = 60;
+const NOT_FRONT = "I couldn't bring the video to the front, so I didn't press anything.";
+const VIDEO_SITE = /\S - YouTube(?: - |$)|on KICK\b|\S - Twitch(?: - |$)/; // sites where M mutes the player
+const KEY_MUTE = 0x4d;
 const MEDIA_NOTE = { play: 'Playing.', pause: 'Paused.', next: 'Next.', previous: 'Previous.' };
 const RADIO = { wifi: 'Wi-Fi', bluetooth: 'Bluetooth' };
 const DONE = { focus: 'Switched to', minimize: 'Minimized', maximize: 'Maximized', restore: 'Restored' };
@@ -94,10 +100,91 @@ export function createLaptopControlPlugin({
         obj({ level: { type: 'number' }, change: { type: 'string', enum: ['up', 'down'] } }),
         async (p) => { const r = await run('brightness', level(p)); return { ...r, note: `Brightness ${r.level}.` }; });
 
+      // A video in Chrome, through the Novi extension: Windows' media list can leave Chrome out (live
+      // 2026-11-04). Null = no such video, or no extension: Windows' media controls take over.
+      const chromeVideo = async (args) => {
+        try { const v = await api.runtime?.browserVideo?.(args); return v?.done ? v : null; } catch (err) { api.logger?.warn?.(`[laptop] Chrome video: ${err.message}`); return null; }
+      };
+      // YouTube in a browser the extension isn't in, which Windows' media list can miss too (live 2026-11-04:
+      // pause started a stopped Spotify instead). Its own keys, and the link's t= for an exact time. The one
+      // in front wins; one further back only when no other player is playing.
+      let ytState = null; // { id, paused } after Novi's last press: K is a toggle, and the page can't be asked
+      const youTube = async () => {
+        const all = await windows();
+        const yt = all.find((w) => BROWSER[String(w.process).toLowerCase()] && WATCHING.test(w.title));
+        if (!yt) return null;
+        if (workWindow(all)?.id === yt.id) return yt;
+        return (await run('transport', { do: 'peek' })).playing ? null : yt;
+      };
+      const ytSkip = async (yt, by) => {
+        const size = Math.abs(by);
+        const tens = Math.floor(size / 10);
+        const fives = Math.round((size - tens * 10) / 5);
+        if (tens + fives > MAX_PRESSES) return { error: 'That is a long way for YouTube. Tell me the exact time, like "go to 45:00".' };
+        const [ten, five] = by >= 0 ? [KEY_AHEAD_10, KEY_AHEAD_5] : [KEY_BACK_10, KEY_BACK_5];
+        if ((await run('ytkey', { id: yt.id, keys: [...Array(tens).fill(ten), ...Array(fives).fill(five)] })).notFront) return { error: NOT_FRONT };
+        return { note: `${by >= 0 ? 'Skipped ahead' : 'Went back'} ${span(tens * 10 + fives * 5)}.` };
+      };
+      const ytJump = async (yt, to) => {
+        await run('window', { id: yt.id, do: 'focus' });
+        const raw = String((await run('link', {})).url || '').trim();
+        const url = new URL(/^https?:/i.test(raw) ? raw : `https://${raw}`);
+        if (!/(?:^|\.)youtube\.com$/i.test(url.hostname) || !url.searchParams.has('v')) return { error: "I couldn't read the video's link." };
+        url.searchParams.set('t', `${Math.round(to)}s`);
+        await run('clip-keep', {});
+        const went = await run('address', { id: yt.id, url: url.href });
+        await run('clip-back', {});
+        if (went.notFront) return { error: NOT_FRONT };
+        ytState = { id: yt.id, paused: false };
+        return { to, note: `Jumped to ${clock(to)}.` };
+      };
+      // Only the video's sound: the player's own mute, never the laptop's (the extension, else M on the site).
+      let muted = null; // { id, on } after Novi's last press: M is a toggle
+      tool(api, 'laptop_video_mute', 'Mute or unmute only the video playing in the browser, not the laptop sound.',
+        obj({ on: { type: 'boolean', description: 'true = mute, false = unmute' } }, ['on']),
+        async ({ on }) => {
+          const said = on ? 'Muted the video.' : 'Unmuted the video.';
+          if (await chromeVideo({ do: 'mute', on })) return { note: said };
+          const all = await windows();
+          const site = all.find((w) => BROWSER[String(w.process).toLowerCase()] && VIDEO_SITE.test(w.title));
+          if (!site) return { error: "I can't find a video to mute. It works on YouTube, Kick and Twitch." };
+          if (muted?.id === site.id && muted.on === on) return { note: on ? 'The video is already muted.' : 'The video is already on.' };
+          if ((await run('ytkey', { id: site.id, keys: [KEY_MUTE] })).notFront) return { error: NOT_FRONT };
+          muted = { id: site.id, on };
+          return { note: said };
+        });
+
+      // Selecting by voice, in the app being worked in. Text only; Novi never picks what to select by itself.
+      tool(api, 'laptop_select', 'Select text in the app being worked in: all, the first or last n lines, or the current line.',
+        obj({ what: { type: 'string', enum: ['all', 'first', 'last', 'line'] }, n: { type: 'number' } }, ['what']),
+        async ({ what, n = 1 }) => {
+          const work = workWindow(await windows());
+          if (!work) return { error: "I don't see an app to select in." };
+          const count = Math.max(1, Math.min(200, Math.round(Number(n) || 1)));
+          if ((await run('select-keys', { id: work.id, what, n: count })).notFront) return { error: "That window wouldn't come to the front, so I selected nothing." };
+          if (what === 'all') return { note: 'Selected everything.' };
+          if (what === 'line') return { note: 'Selected the line.' };
+          return { note: `Selected the ${what} ${count === 1 ? 'line' : `${count} lines`}.` };
+        });
+
       tool(api, 'laptop_media', 'Media keys for whatever is playing (YouTube, Spotify…): play, pause, next, previous.',
         obj({ key: { type: 'string', enum: ['play', 'pause', 'next', 'previous'] } }, ['key']),
         async ({ key }) => {
           if (!MEDIA_NOTE[key]) throw new Error('bad-key');
+          if (key === 'pause' || key === 'play') {
+            if (await chromeVideo({ do: key })) return { note: MEDIA_NOTE[key] };
+            const yt = await youTube();
+            if (yt) {
+              const known = ytState?.id === yt.id;
+              if (known && ytState.paused === (key === 'pause')) return { note: key === 'pause' ? 'Already paused.' : MEDIA_NOTE[key] };
+              if ((await run('ytkey', { id: yt.id, keys: [KEY_PAUSE] })).notFront) return { error: NOT_FRONT };
+              ytState = { id: yt.id, paused: key === 'pause' };
+              return { note: MEDIA_NOTE[key] };
+            }
+            // Not the media key, which toggles: "pause" would start a stopped Spotify (live 2026-11-04).
+            const r = await run('transport', { do: key });
+            if (r.sessions > 0) return { note: key === 'pause' && !r.changed ? 'Nothing is playing.' : MEDIA_NOTE[key] };
+          }
           await run('media', { key: key === 'pause' ? 'play' : key });
           return { note: MEDIA_NOTE[key] };
         });
@@ -109,15 +196,22 @@ export function createLaptopControlPlugin({
         async ({ by, to }) => {
           if (!Number.isFinite(Number(by)) && !Number.isFinite(Number(to))) return { error: 'Tell me how far to skip (like "10 minutes forward") or where to jump (like "5:30").' };
           const args = Number.isFinite(Number(to)) && to !== undefined && to !== null ? { to: Math.max(0, Number(to)) } : { by: Number(by) };
+          const said = (r) => {
+            const of = r.end ? ` of ${clock(r.end)}` : '';
+            const what = r.title ? ` (${r.title})` : '';
+            if ('to' in args) return { ...r, note: `Jumped to ${clock(r.to)}${of}${what}.` };
+            return { ...r, note: `${args.by >= 0 ? 'Skipped ahead' : 'Went back'} ${span(args.by)} — now at ${clock(r.to)}${of}${what}.` };
+          };
+          const inChrome = await chromeVideo({ do: 'seek', ...args });
+          if (inChrome) return said(inChrome);
+          const yt = await youTube();
+          if (yt) return 'to' in args ? ytJump(yt, args.to) : ytSkip(yt, args.by);
           const r = await run('seek', args);
           const app = appName(r.app);
           if (r.none) return { error: 'Nothing is playing on the laptop.' };
           if (r.cantSeek) return { error: `${app} doesn't let me jump in what's playing.` };
           if (!r.moved) return { error: `${app} didn't move. Try again in a moment.` };
-          const of = r.end ? ` of ${clock(r.end)}` : '';
-          const what = r.title ? ` (${r.title})` : '';
-          if ('to' in args) return { ...r, note: `Jumped to ${clock(r.to)}${of}${what}.` };
-          return { ...r, note: `${args.by >= 0 ? 'Skipped ahead' : 'Went back'} ${span(args.by)} — now at ${clock(r.to)}${of}${what}.` };
+          return said(r);
         });
 
       // The page open in the front browser (any browser, e.g. Brave — the Novi extension is only in Chrome):
@@ -190,8 +284,8 @@ export function createLaptopControlPlugin({
         });
 
       tool(api, 'laptop_clipboard', 'Clipboard: read what was copied, copy the selection in the app the user is working in, copy given text (set), paste into an app, or type given text into an app (never sends).',
-        obj({ do: { type: 'string', enum: ['read', 'copy', 'set', 'paste', 'type'] }, text: { type: 'string' }, app: { type: 'string' } }, ['do']),
-        async ({ do: action, text, app }) => {
+        obj({ do: { type: 'string', enum: ['read', 'copy', 'set', 'paste', 'type', 'keep', 'restore'] }, text: { type: 'string' }, app: { type: 'string' }, id: { type: 'number', description: 'Exact window to type into' }, reselect: { type: 'boolean', description: 'Leave the typed words selected' } }, ['do']),
+        async ({ do: action, text, app, id, reselect }) => {
           if (action === 'read') {
             const t = String((await run('clip-get', {})).text || '').trim();
             if (!t) return { note: "There's no text on the clipboard." };
@@ -203,6 +297,9 @@ export function createLaptopControlPlugin({
             await run('clip-set', { text: String(text) });
             return { note: 'Copied.' };
           }
+          // Whatever is on the clipboard (text, picture, files, nothing) held aside, never read out.
+          if (action === 'keep') { await run('clip-keep', {}); return {}; }
+          if (action === 'restore') { await run('clip-back', {}); return {}; }
           if (action === 'copy') {
             const work = workWindow(await windows());
             if (!work) return { error: "I don't see what to copy from." };
@@ -211,10 +308,10 @@ export function createLaptopControlPlugin({
             await run('keys', { combo: 'copy' });
             await pause(150);
             const t = String((await run('clip-get', {})).text || '').trim();
-            if (!t) return { error: 'Nothing was selected to copy.' };
-            if (looksSecret(t)) return { note: 'Copied.' };
+            if (!t) return { error: 'Nothing was selected to copy.', window: work.id };
+            if (looksSecret(t)) return { note: 'Copied.', window: work.id };
             const words = t.split(/\s+/);
-            return { note: `Copied: ${words.slice(0, 8).join(' ')}${words.length > 8 ? '…' : '.'}` };
+            return { note: `Copied: ${words.slice(0, 8).join(' ')}${words.length > 8 ? '…' : '.'}`, window: work.id };
           }
           // Dictation: the words go in through the clipboard, then what was copied before is put back.
           if (action === 'type') {
@@ -222,6 +319,15 @@ export function createLaptopControlPlugin({
             const before = String((await run('clip-get', {})).text ?? '');
             await run('clip-set', { text: String(text) });
             const list = await windows();
+            // One exact window (an edit puts the words back where it copied them): never whatever is in front now.
+            if (id !== undefined) {
+              const exact = list.find((w) => w.id === id);
+              const went = exact ? await run('paste-to', { id, ...(reselect ? { back: String(text).replace(/\r/g, '').length } : {}) }) : {};
+              await pause(300);
+              if (before) await run('clip-set', { text: before });
+              if (!exact) return { error: 'That window was closed, so I changed nothing.' };
+              return went.notFront ? { error: "That window wouldn't come to the front, so I changed nothing." } : { note: `Typed into ${appLabel(exact)}.` };
+            }
             const target = app ? findWindows(list, app)[0] : workWindow(list);
             if (target) {
               await run('window', { id: target.id, do: 'focus' });

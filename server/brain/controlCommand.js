@@ -80,14 +80,28 @@ const AMOUNT = new RegExp(`\\b(\\d+(?:\\.\\d+)?|${Object.keys(NUMBER).join('|')}
 const AHEAD = /\b(?:skip|skip ahead|forward|fast[- ]?forward|ahead|aage|agey)\b/i;
 const BACK = /\b(?:go back|skip back|jump back|move back|back by|rewind|backwards?|peeche|piche|pichhe|peechhe)\b/i;
 const MEDIA_WORDS = /\b(?:the |this |my )?(?:video|song|music|track|movie|youtube video|youtube)\b/gi;
+// The time in "go to 2:30", "1 minute 15 seconds", "minute 12", "the 5 minute mark"; null when the words
+// hold anything else ("go to sleep in 5 minutes", "go to the second tab"). Whisper writes 2:30 as 2.30 too.
+function timeIn(words) {
+  const t = words.replace(/\s+(?:in|of|on)\s+(?:the |this |my )?(?:video|song|music|track|movie)$/, '').replace(/^(?:the\s+)?(?:(?:timestamp|time)\s+)?/, '').replace(/\s+mark$/, '').trim();
+  const clock = /^(\d{1,2})[:.](\d{2})(?:[:.](\d{2}))?$/.exec(t);
+  if (clock) { const [, a, b, c] = clock; return c ? Number(a) * 3600 + Number(b) * 60 + Number(c) : Number(a) * 60 + Number(b); }
+  const minute = /^minute\s+(\d+)$/.exec(t);
+  if (minute) return Number(minute[1]) * 60;
+  if (t.replace(AMOUNT, ' ').replace(/\band\b/g, ' ').trim()) return null;
+  let total = 0;
+  for (const [, n, unit] of t.matchAll(AMOUNT)) {
+    const v = NUMBER[n] ?? Number(n);
+    total += /^h/.test(unit) ? v * 3600 : /^m/.test(unit) ? v * 60 : v;
+  }
+  return total || null;
+}
+
 function seekCommand(t) {
   const s = t.toLowerCase();
-  const clockTo = /^(?:jump|skip|go|seek|move)\s+to\s+(?:(?:the\s+)?(?:minute\s+(\d+)|(\d{1,2}):(\d{2})(?::(\d{2}))?|(\d+)\s*(?:minutes?|mins?)(?:\s+(\d+)\s*(?:seconds?|secs?))?))\b/i.exec(s);
-  if (clockTo) {
-    const [, minute, a, b, c, mins, secs] = clockTo;
-    const to = minute ? Number(minute) * 60 : a ? (c ? Number(a) * 3600 + Number(b) * 60 + Number(c) : Number(a) * 60 + Number(b)) : Number(mins) * 60 + Number(secs || 0);
-    return T('laptop_seek', { to });
-  }
+  const goTo = /^(?:jump|skip|go|seek|move)\s+to\s+(.+)$/.exec(s);
+  const to = goTo ? timeIn(goTo[1]) : null;
+  if (to != null) return T('laptop_seek', { to });
   // "remind me to go back home in 10 minutes", "timer for 10 minutes": time words, not a skip.
   if (/\b(?:remind|reminder|timer|alarm|email|mail|message|after|later|in\s+(?:\d+|a|an|one|two|five|ten)\s)/i.test(s)) return null;
   const back = BACK.test(s);
@@ -101,9 +115,19 @@ function seekCommand(t) {
   return T('laptop_seek', { by: back ? -total : total });
 }
 
+// "Mute the video" is the video, not the laptop's sound (live 2026-11-04).
+const VIDEO_WORD = '(?:video|youtube|stream|clip|movie)';
+function videoMuteCommand(t) {
+  if (/\bvideo\s+(?:call|meeting|chat|conference)\b|\b(?:zoom|teams|meet)\b/i.test(t)) return null;
+  const m = new RegExp(`\\b(un)?mute\\b.*\\b${VIDEO_WORD}\\b|\\b${VIDEO_WORD}\\b.*\\b(un)?mute\\b`, 'i').exec(t);
+  return m ? T('laptop_video_mute', { on: !(m[1] || m[2]) }) : null;
+}
+
 export function controlCommand(text) {
   const t = clean(text);
   if (!t) return null;
+  const videoMute = videoMuteCommand(t);
+  if (videoMute) return videoMute;
   const seek = seekCommand(t);
   if (seek) return seek;
   for (const [pattern, make] of RULES) {

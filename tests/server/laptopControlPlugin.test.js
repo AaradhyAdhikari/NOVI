@@ -8,7 +8,7 @@ const C1 = { id: 3, title: 'Gmail - Google Chrome', process: 'chrome' };
 const C2 = { id: 4, title: 'YouTube - Google Chrome', process: 'chrome' };
 const C3 = { id: 5, title: 'Docs - Google Chrome', process: 'chrome' };
 
-function setup({ answers = {}, platform = 'win32', windows = [NOVI, WA, C1, C2, C3], clip = 'hello there friend' } = {}) {
+function setup({ answers = {}, platform = 'win32', windows = [NOVI, WA, C1, C2, C3], clip = 'hello there friend', video } = {}) {
   const calls = [];
   const worker = {
     async run(cmd, args = {}) {
@@ -23,7 +23,7 @@ function setup({ answers = {}, platform = 'win32', windows = [NOVI, WA, C1, C2, 
       return {};
     },
   };
-  const host = new PluginHost({ runtime: {}, env: {}, logger: { warn() {} } });
+  const host = new PluginHost({ runtime: video ? { browserVideo: video } : {}, env: {}, logger: { warn() {} } });
   expect(host.register(createLaptopControlPlugin({ worker, platform, now: () => 1_000_000, pause: async () => {} }))).toBe(true);
   const tool = (name) => host.get(name);
   return { host, calls, tool };
@@ -219,5 +219,156 @@ describe('the tab open in the front browser', () => {
     // reopened in the window Novi closed it in (live: focus moved to another browser and reopened there)
     expect(calls.filter((c) => c[0] === 'tab').map((c) => c[1])).toEqual([{ do: 'close' }, { do: 'reopen', win: 42 }]);
     expect((await setup({ answers: { tab: () => ({ none: true }) } }).tool('laptop_tab').run({ do: 'close' })).error).toBe('No browser window is open on the laptop.');
+  });
+});
+
+// Live 2026-11-04: Chrome wasn't in Windows' media list, so pause/seek hit a paused Spotify and started it.
+describe('a video in Chrome comes first', () => {
+  const seen = (out) => { const asked = []; return { asked, video: async (a) => { asked.push(a); return out; } }; };
+
+  it('skips and jumps in the Chrome video, not in Spotify', async () => {
+    const v = seen({ done: true, to: 160, end: 3600, title: '1 A.M Study Session' });
+    const s = setup({ video: v.video, answers: { seek: () => { throw new Error('Spotify was moved'); } } });
+    expect((await s.tool('laptop_seek').run({ by: 10 })).note).toBe('Skipped ahead 10 s — now at 2:40 of 1:00:00 (1 A.M Study Session).');
+    expect(v.asked[0]).toEqual({ do: 'seek', by: 10 });
+    expect((await s.tool('laptop_seek').run({ to: 160 })).note).toBe('Jumped to 2:40 of 1:00:00 (1 A.M Study Session).');
+  });
+
+  it('pauses the Chrome video without touching the media key', async () => {
+    const v = seen({ done: true });
+    const s = setup({ video: v.video, answers: { media: () => { throw new Error('key pressed'); }, transport: () => { throw new Error('windows used'); } } });
+    expect((await s.tool('laptop_media').run({ key: 'pause' })).note).toBe('Paused.');
+    expect(v.asked).toEqual([{ do: 'pause' }]);
+  });
+
+  it('no video: Windows media controls, and the extension failing changes nothing', async () => {
+    const s = setup({ video: async () => { throw new Error('unknown command'); }, answers: { seek: () => ({ moved: true, to: 20, end: 100, title: 'Song' }) } });
+    expect((await s.tool('laptop_seek').run({ by: 10 })).note).toMatch(/Song/);
+  });
+
+  it('"pause" never starts something that was stopped', async () => {
+    const s = setup({ video: async () => ({ none: true }), answers: { media: () => { throw new Error('toggled'); }, transport: () => ({ sessions: 1, changed: 0 }) } });
+    expect((await s.tool('laptop_media').run({ key: 'pause' })).note).toBe('Nothing is playing.');
+  });
+
+  it('"play" never stops what is already playing', async () => {
+    const s = setup({ video: async () => ({ none: true }), answers: { media: () => { throw new Error('toggled'); }, transport: () => ({ sessions: 1, changed: 0 }) } });
+    expect((await s.tool('laptop_media').run({ key: 'play' })).note).toBe('Playing.');
+  });
+});
+
+// Live 2026-11-04: the video was in a Chrome profile without the extension, and Windows' list only had Spotify.
+describe('YouTube in a browser the extension is not in', () => {
+  const YT = { id: 7, title: '(2256) 1 A.M Study Session - YouTube - Google Chrome', process: 'chrome' };
+  const LINK = { url: 'youtube.com/watch?v=abc&list=x', browser: 'chrome' };
+  const never = () => { throw new Error('Spotify was touched'); };
+  const front = (answers = {}) => setup({ video: async () => ({ none: true }), windows: [NOVI, YT, WA], answers: { seek: never, media: never, link: () => LINK, ...answers } });
+  const pressed = (s) => s.calls.filter(([c]) => c === 'ytkey').map(([, a]) => a);
+
+  it('skips with its own keys: 10 s = L, 5 s = right arrow, back = J and left arrow', async () => {
+    const s = front();
+    expect((await s.tool('laptop_seek').run({ by: 25 })).note).toBe('Skipped ahead 25 s.');
+    expect(pressed(s)[0]).toEqual({ id: 7, keys: [0x4c, 0x4c, 0x27] });
+    expect((await s.tool('laptop_seek').run({ by: -15 })).note).toBe('Went back 15 s.');
+    expect(pressed(s)[1]).toEqual({ id: 7, keys: [0x4a, 0x25] });
+  });
+
+  it('the browser refusing to come forward: says so, and no key goes anywhere else', async () => {
+    const s = front({ ytkey: () => ({ notFront: true }), address: () => ({ notFront: true }) });
+    expect((await s.tool('laptop_seek').run({ by: 10 })).error).toMatch(/front/);
+    expect((await s.tool('laptop_media').run({ key: 'pause' })).error).toMatch(/front/);
+    expect((await s.tool('laptop_seek').run({ to: 150 })).error).toMatch(/front/);
+    expect(s.calls.at(-1)[0]).toBe('clip-back');
+    expect(s.calls.find(([c]) => c === 'address')[1].id).toBe(7);
+  });
+
+  it('a very long skip asks for the exact time instead of a hundred key presses', async () => {
+    const s = front();
+    expect((await s.tool('laptop_seek').run({ by: 3600 })).error).toMatch(/exact time/);
+    expect(pressed(s)).toEqual([]);
+  });
+
+  it('an exact time goes in through the link, and the old copy comes back', async () => {
+    const s = front();
+    expect((await s.tool('laptop_seek').run({ to: 150 })).note).toBe('Jumped to 2:30.');
+    expect(s.calls.find(([c]) => c === 'address')[1].url).toBe('https://youtube.com/watch?v=abc&list=x&t=150s');
+    expect(s.calls.map(([c]) => c).slice(-3)).toEqual(['clip-keep', 'address', 'clip-back']); // the old copy only after the page took it
+  });
+
+  it('pause and play press K once, and saying pause twice does not start it again', async () => {
+    const s = front();
+    expect((await s.tool('laptop_media').run({ key: 'pause' })).note).toBe('Paused.');
+    expect((await s.tool('laptop_media').run({ key: 'pause' })).note).toBe('Already paused.');
+    expect(pressed(s)).toEqual([{ id: 7, keys: [0x4b] }]);
+    expect((await s.tool('laptop_media').run({ key: 'play' })).note).toBe('Playing.');
+    expect(pressed(s).length).toBe(2);
+  });
+
+  it('music playing and YouTube only open behind: the music is what you mean', async () => {
+    const s = setup({ video: async () => ({ none: true }), windows: [NOVI, WA, YT], answers: { transport: (a) => ({ sessions: 1, playing: 1, changed: a.do === 'pause' ? 1 : 0 }) } });
+    expect((await s.tool('laptop_media').run({ key: 'pause' })).note).toBe('Paused.');
+    expect(pressed(s)).toEqual([]);
+  });
+});
+
+describe('pasting into one exact window', () => {
+  it('goes only to that window, and says so when it is gone or will not come forward', async () => {
+    const s = setup({ answers: { 'paste-to': (a) => (a.id === 3 ? {} : { notFront: true }) } });
+    const run = (args) => s.tool('laptop_clipboard').run({ do: 'type', text: 'hi', ...args });
+    expect((await run({ id: 3 })).error).toBeUndefined();
+    expect(s.calls.some(([c]) => c === 'keys')).toBe(false);
+    expect((await run({ id: 4 })).error).toMatch(/front/);
+    expect((await run({ id: 999 })).error).toMatch(/closed/);
+    expect(s.calls.at(-1)).toEqual(['clip-set', { text: 'hello there friend' }]);
+  });
+
+  it('"copy" says which window the words came from', async () => {
+    expect((await setup().tool('laptop_clipboard').run({ do: 'copy' })).window).toBeTruthy();
+  });
+});
+
+describe('the video alone', () => {
+  const YT = { id: 7, title: 'Lofi mix - YouTube - Google Chrome', process: 'chrome' };
+  const KICK = { id: 8, title: 'Neyoo_Gaming Live Stream - Watch Live on KICK - Brave', process: 'brave' };
+  const never = () => { throw new Error('laptop sound touched'); };
+  const pressed = (s) => s.calls.filter(([c]) => c === 'ytkey').map(([, a]) => a);
+
+  it('asks the extension first', async () => {
+    const asked = [];
+    const s = setup({ video: async (a) => { asked.push(a); return { done: true }; }, answers: { volume: never } });
+    expect((await s.tool('laptop_video_mute').run({ on: true })).note).toBe('Muted the video.');
+    expect(asked).toEqual([{ do: 'mute', on: true }]);
+  });
+
+  it('else presses M on the site in front, once, never the laptop sound', async () => {
+    const s = setup({ windows: [NOVI, KICK, YT], answers: { volume: never } });
+    expect((await s.tool('laptop_video_mute').run({ on: true })).note).toBe('Muted the video.');
+    expect(pressed(s)).toEqual([{ id: 8, keys: [0x4d] }]);
+    expect((await s.tool('laptop_video_mute').run({ on: true })).note).toBe('The video is already muted.');
+    expect(pressed(s).length).toBe(1);
+    expect((await s.tool('laptop_video_mute').run({ on: false })).note).toBe('Unmuted the video.');
+  });
+
+  it('no video site open: says so plainly', async () => {
+    expect((await setup({ windows: [NOVI, WA] }).tool('laptop_video_mute').run({ on: true })).error).toMatch(/video/);
+  });
+});
+
+describe('selecting by voice', () => {
+  it('selects in the app being worked in and says what', async () => {
+    const s = setup({ windows: [NOVI, WA] });
+    expect((await s.tool('laptop_select').run({ what: 'first', n: 3 })).note).toBe('Selected the first 3 lines.');
+    expect(s.calls.at(-1)).toEqual(['select-keys', { id: 2, what: 'first', n: 3 }]);
+    expect((await s.tool('laptop_select').run({ what: 'all' })).note).toBe('Selected everything.');
+    expect((await s.tool('laptop_select').run({ what: 'line' })).note).toBe('Selected the line.');
+  });
+  it('a window that will not come forward gets nothing', async () => {
+    const s = setup({ windows: [NOVI, WA], answers: { 'select-keys': () => ({ notFront: true }) } });
+    expect((await s.tool('laptop_select').run({ what: 'all' })).error).toMatch(/front/);
+  });
+  it('after an edit the new words can stay selected', async () => {
+    const s = setup({ answers: { 'paste-to': () => ({}) } });
+    await s.tool('laptop_clipboard').run({ do: 'type', text: 'ab\ncd', id: 3, reselect: true });
+    expect(s.calls.find(([c]) => c === 'paste-to')[1]).toEqual({ id: 3, back: 5 });
   });
 });

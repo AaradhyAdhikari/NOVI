@@ -219,7 +219,42 @@ chrome.notifications?.onClicked.addListener((nid) => {
   openNovi(nid.slice(5));
 });
 
+// The tab's main video, run inside the page. Only tabs that are audible or in front are looked at.
+function videoState() {
+  const v = [...document.querySelectorAll('video')].filter((x) => x.readyState > 0).sort((a, b) => b.videoWidth * b.videoHeight - a.videoWidth * a.videoHeight)[0];
+  return v ? { playing: !v.paused && !v.ended && !v.muted } : null;
+}
+function videoAct(args) {
+  const v = [...document.querySelectorAll('video')].filter((x) => x.readyState > 0).sort((a, b) => b.videoWidth * b.videoHeight - a.videoWidth * a.videoHeight)[0];
+  if (!v) return null;
+  const end = Number.isFinite(v.duration) ? v.duration : 0;
+  if (args.do === 'pause') v.pause();
+  if (args.do === 'play') v.play().catch(() => {});
+  if (args.do === 'mute') v.muted = Boolean(args.on);
+  if (args.do === 'seek') {
+    const target = args.to != null ? Number(args.to) : v.currentTime + Number(args.by);
+    v.currentTime = Math.max(0, end ? Math.min(target, end - 1) : target);
+  }
+  return { to: Math.round(v.currentTime), end: Math.round(end) };
+}
+// The video playing in any tab, else the one in the tab in front while Chrome itself is in front.
+async function controlVideo(args) {
+  const win = await chrome.windows.getLastFocused().catch(() => null);
+  const tabs = (await chrome.tabs.query({ url: ['http://*/*', 'https://*/*'] })).filter((t) => t.audible || t.active);
+  const found = [];
+  for (const tab of tabs) {
+    const state = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: videoState }).then((r) => r[0]?.result).catch(() => null);
+    if (state) found.push({ tab, ...state });
+  }
+  const pick = found.find((f) => f.playing) || found.find((f) => win?.focused && f.tab.active && f.tab.windowId === win.id);
+  if (!pick || (args.do === 'pause' && !pick.playing)) return { none: true };
+  const [out] = await chrome.scripting.executeScript({ target: { tabId: pick.tab.id }, func: videoAct, args: [args] });
+  if (!out?.result) return { none: true };
+  return { done: true, ...out.result, title: String(pick.tab.title || '').replace(/^\(\d+\)\s*/, '').replace(/ - YouTube$/, '') };
+}
+
 async function handle(cmd, args) {
+  if (cmd === 'video') return controlVideo(args);
   if (cmd === 'notify') {
     const nid = `card-${args.id}`;
     await chrome.storage.session.set({ [`card:${args.id}`]: args.actions || [] });

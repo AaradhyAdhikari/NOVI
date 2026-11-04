@@ -163,6 +163,8 @@ export function createNovi(config, overrides = {}) {
         transcript.push({ ...entry, device: deviceKey(active) });
         sendTo(active, { type: 'chat', entry });
       },
+      // A message straight to one paired device (plugins/live-screen).
+      sendToDevice: (deviceId, msg) => sendTo({ deviceId }, msg),
       // A tap-to-open link in the chat of whoever asked (the preview plugin's live link).
       showLink: ({ url, label = '' }) => {
         const at = new Date().toISOString();
@@ -282,7 +284,7 @@ export function createNovi(config, overrides = {}) {
   }
   const codeEdits = overrides.codeEdits || createCodeEdits();
   plugins.register(wrapRegistryAsPlugin({ id: 'coding', name: 'Coding tasks', registry: createNoviTools({ memory, tasks, coder: defaultCoder, alternativeAvailable: defaultCoder === 'claude' || claudeInstalled, takeOver: claudeInstalled ? takeOverTask : null, projectsDir: config.projectsDir, showImage: (img) => plugins.runtime.showImage(img), showCode: (c) => plugins.runtime.showCode(c), codeEdits }) }));
-  plugins.register(wrapRegistryAsPlugin({ id: 'laptop', name: 'Laptop basics', registry: addLaptopTools(new ToolRegistry(), { askedFromPhone, ...overrides.laptop }) }));
+  plugins.register(wrapRegistryAsPlugin({ id: 'laptop', name: 'Laptop basics', registry: addLaptopTools(new ToolRegistry(), { askedFromPhone, focusOpen: async (app) => plugins.runtime.callTool('laptop_window', { app, do: 'focus' }), ...overrides.laptop }) }));
   plugins.register(wrapRegistryAsPlugin({
     id: 'accounts',
     name: 'Accounts and Gmail',
@@ -1107,7 +1109,10 @@ export function createNovi(config, overrides = {}) {
         return reply;
       }
       working += 1;
-      say('user', text, from);
+      // Said at the laptop: the words are only written once the turn turns out to need them.
+      const quietVoice = msg.voice === true && from === 'local';
+      let wordsDue = quietVoice;
+      if (!quietVoice) say('user', text, from);
       sendTo(from, { type: 'thinking', on: true });
       try {
         const t0 = Date.now();
@@ -1115,9 +1120,12 @@ export function createNovi(config, overrides = {}) {
         const phoneApp = from !== 'local' && typeof msg.phoneApp === 'string' ? msg.phoneApp.slice(0, 120) : null;
         const reply = await agent.handle(text, { from, ...(phoneApp ? { phoneApp } : {}) });
         console.log(`[timing] reply ${Date.now() - t0} ms`);
+        const unwritten = quietVoice && Boolean(agent.unwrittenTurn?.());
+        if (unwritten) wordsDue = false;
+        if (wordsDue) { say('user', text, from); wordsDue = false; }
         // An empty reply = a tool already showed the answer (and the AI had nothing to add).
         if (reply) {
-          say('novi', reply, from);
+          if (!unwritten) say('novi', reply, from);
           lastSilent = Boolean(agent.silentTurn?.());
           if (!lastSilent) sendTo(from, { type: 'speak', text: spokenText(reply) });
           // Talk button, working step by step ("open youtube", "type …", "enter"): the app just opened
@@ -1128,6 +1136,7 @@ export function createNovi(config, overrides = {}) {
         }
         return reply;
       } catch (err) {
+        if (wordsDue) say('user', text, from);
         say('novi', `Something went wrong: ${err.message}`, from);
       } finally {
         working -= 1;
@@ -1136,6 +1145,8 @@ export function createNovi(config, overrides = {}) {
       }
     } else if (msg.type === 'approval') {
       approvals.resolve(msg.id, Boolean(msg.allow), 'screen', typeof msg.choice === 'string' ? msg.choice : null, { always: msg.always === true, from, proof: await approvalProof(msg, from), ...(typeof msg.answer === 'string' ? { answer: msg.answer.slice(0, 500) } : {}) });
+    } else if (typeof msg.type === 'string' && msg.type.startsWith('live_')) {
+      await plugins.runtime.liveMessage?.(msg, from, (m) => sendTo(from, m));
     } else if (msg.type === 'phone_action_result' && typeof msg.id === 'string') {
       phoneActions.settle(msg);
     } else if (msg.type === 'card_voice' && typeof msg.id === 'string' && typeof msg.text === 'string') {
@@ -1216,7 +1227,7 @@ export function createNovi(config, overrides = {}) {
       return null;
     }
     // What was heard and Novi's reply: the wake-word service uses them for conversation mode.
-    const reply = (await handleMessage({ type: 'user_message', text })) || '';
+    const reply = (await handleMessage({ type: 'user_message', text, voice: true })) || '';
     if (id) voiceLog.setReply(id, reply);
     return { text, reply, screenMode: agent.screenModeOn?.() || agent.stepsOn?.() || false, silent: lastSilent };
   }
@@ -1231,5 +1242,5 @@ export function createNovi(config, overrides = {}) {
     broadcast({ type: 'stop_speaking' });
   };
 
-  return { app, activity, shortcuts, stepsOn: () => Boolean(agent.stepsOn?.() || agent.screenModeOn?.()), codeEdits, setQuiet: (on, minutes) => (on ? quiet.on(minutes) : quiet.off()), attachWebSocket, remotePin, setWakeTools, setSpeakerVerifier, checkVoice, stopSpeaking, wakeThreshold, snapshot, runVoiceCommand, handleMessage, setWakeWord, memory, accounts, approvals, tasks, router, agent, tools, plugins, pairing, broadcast };
+  return { app, activity, agent, transcriptFor: (from) => transcript.filter((e) => e.device === deviceKey(from)), shortcuts, stepsOn: () => Boolean(agent.stepsOn?.() || agent.screenModeOn?.()), codeEdits, setQuiet: (on, minutes) => (on ? quiet.on(minutes) : quiet.off()), attachWebSocket, remotePin, setWakeTools, setSpeakerVerifier, checkVoice, stopSpeaking, wakeThreshold, snapshot, runVoiceCommand, handleMessage, setWakeWord, memory, accounts, approvals, tasks, router, agent, tools, plugins, pairing, broadcast };
 }

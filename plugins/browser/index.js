@@ -48,6 +48,8 @@ export function createBrowserPlugin({ bridge = null, showImage = null, webDriver
           // Every waiting card as a Windows notification on the laptop (user, 2026-10-28), cleared once answered.
           api.runtime.laptopNotify = async (alert) => { if (link.connected()) await link.request('notify', alert); };
           api.runtime.laptopNotifyClear = async (id) => { if (link.connected()) await link.request('notify_clear', { id }); };
+          // Pause / play / seek a video in Chrome (plugins/laptop-control asks first, then Windows' media list).
+          api.runtime.browserVideo = async (args) => (link.connected() ? link.request('video', args) : null);
           api.runtime.browserStatus = () => ({ connected: link.connected(), code: loadCode(file), version: link.version || null });
           api.runtime.browserNewCode = () => { const c = newCode(file); link.setCode(c); return c; };
         }

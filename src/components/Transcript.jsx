@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import CodeCard from './CodeCard.jsx';
+import ZoomImage from './ZoomImage.jsx';
 import { linkLabel } from '../lib/transcript.js';
 
 export default function Transcript({ entries, thinking, codeSaved = {}, onCodeSave = () => {} }) {
@@ -24,8 +25,8 @@ export default function Transcript({ entries, thinking, codeSaved = {}, onCodeSa
       ))}
       {thinking && <div className="bubble novi thinking"><span /><span /><span /></div>}
       {viewing && (
-        <div className="viewer" role="dialog" aria-label={viewing.text || 'Picture'} onClick={() => setViewing(null)}>
-          <img src={viewing.image} alt={viewing.text || 'Picture'} />
+        <div className="viewer" role="dialog" aria-label={viewing.text || 'Picture'}>
+          <ZoomImage src={viewing.image} alt={viewing.text || 'Picture'} onClose={() => setViewing(null)} />
           <button type="button" className="viewer-close" onClick={() => setViewing(null)}>Close</button>
         </div>
       )}

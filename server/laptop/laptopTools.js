@@ -8,11 +8,14 @@ const str = (description) => ({ type: 'string', description });
 const summary = ({ position, title, channel, length }) => ({ position, title, channel, length });
 
 // Low-risk laptop actions: they open things on the laptop, never change or delete anything.
+const BROWSER_APP = /\b(?:chrome|brave|edge|firefox|opera|vivaldi)\b/i;
+
 export function addLaptopTools(registry, {
   openUrl = defaultOpenUrl,
   searchYouTube = defaultSearchYouTube,
   catalog = new AppCatalog(),
   launchApp = defaultLaunchApp,
+  focusOpen = null, // (name) → brings its open window forward; { error } when it has none
   // The phone that asked (with Novi open), or null: { showVideo({ videoId, title }), showLink({ url, label }) }.
   askedFromPhone = () => null,
 } = {}) {
@@ -97,6 +100,10 @@ export function addLaptopTools(registry, {
         const match = resolveApp(await catalog.all(), name);
         if (!match) throw new UserFacingError(`I couldn't find an app called "${name}" on this laptop.`);
         if (match.candidates) return { candidates: match.candidates.map((a) => a.name), note: `Which one did you mean: ${match.candidates.map((a) => a.name).join(', ')}?` };
+        // Browsers only: a second start shows Chrome's profile picker. Other apps match by title words,
+        // so a tab called "Spotify" must not stand in for opening Spotify.
+        const front = BROWSER_APP.test(match.app.name) ? await focusOpen?.(match.app.name)?.catch(() => null) : null;
+        if (front && !front.error) return { opened: match.app.name, note: `Switched to ${match.app.name}.` };
         await launchApp(match.app.appId);
         return { opened: match.app.name };
       },

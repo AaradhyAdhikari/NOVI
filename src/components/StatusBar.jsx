@@ -1,6 +1,6 @@
-import { Volume2, VolumeX, Settings, Wifi, WifiOff } from 'lucide-react';
+import { Volume2, VolumeX, Settings, Wifi, WifiOff, Monitor } from 'lucide-react';
 
-export default function StatusBar({ connected, providers, muted, onToggleMute, onOpenSettings, handsFree = {}, quiet = null }) {
+export default function StatusBar({ connected, providers, muted, onToggleMute, onOpenSettings, handsFree = {}, quiet = null, onLive = null }) {
   const hf = !handsFree.supported ? '“Hey Novi” needs Chrome or Edge' : !handsFree.on ? null : handsFree.error ? 'Mic blocked' : handsFree.paused ? 'Paused while talking' : handsFree.awaiting ? 'Listening…' : handsFree.server ? 'Say “Hey Novi” (laptop mic)' : 'Say “Hey Novi”';
   const active = providers.find((p) => p.healthy && p.lastModel) || providers.find((p) => p.healthy);
   return (
@@ -17,6 +17,7 @@ export default function StatusBar({ connected, providers, muted, onToggleMute, o
         {handsFree.on && handsFree.lastHeard && <span className="chip heard" title="What Chrome heard last">Heard: “{handsFree.lastHeard.slice(0, 40)}”</span>}
       </div>
       <div className="actions">
+        {onLive && <button className="icon" onClick={onLive} aria-label="Control the laptop"><Monitor size={18} /></button>}
         <button className="icon" onClick={onToggleMute} aria-label={muted ? 'Unmute voice' : 'Mute voice'}>{muted ? <VolumeX size={18} /> : <Volume2 size={18} />}</button>
         <button className="icon" onClick={onOpenSettings} aria-label="Settings"><Settings size={18} /></button>
       </div>

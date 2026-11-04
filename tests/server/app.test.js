@@ -1332,3 +1332,35 @@ describe('card answers heard by the phone app', () => {
     c.ws.close();
   });
 });
+
+// User, 2026-11-04: steps said at the laptop are done, not written down.
+describe('voice at the laptop', () => {
+  const chats = async (msg, { reply = 'Skipped ahead 5 s.', unwritten = true, from = 'local' } = {}) => {
+    const env = await start();
+    env.novi.agent.handle = async () => reply;
+    env.novi.agent.unwrittenTurn = () => unwritten;
+    await env.novi.handleMessage({ type: 'user_message', ...msg }, from);
+    const seen = env.novi.transcriptFor(from).map((e) => `${e.role}: ${e.text}`);
+    await env.close?.();
+    return seen;
+  };
+  it('a step that worked writes nothing', async () => {
+    expect(await chats({ text: 'skip 5 seconds', voice: true })).toEqual([]);
+  });
+  it('an answer or a problem is written, your words first', async () => {
+    expect(await chats({ text: 'how are you', voice: true }, { reply: 'Fine.', unwritten: false })).toEqual(['user: how are you', 'novi: Fine.']);
+  });
+  it('a turn that breaks still shows what you said', async () => {
+    const env = await start();
+    env.novi.agent.handle = async () => { throw new Error('boom'); };
+    await env.novi.handleMessage({ type: 'user_message', text: 'skip 5 seconds', voice: true }, 'local');
+    expect(env.novi.transcriptFor('local')[0]).toMatchObject({ role: 'user', text: 'skip 5 seconds' });
+    await env.close?.();
+  });
+  it('typed words are always written', async () => {
+    expect(await chats({ text: 'skip 5 seconds' })).toEqual(['user: skip 5 seconds', 'novi: Skipped ahead 5 s.']);
+  });
+  it('a phone always sees it', async () => {
+    expect((await chats({ text: 'skip', voice: true }, { from: { deviceId: 'p' } })).length).toBe(2);
+  });
+});

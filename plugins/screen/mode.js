@@ -28,6 +28,10 @@ const N = `(\\d+|${Object.keys(NUMBER).join('|')})`;
 const T = `(once|twice|thrice|\\d+ times?|(?:${Object.keys(NUMBER).join('|')}) times?)`;
 const THIS = '(?: (?:this|it|that|the window|this window|the app|this app))?';
 
+const BOX = '(?:the |this |that )?(?:(?:text|search|message|chat|prompt|input) )?(?:box|field)(?: (?:there|here|on (?:the |my )?screen|visible on (?:the |my )?screen))?';
+// "click Novi in the projects section": the words after it say where to look, not what to click.
+const WHERE_TAIL = /\s+(?:in|on|from|under|at)\s+(?:the\s+|my\s+)?(?:\w+\s+){0,3}(?:section|panel|sidebar|menu|list|bar|page|screen|side|corner)$/i;
+
 const RULES = [
   [re('(?:start|turn on|switch on|begin|enable|open) (?:the )?screen (?:control|mode)(?: mode)?|screen (?:control|mode) (?:on|start)'), () => ({ do: 'start' })],
   [re("(?:stop|end|exit|quit|turn off|switch off|disable|close) (?:the )?screen (?:control|mode)(?: mode)?|screen (?:control|mode) off|stop(?: it| now)?|that'?s all"), () => ({ do: 'stop' })],
@@ -50,9 +54,10 @@ const RULES = [
   [re(`(?:open|click|select|play|tap|pick)(?: on)? the ${ORD}(?: (?:result|search result|link|video|one))?`), (m) => ({ do: 'result', n: num(m[1]) })],
   [re(`(?:open|click) (?:result|video|link) (?:number )?${N}`), (m) => ({ do: 'result', n: num(m[1]) })],
   // type …
+  [re(`(?:in|into) ${BOX}[,:]?\\s*type(?: this| that| out)?[:,]?\\s+(.+)`), (m) => ({ do: 'type', text: m[1], box: true })],
+  [re(`type (.+?) (?:in|into) ${BOX}`), (m) => ({ do: 'type', text: m[1], box: true })],
   [re('type (?:this |that )?(?:in|into) (?:the )?(.+?)\\s*[:,]\\s*(.+)'), (m) => ({ do: 'type', text: m[2], target: m[1] })],
   [re(`type (.+?) (?:in|into) (?:box|field|item|number) ${N}`), (m) => ({ do: 'type', text: m[1], n: num(m[2]) })],
-  [re('type (.+?) (?:in|into) (?:that|this|the) (?:box|field)'), (m) => ({ do: 'type', text: m[1] })],
   [re('type (?:(?:on|in|to) )?(?:the |a )?(?:next|new|another) line[.,:]?\\s+(.+)'), (m) => ({ do: 'type', text: m[1], newLine: true })],
   [re('type(?: (?:this|that|out))?\\s*[:,]?\\s+(.+)'), (m) => ({ do: 'type', text: m[1] })],
   // click a number
@@ -63,7 +68,7 @@ const RULES = [
   [re(`(?:search|google|look up)(?: for| up)? (.+?)(?: and open the ${ORD}(?: (?:result|one|link))?)?`), (m) => ({ do: 'search', query: m[1], ...(m[2] ? { open: num(m[2]) } : {}) })],
   [re('(?:switch|go|jump|move) to (?:the )?(.+?)(?: window| app)?|bring (?:up )?(?:the )?(.+?)(?: window| app)? (?:to the front|forward|up|in front)|(?:show|focus) (?:the )?(.+?) (?:window|app)'), (m) => ({ do: 'focus', app: m[1] || m[2] || m[3] })],
   [re('(?:open|launch|start) (?:the )?(.+?)(?: app| application)?'), (m) => ({ do: 'open', app: m[1] })],
-  [re('(?:click|tap|select|choose|hit)(?: on)? (.+)'), (m) => ({ do: 'click', target: m[1] })],
+  [re('(?:click|tap|select|choose|hit)(?: on)? (.+)'), (m) => ({ do: 'click', target: m[1].replace(WHERE_TAIL, '') })],
   [re('yes|yeah|yep|yup|ok|okay|sure|do it|open it|go ahead|haan|ha|theek hai'), () => ({ do: 'yes' })],
   [re("no|nope|nah|don'?t|cancel|nahi|leave it"), () => ({ do: 'no' })],
 ];
@@ -77,11 +82,27 @@ const withSend = (out) => {
 };
 
 const LEAD = /^(?:(?:hey )?novi|okay|ok|please|now|and|then|can you|could you|will you)[,\s]+/i;
+// "go to 2:30" is a place in a video, not a window: it goes on to the seek route (live 2026-11-04).
+const TIME_JUMP = /^(?:switch|go|jump|move|skip|seek) to (?:the )?(?:(?:timestamp|time|minute) \d+$|(?:timestamp |time )?(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|twenty|thirty)(?:[:.]\d{2}(?:[:.]\d{2})?$|\s*(?:hours?|hrs?|minutes?|mins?|seconds?|secs?)\b))/i;
+
+// Steps so clear they run with Screen Mode off. Everything else ("go back", "reload", "send it") could be
+// ordinary talk at the laptop; a phone has no other way to move the page, so it gets those too.
+const SAID_AS_STEP = /^\W*(?:(?:ok(?:ay)?|hey novi|novi|please)[, ]+)*(?:click|tap|press|hit)\b/i;
+export function isScreenStep(text, { phone = false } = {}) {
+  const it = parseScreenCommand(text);
+  if (!it) return false;
+  if (it.do === 'scroll' || it.do === 'result' || it.do === 'list') return true;
+  if (it.do === 'click') return SAID_AS_STEP.test(text);
+  if (it.do === 'type') return Boolean(it.box) || phone;
+  if (it.do === 'key') return SAID_AS_STEP.test(text) || (phone && Boolean(it.say) && it.say !== 'Sent.');
+  return false;
+}
+
 export function parseScreenCommand(text) {
   let t = String(text || '').trim().replace(/[.!?]+$/, '').replace(/\s+/g, ' ');
   for (let i = 0; i < 4 && LEAD.test(t); i++) t = t.replace(LEAD, '');
   t = t.replace(/,?\s*(?:please|for me|right now)$/i, '').trim();
-  if (!t) return null;
+  if (!t || TIME_JUMP.test(t)) return null;
   for (const [pattern, make] of RULES) {
     const m = pattern.exec(t);
     if (m) return withSend(make(m));
@@ -95,6 +116,15 @@ const NAV = /^(?:all|images|videos|news|shopping|maps|books|flights|finance|more
 // A web result's link names its address (Google: "Title … https://github.com"); when the page has
 // those, only they count (live: the logo "Go to Google Home" and the sitelinks were counted too).
 const ADDRESS = /https?:\/\/|\s›\s/;
+// The results that name their address, top to bottom: real web results, one per row.
+export function webResults(list) {
+  const rows = [];
+  for (const it of (list || []).filter((i) => i.type === 'Hyperlink' && ADDRESS.test(i.name)).sort((a, b) => a.y - b.y)) {
+    if (!rows.some((r) => Math.abs(r.y - it.y) < 30)) rows.push(it);
+  }
+  return rows;
+}
+
 export function pickResult(list, n) {
   const rows = [];
   const links = (list || []).filter((it) => it.type === 'Hyperlink' && !NAV.test(it.name) && !/^go to /i.test(it.name) && it.name.length >= 15 && it.name.split(/\s+/).length >= 3);

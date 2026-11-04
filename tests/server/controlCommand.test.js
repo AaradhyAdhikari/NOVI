@@ -159,3 +159,13 @@ describe('a screenshot of the laptop screen, without the AI', () => {
     expect(controlCommand('screenshot of the work you are doing')).toBeNull();
   });
 });
+
+describe('muting only the video', () => {
+  const mute = (on) => ({ tool: 'laptop_video_mute', args: { on } });
+  it('video words mean the video, the plain word stays the laptop', () => {
+    for (const t of ['mute the video', 'Mute the video only, not the computer audio.', 'video mute karo', 'mute youtube', 'mute this stream']) expect(controlCommand(t), t).toMatchObject(mute(true));
+    for (const t of ['unmute the video', 'video unmute karo', 'unmute youtube']) expect(controlCommand(t), t).toMatchObject(mute(false));
+    expect(controlCommand('mute').tool).toBe('laptop_volume');
+    for (const t of ['mute the video call', 'mute my mic in the video call', 'unmute me in the video meeting']) expect(controlCommand(t)?.tool, t).not.toBe('laptop_video_mute');
+  });
+});

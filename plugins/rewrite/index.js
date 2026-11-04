@@ -42,6 +42,8 @@ const editPrompt = (how) => (String(how).startsWith('translate:')
   ? `Translate the user's text into ${String(how).slice(10)}. Reply with only the translation.`
   : EDITS[how]);
 const NOTHING = '\u200bnovi-nothing-selected';
+const COPY_TRIES = 8;
+const COPY_WAIT_MS = 120;
 const MAX_EDIT = 1999; // laptop_clipboard read stops at 2000 characters; a cut-off selection must never be pasted back
 
 export function createRewritePlugin({ llama = createLlama({ model: MODEL }) } = {}) {
@@ -79,14 +81,20 @@ export function createRewritePlugin({ llama = createLlama({ model: MODEL }) } = 
           const fail = (error) => ({ content: [], details: { error } });
           const prompt = editPrompt(how);
           if (!prompt) return fail("I can't do that to selected text.");
-          const before = (await clip({ do: 'read' })).text;
-          const putBack = () => (before ? clip({ do: 'set', text: before }) : null);
+          await clip({ do: 'keep' });
+          const putBack = () => clip({ do: 'restore' });
           await clip({ do: 'set', text: NOTHING });
-          await clip({ do: 'copy' });
-          const seen = await clip({ do: 'read' });
-          const text = seen.text;
-          if (!text) { await putBack(); return fail("That looks like a password, so I won't change it."); }
-          if (text === NOTHING) { await putBack(); return fail('Select the text first, then ask again.'); }
+          const from = await clip({ do: 'copy' }).catch(async (err) => { await putBack(); throw err; });
+          // Windows finishes a copy a moment after Ctrl+C: the clipboard can read empty, then fill.
+          let seen = {};
+          for (let i = 0; i < COPY_TRIES; i++) {
+            seen = await clip({ do: 'read' });
+            if ((seen.text && seen.text !== NOTHING) || /password/i.test(seen.note || '')) break;
+            await new Promise((r) => setTimeout(r, COPY_WAIT_MS));
+          }
+          const { text } = seen;
+          if (!text && /password/i.test(seen.note || '')) { await putBack(); return fail("That looks like a password, so I won't change it."); }
+          if (!text || text === NOTHING) { await putBack(); return fail('Nothing is selected. Say "select all" or "select the first three lines" first.'); }
           if (text.length > MAX_EDIT) { await putBack(); return fail("That's too much text for the offline AI. Select a smaller part."); }
           let result = '';
           try { result = String(await llama.ask(prompt, text)).trim().replace(/^["“]+|["”]+$/g, '').trim(); } catch (err) { api.logger?.warn?.(`[rewrite] edit failed: ${err.message}`); }
@@ -94,9 +102,9 @@ export function createRewritePlugin({ llama = createLlama({ model: MODEL }) } = 
             await putBack();
             return fail("I couldn't rewrite that, so I left it as it was.");
           }
-          await clip({ do: 'type', text: result });
+          const put = await clip({ do: 'type', text: result, id: from.window, reselect: true });
           await putBack();
-          return { content: [], details: { note: 'Rewrote it.' } };
+          return put.error ? fail(put.error) : { content: [], details: { note: 'Rewrote it.' } };
         },
       });
       api.on('before_tool_call', ({ toolName, direct }) => (toolName === 'text_edit_selection' && !direct

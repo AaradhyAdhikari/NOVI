@@ -113,14 +113,14 @@ describe('Agent', () => {
 
   // Live (2026-10-22): "list what's on my screen" → screen_items listed it, the AI was busy after it, and
   // the user got nothing at all. A tool's own answer text is shown then.
-  it('after a tool that answered with text, busy providers → that answer is shown', async () => {
+  it('the screen list never lands in the chat, even when the AI goes busy after it', async () => {
     const { agent, tools } = (() => {
       const s = setup([{ message: { role: 'assistant', content: '', tool_calls: [toolCall('screen_items', {})] }, provider: 'groq', model: 'm' }, new AllProvidersUnavailableError(21_000), new AllProvidersUnavailableError(21_000)]);
       s.agent.tools.add({ name: 'screen_items', description: 'i', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'i', run: async () => ({ text: 'On "Kick":\n1. link: snaxgaming' }) });
       return { agent: s.agent, tools: s.agent.tools };
     })();
     expect(tools.get('screen_items')).toBeTruthy();
-    expect(await agent.handle("list what's on my screen")).toBe('On "Kick":\n1. link: snaxgaming');
+    expect(await agent.handle('which stream is on here')).not.toMatch(/snaxgaming/);
   });
 
   it('says when providers are busy', async () => {
@@ -1572,11 +1572,11 @@ describe('a screenshot of the screen by voice', () => {
     const agent = new Agent({ router: { chat: async () => { throw new Error('no AI'); } }, tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
     expect(await agent.handle('show me a screenshot of my screen')).toBe('');
   });
-  it('"list what\'s on my screen" answers with the list itself, no AI', async () => {
+  it('"list what\'s on my screen" reads it, no AI, and keeps the list to itself', async () => {
     const tools = new ToolRegistry()
       .add({ name: 'screen_items', description: 'i', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'i', run: async () => ({ text: 'On "Kick":\n1. link: snaxgaming' }) });
     const agent = new Agent({ router: { chat: async () => { throw new Error('no AI'); } }, tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
-    expect(await agent.handle("list what's on my screen")).toBe('On "Kick":\n1. link: snaxgaming');
+    expect(await agent.handle("list what's on my screen")).toBe('Found some things on the screen.');
   });
 });
 
@@ -1670,7 +1670,11 @@ describe('switching windows by voice (2026-11-04)', () => {
     const tool = (name, out) => ({ name, description: name, parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => name, run: async (a) => { ran.push([name, a]); return typeof out === 'function' ? out(a) : out; } });
     const tools = new ToolRegistry()
       .add(tool('laptop_window', (a) => (a.app === 'telegram' ? { error: "I don't see a window for telegram.", notFound: true } : { note: 'Switched to Notepad.' })))
-      .add(tool('open_app', { note: 'Opened Telegram.' }));
+      .add(tool('open_app', { note: 'Opened Telegram.' }))
+      .add(tool('screen_command', (a) => (/start/.test(a.text) ? { mode: 'on', note: 'Screen control is on.' } : /scroll/.test(a.text) ? { note: 'Scrolled down.', done: { what: 'scrolled' } } : /how are/.test(a.text) ? { unknown: true } : { note: "I can't find that." })))
+      .add(tool('laptop_seek', { note: 'Skipped ahead 5 s.' }))
+      .add(tool('screen_copy_lines', { note: 'Copied 3 lines.' }))
+      .add(tool('screen_show', () => { ran.push('picture'); return { note: 'Here is the screen.' }; }));
     const agent = new Agent({ router: { chat: async () => ({ message: { role: 'assistant', content: 'From the AI.' }, provider: 'groq', model: 'm' }) }, tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
     return { agent, ran };
   };
@@ -1679,6 +1683,46 @@ describe('switching windows by voice (2026-11-04)', () => {
     await s.agent.handle('switch to notepad');
     expect(s.agent.silentTurn()).toBe(true);
     expect(s.agent.stepsOn()).toBe(true);
+  });
+  it('a skip that worked is neither written nor spoken at the laptop; from a phone it is said', async () => {
+    const s = mk();
+    await s.agent.handle('skip 5 seconds');
+    expect(s.agent.silentTurn()).toBe(true);
+    expect(s.agent.unwrittenTurn()).toBe(true);
+    await s.agent.handle('skip 5 seconds', { from: { deviceId: 'p' } });
+    expect(s.agent.silentTurn()).toBe(false);
+  });
+  it('talk during Screen Mode that is no step gets its answer written and spoken', async () => {
+    const s = mk();
+    await s.agent.handle('start screen control');
+    expect(await s.agent.handle('how are you doing today')).toBe('From the AI.');
+    expect(s.agent.silentTurn()).toBe(false);
+    expect(s.agent.unwrittenTurn()).toBe(false);
+  });
+  it('copied lines leave nothing to see, so they are said but not written', async () => {
+    const s = mk();
+    await s.agent.handle('copy the first three lines');
+    expect(s.agent.silentTurn()).toBe(false);
+    expect(s.agent.unwrittenTurn()).toBe(true);
+  });
+  it('a clear step works with Screen Mode off; from a phone a picture follows, at the laptop none', async () => {
+    const s = mk();
+    s.agent.screenPictureMs = 0;
+    expect(await s.agent.handle('scroll down')).toBe('Scrolled down.');
+    expect(s.ran).not.toContain('picture');
+    expect(s.agent.silentTurn()).toBe(true);
+    await s.agent.handle('scroll down please', { from: { deviceId: 'p' } });
+    expect(s.ran).toContain('picture');
+    expect(s.agent.silentTurn()).toBe(true);
+  });
+  it('a Screen Mode step you can see stays quiet; a problem is spoken', async () => {
+    const s = mk();
+    await s.agent.handle('start screen control');
+    expect(s.agent.silentTurn()).toBe(false);
+    await s.agent.handle('scroll down');
+    expect(s.agent.silentTurn()).toBe(true);
+    await s.agent.handle('click the moon');
+    expect(s.agent.silentTurn()).toBe(false);
   });
   it('not open: asks, and "yes" opens it', async () => {
     const s = mk();

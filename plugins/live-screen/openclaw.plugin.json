@@ -1,0 +1,9 @@
+{
+  "id": "live-screen",
+  "name": "Live screen",
+  "description": "The laptop screen live on the phone, with taps, scrolling and typing.",
+  "categories": ["other"],
+  "contracts": { "tools": ["live_screen_open"] },
+  "activation": { "onStartup": true },
+  "configSchema": { "type": "object", "additionalProperties": false }
+}

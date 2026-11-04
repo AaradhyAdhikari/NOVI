@@ -21,7 +21,8 @@ import { codemapCommand } from './codemapCommand.js';
 import { diagramCommand } from './diagramCommand.js';
 import { editCommand } from './editCommand.js';
 import { doneCheckCommand } from './doneCheckCommand.js';
-import { isScreenModeStart } from './screenModeCommand.js';
+import { isScreenModeStart, isLiveStart } from './screenModeCommand.js';
+import { isScreenStep } from '../../plugins/screen/mode.js';
 import { parseApproval } from './approvalIntent.js';
 import { describeTurn } from '../activity.js';
 import { learningCommand } from './learning.js';
@@ -34,9 +35,13 @@ import fs from 'node:fs';
 // "What went wrong?" (the activity log) and "what's running?" — answered without the AI.
 const WRONG_RE = /^(?:what went wrong|what happened(?: last time| just now| there)?|why didn'?t (?:that|it|this) work|why did (?:that|it) fail|kya (?:galat )?hua(?: tha)?|kya gadbad hui)$/i;
 const RUNNING_RE = /^(?:what(?:'s| is) (?:running|going on|happening)(?: right now)?|what are you (?:doing|working on)(?: right now)?|(?:sab )?kya (?:kya )?chal raha hai|anything running)$/i;
-const DONE_NOTE = /^(?:Typed it|Pressed Enter|Sent|Searched for|Switched to|Minimized|Maximized|Restored|Rewrote it)/;
-const STEP_TOOLS = new Set(['open_app', 'open_website', 'screen_type_into', 'screen_enter', 'laptop_window', 'text_edit_selection']);
-const DIRECT_OK = new Set(['text_edit_selection', 'code_start_task', 'code_send_message', 'rename_project', 'file_new_folder', 'open_project', 'file_open', 'file_rename', 'note_write', 'notes_ask', 'note_open', 'whatsapp_send', 'claude_project_make', 'remember_project', 'codemap_build', 'donecheck_run', 'donecheck_fix', 'claude_activity', 'code_changes', 'code_tests', 'claude_usage']); // whatsapp_send: the user's decision 2026-10-17 — their command is the yes
+const DONE_NOTE = /^(?:Typed it|Pressed Enter|Sent|Searched for|Switched to|Minimized|Maximized|Restored|Rewrote it|Went (?:back|forward)|Scrolled|Reloaded|Clicked|Opened the|Searching for|The laptop screen|Here is the screen)/;
+const STEP_TOOLS = new Set(['open_app', 'open_website', 'screen_type_into', 'screen_enter', 'laptop_window', 'text_edit_selection', 'screen_command', 'screen_show']);
+// Steps that show or sound for themselves at the laptop; a phone still hears them.
+const LAPTOP_QUIET = new Set(['laptop_seek', 'laptop_media', 'laptop_video_mute', 'laptop_select']);
+const QUIET_NOTE = /^(?:Skipped ahead|Went back|Jumped to|Paused|Playing|Next|Previous|Already paused|Muted the video|Unmuted the video|The video is already|Selected)/;
+const SAID_NOT_WRITTEN = /^Copied \d+ lines?\.$/; // nothing to see, so it is said, but not written
+const DIRECT_OK = new Set(['live_screen_open', 'text_edit_selection', 'code_start_task', 'code_send_message', 'rename_project', 'file_new_folder', 'open_project', 'file_open', 'file_rename', 'note_write', 'notes_ask', 'note_open', 'whatsapp_send', 'claude_project_make', 'remember_project', 'codemap_build', 'donecheck_run', 'donecheck_fix', 'claude_activity', 'code_changes', 'code_tests', 'claude_usage']); // whatsapp_send: the user's decision 2026-10-17 — their command is the yes
 const ASK_ANYWAY = new Set(['file_gather', 'file_undo_move', 'laptop_run', 'preview_show', 'preview_open']); // preview_show/open: only its first start of a project's own command asks
 const MAX_ROUNDS = 10; // screen tasks: open the app, look, click, type, …
 const MAX_HISTORY = 40;
@@ -49,7 +54,7 @@ export function systemPrompt({ projects, task, accounts = [] }) {
     'If the user mentions a project you do not know, ask for its folder path, then call remember_project.',
     'You can also act directly: open_website (use a full https URL when you know the site) and play_youtube open things right away on the device the user is using; open_app opens installed apps on the laptop. To watch or play anything ("show me valorant", "play X"), call play_youtube (top result by default; position for "the 5th one"); use youtube_search only when the user asks to see the options. Never read out a list of videos; after playing, just say the title. To log in, fill a form, click or read a page on a website, use browser_open and the other browser_* tools (Chrome on the laptop), not open_website. LeetCode problems and stats come from the leetcode tools; never play a video for LeetCode. The user\'s own projects and apps ("my X app", their GitHub repos, claude.ai projects) are never searched on the web or opened as a Google search: use project_about (what it is), project_status (progress) or github_repo. To skip forward/back or jump to a time in a video or song, use laptop_seek.',
     'To do something inside an app on the laptop that has no tool of its own (e.g. "open Claude and make a project named X"), do it yourself step by step: open_app, then screen_items, screen_click, screen_type and screen_key until it is done. Do not stop after opening the app or tell the user to do it.',
-    'For anything visible on the laptop screen in any app or browser (e.g. Brave, Kick, YouTube, WhatsApp): "play the first video", "click X", "open that stream" — call screen_items (a numbered list of the links, buttons and video tiles, no app name needed), then screen_click with the number. Use screen_look only to describe the screen. To send or copy "this page / this video / the current website", use laptop_current_link.',
+    'For anything visible on the laptop screen in any app or browser (e.g. Brave, Kick, YouTube, WhatsApp): "play the first video", "click X", "open that stream" — call screen_items (a numbered list of the links, buttons and video tiles, no app name needed; never repeat that list to the user), then screen_click with the number. If the user asked to type something, go on with screen_type after clicking the box: clicking alone is not the job done. Use screen_look only to describe the screen. To send or copy "this page / this video / the current website", use laptop_current_link.',
     'Deleting a file or folder: only file_delete (it asks for the PIN). Never delete with screen control (keys, clicks) or laptop_run. "Open X" without the word file or folder is never file_open: a coding project → preview_open (its website), "open X in VS Code / Antigravity / Cursor…" → open_project with that editor, anything else → open_app. Files: file_find / file_open find and open files and folders on the laptop by name when the user says file, folder or a document type; file_summary reads a file or Google Sheet in the background, so say you are reading it and keep helping with whatever the user asks next; file_gather moves files about a topic into a new folder.',
     'Never say you played, opened, sent or did something unless a tool result in this turn says it happened; if you did not call the tool, call it. Never say a task is finished unless a tool result says so. If a tool returns an error, explain it briefly.',
     `Known projects: ${projects.length ? projects.map((p) => `${p.name} (${p.path})`).join('; ') : 'none yet'}.`,
@@ -347,7 +352,11 @@ export class Agent {
     try {
       const out = await this._handle(text, opts);
       // Open / type / enter worked: it's on the screen, so nothing is read out (user, 2026-11-04).
-      this._silent = Boolean(this._quietReply) || runs.length > 0 && runs.every((r) => STEP_TOOLS.has(r.tool) && !r.output?.error && (!r.output?.note || DONE_NOTE.test(r.output.note)));
+      const worked = runs.filter((r) => !r.output?.unknown);
+      const atLaptop = (opts.from || 'local') === 'local';
+      const shows = (r) => !r.output?.error && ((STEP_TOOLS.has(r.tool) && (!r.output?.note || DONE_NOTE.test(r.output.note))) || (atLaptop && LAPTOP_QUIET.has(r.tool) && QUIET_NOTE.test(r.output?.note || '')));
+      this._silent = Boolean(this._quietReply) || (worked.length > 0 && worked.every(shows));
+      this._unwritten = this._silent || (worked.length > 0 && worked.every((r) => shows(r) || (r.tool === 'screen_copy_lines' && SAID_NOT_WRITTEN.test(r.output?.note || ''))));
       this._quietReply = false;
       this.activity?.end(rec, out);
       try { this.learning?.observe({ heard: text, reply: out, tools: rec?.tools || runs.map((r) => ({ name: r.tool, ok: !r.output?.error, error: r.output?.error })), runs }); } catch { /* never break a request */ }
@@ -404,8 +413,8 @@ export class Agent {
       return this._handle(chain.type, { from, phoneApp });
     }
     // "Make it shorter" with text selected (plugins/rewrite). While Claude is coding those words are for Claude.
-    const edit = this.tools.get('text_edit_selection') && !this.tasks?.status?.().active ? editCommand(text) : null;
-    if (edit) {
+    const edit = !this.tasks?.status?.().active ? editCommand(text) : null;
+    if (edit && this.tools.get(edit.tool)) {
       const { output } = await this._runTool({ id: `edit-${Date.now()}`, function: { name: edit.tool, arguments: JSON.stringify(edit.args) } }, { direct: true });
       return this._remember(text, output?.error || output?.note || 'Done.');
     }
@@ -444,7 +453,11 @@ export class Agent {
       const { output } = await this._runTool({ id: `enter-${Date.now()}`, function: { name: 'screen_enter', arguments: '{}' } }, { direct: true });
       return this._remember(text, output?.error || output?.note || 'Pressed Enter.');
     }
-    const screen = await this._screenCommand(text);
+    if (isLiveStart(text) && this.tools.get('live_screen_open')) {
+      const { output } = await this._runTool({ id: `live-${Date.now()}`, function: { name: 'live_screen_open', arguments: '{}' } }, { direct: true });
+      return this._remember(text, output?.error || output?.note || 'Done.');
+    }
+    const screen = await this._screenCommand(text, from);
     if (screen != null) return this._remember(text, screen);
     const also = alsoCommand(text);
     if (also) {
@@ -699,7 +712,7 @@ export class Agent {
         runs.push({ tool: call.function?.name, args: callArgs, output: result.output, asked: result.asked });
         if (result.output?.error) toolFailed = true;
         if (result.note) notes.push(result.note);
-        else if (typeof result.output?.text === 'string' && result.output.text.trim() && !result.output.error) lastText = result.output.text.trim();
+        else if (call.function?.name !== 'screen_items' && typeof result.output?.text === 'string' && result.output.text.trim() && !result.output.error) lastText = result.output.text.trim();
         if (result.output?.sensitive) sensitive = true;
         messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(result.output) });
       }
@@ -1146,6 +1159,7 @@ export class Agent {
   // steps and a bare "enter" means Enter. Each open / type step keeps it going for 2 minutes.
   stepsOn() { return this._stepsUntil > Date.now(); }
   silentTurn() { return Boolean(this._silent); }
+  unwrittenTurn() { return Boolean(this._unwritten); }
   screenModeOn() { return Boolean(this._screenMode && this.tools.get('screen_command')); }
 
   // One step inside the phone app the user is in. The plugin reads the words; null = not a phone step.
@@ -1160,14 +1174,23 @@ export class Agent {
 
   // One Screen Mode step. The plugin hands back steps other tools do ("open Notion" → open_app,
   // "search for X" → open_website) as { run, say }; "… and open the second result" comes back as `after`.
-  async _screenCommand(text) {
-    if (!this.tools.get('screen_command') || (!this._screenMode && !isScreenModeStart(text))) return null;
+  async _screenCommand(text, from = 'local') {
+    if (!this.tools.get('screen_command')) return null;
+    const anywhere = !this._screenMode && isScreenStep(text, { phone: from !== 'local' });
+    if (!this._screenMode && !anywhere && !isScreenModeStart(text)) return null;
     const run = async (name, args) => (await this._runTool({ id: `scr-${Date.now()}`, function: { name, arguments: JSON.stringify(args) } }, { direct: true })).output || {};
-    const out = await run('screen_command', { text });
+    const out = await run('screen_command', anywhere ? { text, anywhere: true } : { text });
     if (out.mode) this._screenMode = out.mode === 'on';
     if (out.unknown) return null;
     if (out.error) return out.error === 'The user declined this action.' ? "Okay, I won't." : out.error;
-    if (!out.run || !this.tools.get(out.run.tool)) return out.note || 'Done.';
+    if (!out.run || !this.tools.get(out.run.tool)) {
+      // From a phone you can't see the laptop: a step that changed something comes back with a picture.
+      if (from !== 'local' && out.done && this.tools.get('screen_show')) {
+        await new Promise((r) => setTimeout(r, this.screenPictureMs ?? 700));
+        await run('screen_show', {});
+      }
+      return out.note || 'Done.';
+    }
     let done = await run(out.run.tool, out.run.args);
     if (done.error && out.fallback && this.tools.get(out.fallback.tool)) done = await run(out.fallback.tool, out.fallback.args);
     if (done.error) return done.error === 'The user declined this action.' ? "Okay, I won't." : done.error;
@@ -1204,6 +1227,7 @@ export class Agent {
       return `${args.app} isn't open. Should I open it?`;
     }
     if (ctl.tool === 'screen_show' && !output?.error) return ''; // the picture is the answer
+    if (ctl.tool === 'screen_items' && !output?.error) return `Found ${output?.count ?? 'some'} things on the screen.`;
     return output?.error || output?.note || output?.text || 'Done.';
   }
 

@@ -20,10 +20,24 @@ Last updated: 2026-10-22.
 - Novi's ChatGPT / Gemini / claude.ai work stays in one minimized Chrome window (no tab pile-up).
 - No more freezes; "open my github profile" is instant; "where is my resume" ≈ 3.5 s.
 
+## Control the laptop from your phone (2026-11-04; commands checked by Claude on the real Novi from the laptop, phone side not tried)
+- [ ] From the phone, no "start screen control": "click Novi in the projects section", "scroll down", "go back", "reload", "in the text box type hello". A fresh picture comes back after each step that changed something. Enter only when you say "and send" or "enter".
+- [ ] Monitor button at the top of Novi on the phone (or "open live screen", "control my laptop"): asks your PIN, then the laptop screen fills the phone.
+- [ ] Live screen: tap = click, drag = scroll, two fingers = zoom and move, box at the bottom types, Enter / Backspace / Back / Esc buttons, Close ends it.
+- [ ] Leave it 15 minutes without touching: it closes and needs the PIN again.
+- [ ] "list the screen" answers "Found N things" with no list; "click 3" still works after it.
+
+## Quiet steps, select, mute, copy lines (2026-11-04, tests only so far)
+- [ ] By voice at the laptop: "skip 10 seconds", "make it shorter", "pause": nothing written in Novi. Questions, answers and problems are still written. Typed lines and the phone still show.
+- [ ] Notepad: "select all" or "select the first three lines", then "make it shorter", then "turn it into bullets" (the new text stays selected). Nothing selected: Novi tells you to select first.
+- [ ] "Mute the video" and "unmute the video" on YouTube and Kick: only the video goes quiet, not the laptop.
+- [ ] On the phone, tap a laptop picture Novi sent: pinch to zoom, drag to move, double tap in and out, one tap at normal size closes it.
+- [ ] "Copy the first three lines" on a ChatGPT answer and in Notepad, then paste. "Copied 3 lines" is spoken, not written.
+
 ## Screen Mode: the whole screen by voice (2026-10-29, checked by Claude on the test copy)
 Checked live (typed lines, not your voice yet): start/stop; "open notepad" (1.3 s) · on your `.env` tab "type hello" refused · "open a new tab" · "type …" (2.5 s) · "what did you just do" · "undo that" (1.8 s, back in the right window) · "press enter" · "minimize this" (57 ms) · "switch to notepad" (112 ms) · "scroll down" (1.1 s) · "search for vitest docs" → "open the first result" (3 s, the Vitest guide) · "go back" · "close this tab" (closed only Novi's search tab). Fixed on the way: Notepad opening behind Claude, AppActivate saying "yes" without the window in front (now: by window handle, checked, else nothing is pressed), Google results clicked in the empty middle of their box (now the title line), the Google logo counted as result 1, "close this tab" closing a browser tab elsewhere, `.env`/keys files and shopping carts now "sensitive", and "switch to Chrome" picking your other Chrome window (it now says which window: "Chrome is in front: Amazon.in Shopping Cart."; after a search the results window is used). Still to try **by voice**: the list below. Restart Novi once. Say **"start screen control"** → "Screen control is on…". Then, one at a time (the laptop mic stays open 20 s between commands; "Hey Novi" if it closed):
-- [ ] "Open Chrome" (focuses it if open, else opens it) · "search for GitHub" · "open the second result" · "go back" · "scroll down twice" · "reload".
-- [ ] "List the screen" → numbered list; "click 3" (fast, no new read) · "click login" (an ordinary page's Sign in link) · "type this in the search box: Novi AI" · "press enter".
+- [x] (Claude, real Novi, typed lines, 2026-11-04) "Open Chrome" (focuses it if open, else opens it) · "search for GitHub" · "open the second result" · "go back" · "scroll down twice" · "reload".
+- [x] (Claude, real Novi, typed lines, 2026-11-04) "List the screen" → numbered list; "click 3" (fast, no new read) · "click login" (an ordinary page's Sign in link) · "type this in the search box: Novi AI" · "press enter".
 - [ ] "Minimize this" · "maximize this" · "switch to WhatsApp" (not open → "Should I open it?" → "yes") · "close this tab" · "close this window" (asks first).
 - [ ] "What's on the screen?" (Gemini looks) · "click the blue button" (vision when the list can't tell) · "what did you just do?" · "undo that" (after typing / scrolling / a new tab / minimizing).
 - [ ] Safety: a password page (GitHub's sign-in page) → "This looks sensitive. Please do this part yourself." for clicks, typing and Enter; "type my password …" refused; a Buy/Pay button refused; a "Delete …" button asks for your voice PIN; Enter in WhatsApp asks "This may send the message".
@@ -166,7 +180,7 @@ Needs graphify installed once (`pip install graphifyy` — already done on this 
 
 - [ ] "what does my TraceBites app do", "what is FLEXR about", "tell me about my SignSync project", "medikiosk kya karta hai"
       → answered from the project's README / your GitHub repo, never a Google search. *(TraceBites checked 2026-10-22)*
-- [ ] While a YouTube video plays: "skip 10 minutes", "go back 30 seconds", "rewind 2 minutes", "jump to 5:30",
+- [x] (Claude, real Novi, typed lines, 2026-11-04: pause, play, skip and go back 5/10 s, "go to 2:30" on YouTube in Chrome without the extension; Spotify stays untouched. Not by voice yet.) While a YouTube video plays: "skip 10 minutes", "go back 30 seconds", "rewind 2 minutes", "jump to 5:30",
       "10 minute aage karo". Try it with a Spotify song too, and from the phone. *(YouTube in Chrome checked 2026-10-22)*
 
 - [ ] Use Chrome normally for a day: Novi's work stays in its one **hidden** "Novi work" window — nothing in the taskbar, Alt+Tab or Chrome's previews, never your tabs or screen.
