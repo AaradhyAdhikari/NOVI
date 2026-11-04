@@ -26,6 +26,8 @@ class CardOverlay(private val svc: NoviService) {
     private var count = 0
     private var collapsed = false
     private var statusView: TextView? = null
+    private var titleView: TextView? = null
+    private var changesArea: LinearLayout? = null
     private var pinArea: LinearLayout? = null
     private var buttons: LinearLayout? = null
     private var form: View? = null
@@ -36,10 +38,19 @@ class CardOverlay(private val svc: NoviService) {
     fun show(top: Card, total: Int) {
         // Same card: keep the view as it is (a half-typed answer is never lost).
         val same = card?.id == top.id && view != null
+        val before = card
         if (card?.id != top.id) collapsed = false
         card = top
         count = total
         if (!same) render(slide = view == null)
+        else if (before?.changes != top.changes) refreshChanges(top)
+    }
+
+    /** A commit card's files changed: only the title and the list, so a status or PIN pad stays as it is. */
+    private fun refreshChanges(top: Card) {
+        titleView?.text = top.title
+        changesArea?.removeAllViews()
+        top.changes?.let { changesArea?.addView(changeList(top, it)) }
     }
 
     fun hide() {
@@ -179,6 +190,55 @@ class CardOverlay(private val svc: NoviService) {
         contentDescription = c.title
     }
 
+    /** The commit card: the message, then each file with green and red counts. Tap a file to look inside. */
+    private fun changeList(c: Card, ch: Changes): View {
+        val list = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+        if (ch.message.isNotBlank()) list.addView(TextView(ctx).apply {
+            text = ch.message
+            textSize = 14f
+            setTextColor(Color.DKGRAY)
+            setPadding(0, 0, 0, dp(6))
+        })
+        for (f in ch.files) list.addView(LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(40)
+            setPadding(dp(8), dp(4), dp(8), dp(4))
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#FFF3F4F8"))
+                cornerRadius = dp(8).toFloat()
+            }
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(3) }
+            setOnClickListener { svc.openChanges(ch.id, f.file) }
+            addView(TextView(ctx).apply {
+                text = f.file
+                textSize = 13f
+                typeface = Typeface.MONOSPACE
+                setTextColor(Color.BLACK)
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.START
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            })
+            for (part in countParts(f)) addView(TextView(ctx).apply {
+                text = part.text
+                textSize = 13f
+                typeface = Typeface.MONOSPACE
+                setTextColor(Color.parseColor(if (part.tone > 0) "#FF0B8A4B" else if (part.tone < 0) "#FFD32F2F" else "#FF777777"))
+                setPadding(dp(8), 0, 0, 0)
+            })
+        })
+        val extra = listOfNotNull(
+            "and ${ch.more} more".takeIf { ch.more > 0 },
+            "Left out: ${ch.left.joinToString(", ")}".takeIf { ch.left.isNotEmpty() },
+        )
+        if (extra.isNotEmpty()) list.addView(TextView(ctx).apply {
+            text = extra.joinToString("\n")
+            textSize = 12f
+            setTextColor(Color.GRAY)
+        })
+        return MaxScroll(ctx, (svc.resources.displayMetrics.heightPixels * 0.4).toInt()).apply { addView(list) }
+    }
+
     private fun full(c: Card): View {
         val outer = LinearLayout(ctx).apply { setPadding(dp(12), 0, dp(12), 0) }
         val root = LinearLayout(ctx).apply {
@@ -212,14 +272,18 @@ class CardOverlay(private val svc: NoviService) {
         })
         root.addView(head)
 
-        root.addView(TextView(ctx).apply {
+        titleView = TextView(ctx).apply {
             text = if (c.question != null) "Claude asks" else c.title
             textSize = 17f
             setTextColor(Color.BLACK)
             setTypeface(typeface, Typeface.BOLD)
             setPadding(0, dp(4), 0, dp(2))
-        })
-        if (c.body.isNotBlank() && c.question == null) {
+        }
+        root.addView(titleView)
+        changesArea = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+        root.addView(changesArea)
+        c.changes?.let { changesArea?.addView(changeList(c, it)) }
+        if (c.body.isNotBlank() && c.question == null && c.changes == null) {
             root.addView(TextView(ctx).apply {
                 text = c.body.replace("Tap to open Novi.", "").replace("Tap to answer in Novi.", "").trim()
                 textSize = 14f

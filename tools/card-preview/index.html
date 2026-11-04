@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Novi Card Preview</title>
+<style>
+  /* Samples of the phone cards, for working on their look. Colours and sizes copy the app:
+     android/.../CardOverlay.kt (screen on) and LockCardActivity.kt (screen off). */
+  :root { --indigo: #4f46e5; --green: #0b8a4b; --red: #d32f2f; --row: #f3f4f8; --lock: #111827; --lock-label: #818cf8; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px 16px 48px; background: #1b1d24; color: #e8e9ee; font: 15px/1.4 system-ui, "Segoe UI", Roboto, sans-serif; }
+  h1 { margin: 0 0 4px; font-size: 20px; text-align: center; }
+  .lead { margin: 0 0 24px; text-align: center; color: #a4a7b3; }
+  .phones { display: flex; flex-wrap: wrap; gap: 40px; justify-content: center; align-items: flex-start; }
+  figure { margin: 0; width: min(340px, 100%); }
+  figcaption { margin-bottom: 10px; text-align: center; font-weight: 600; }
+  figcaption small { display: block; font-weight: 400; color: #a4a7b3; }
+  .phone { position: relative; height: 720px; border: 8px solid #000; border-radius: 40px; overflow: hidden; box-shadow: 0 0 0 1px #3a3d48, 0 18px 40px rgba(0, 0, 0, .5); }
+  .bar { position: absolute; inset: 0 0 auto; z-index: 3; display: flex; justify-content: space-between; padding: 10px 22px; color: #fff; font-size: 12px; font-weight: 600; }
+  .punch { position: absolute; top: 10px; left: 50%; z-index: 4; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%; background: #000; }
+
+  /* Screen on: the card sits over whatever is open. */
+  .app { position: absolute; inset: 0; background: linear-gradient(160deg, #27314d, #0e1220); }
+  .video { position: absolute; top: 44px; left: 0; right: 0; height: 180px; display: grid; place-items: center; background: #000; color: #666; font-size: 13px; }
+  .feed { position: absolute; top: 236px; left: 14px; right: 14px; display: grid; gap: 10px; }
+  .feed i { height: 12px; border-radius: 6px; background: rgba(255, 255, 255, .1); }
+  .feed i:nth-child(2n) { width: 70%; }
+  .overlay { position: absolute; left: 12px; right: 12px; bottom: 24px; z-index: 2; padding: 12px 16px; background: #fff; color: #000; border: 1px solid var(--indigo); border-radius: 20px; box-shadow: 0 8px 22px rgba(0, 0, 0, .45); }
+  .head { display: flex; align-items: center; justify-content: space-between; }
+  .brand { color: var(--indigo); font-size: 12px; font-weight: 700; }
+  .later { color: #888; font-size: 14px; }
+  .title { margin: 4px 0 2px; font-size: 17px; font-weight: 700; }
+  .message { margin: 0 0 6px; color: #444; font-size: 14px; }
+  .files { max-height: 170px; overflow: auto; }
+  .file { display: flex; align-items: center; gap: 8px; min-height: 40px; margin-bottom: 3px; padding: 4px 8px; background: var(--row); border-radius: 8px; font: 13px ui-monospace, Consolas, monospace; }
+  .name { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; direction: rtl; text-align: left; }
+  .plus { color: var(--green); }
+  .minus { color: var(--red); }
+  .left { margin: 2px 0 0; color: #888; font-size: 12px; }
+  .buttons { display: flex; gap: 4px; padding-top: 8px; }
+  .btn { flex: 1; min-height: 44px; border: 0; border-radius: 4px; background: #d6d7d7; color: #000; font: 500 14px/1 inherit; }
+
+  /* Screen off: the card fills the lock screen. */
+  .lock { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; padding: 48px 24px; background: var(--lock); color: #fff; }
+  .lock .brand { color: var(--lock-label); font-size: 14px; }
+  .lock .title { margin: 8px 0 32px; font-size: 24px; line-height: 1.25; }
+  .lock .btn { flex: none; width: 100%; height: 64px; margin-bottom: 12px; background: #e6e6e6; font-size: 18px; }
+  .lock .btn.small { height: 56px; margin: 0; font-size: 14px; }
+</style>
+</head>
+<body>
+  <h1>Novi card samples</h1>
+  <p class="lead">Sample only, built to match the app's colours and sizes. Fonts and buttons may look a little different on your phone.</p>
+  <div class="phones">
+    <figure>
+      <figcaption>Screen on<small>Pop-up over any app</small></figcaption>
+      <div class="phone">
+        <div class="punch"></div>
+        <div class="bar"><span>9:52</span><span>5G 68%</span></div>
+        <div class="app">
+          <div class="video">Your video keeps showing here</div>
+          <div class="feed"><i></i><i></i><i></i><i></i><i></i></div>
+        </div>
+        <div class="overlay">
+          <div class="head"><span class="brand">NOVI</span><span class="later">Later</span></div>
+          <div class="title">Commit and push 4 files in novi?</div>
+          <p class="message">Add the file list to the phone pop-up</p>
+          <div class="files">
+            <div class="file"><span class="name">android/.../CardOverlay.kt</span><span class="plus">+58</span><span class="minus">−4</span></div>
+            <div class="file"><span class="name">server/app.js</span><span class="plus">+12</span><span class="minus">−3</span></div>
+            <div class="file"><span class="name">src/lib/changeCounts.js</span><span class="plus">+7</span></div>
+            <div class="file"><span class="name">tools/card-preview/index.html</span><span class="plus">new</span></div>
+          </div>
+          <p class="left">Left out: NOVI CONTEXT.txt</p>
+          <div class="buttons"><button class="btn">Approve</button><button class="btn">Deny</button></div>
+        </div>
+      </div>
+    </figure>
+    <figure>
+      <figcaption>Screen off<small>Lights up the lock screen</small></figcaption>
+      <div class="phone">
+        <div class="punch"></div>
+        <div class="bar"><span>9:52</span><span>5G 68%</span></div>
+        <div class="lock">
+          <div class="brand">NOVI</div>
+          <div class="title">Commit and push 4 files in novi?</div>
+          <button class="btn">Approve</button>
+          <button class="btn">Deny</button>
+          <button class="btn small">Later</button>
+        </div>
+      </div>
+    </figure>
+  </div>
+</body>
+</html>

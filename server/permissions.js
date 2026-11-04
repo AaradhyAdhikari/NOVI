@@ -124,6 +124,7 @@ export class ApprovalQueue extends EventEmitter {
     const noted = Boolean(allow && addition && item.approval.addable);
     const answered = Boolean(allow && answer !== null && item.approval.question);
     const changed = Boolean(!allow && change && item.approval.changeable);
+    this.emit('answered', { allow: Boolean(allow), by, from, title: item.approval.title });
     this.emit('resolved', { id, allow: Boolean(allow), by, ...(picked ? { choice: picked } : {}), ...(noted ? { noted } : {}), ...(answered ? { answered } : {}), ...(changed ? { changed } : {}) });
     return true;
   }

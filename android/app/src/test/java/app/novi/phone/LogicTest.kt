@@ -61,6 +61,35 @@ class LogicTest {
         assertEquals(1000L, b.next())
     }
 
+    @Test fun aCommitCardCarriesItsFiles() {
+        val c = parseCard(JSONObject("""{"alert":{"id":"a1","title":"Commit and push 2 files in Shop?","changes":{"id":"v1","message":"Add login","more":3,"left":[".env"],
+            "files":[{"file":"login.js","added":20,"removed":3},{"file":"new.js","isNew":true},{"file":"logo.png"}]}}}"""))!!
+        val ch = c.changes!!
+        assertEquals("v1", ch.id)
+        assertEquals("Add login", ch.message)
+        assertEquals(3, ch.more)
+        assertEquals(listOf(".env"), ch.left)
+        assertEquals(listOf(CountPart("+20", 1), CountPart("−3", -1)), countParts(ch.files[0]))
+        assertEquals(listOf(CountPart("new", 1)), countParts(ch.files[1]))
+        assertEquals(listOf(CountPart("changed", 0)), countParts(ch.files[2]))
+    }
+
+    @Test fun zeroCountsAreLeftOut() {
+        assertEquals(listOf(CountPart("+5", 1)), countParts(ChangedFile("a.js", 5, 0)))
+        assertEquals(listOf(CountPart("−7", -1)), countParts(ChangedFile("a.js", 0, 7)))
+    }
+
+    @Test fun aFileOpensThePageWithItsNameSafe() {
+        assertEquals("/?changes=v1&file=src%2Fmy%20file.js", changesPage("v1", "src/my file.js"))
+    }
+
+    @Test fun onlyNovisOwnPagesOpen() {
+        assertEquals("/?changes=v1&file=a", safePage("/?changes=v1&file=a"))
+        assertEquals("/", safePage("https://evil.example/"))
+        assertEquals("/", safePage("//evil.example/"))
+        assertEquals("/", safePage(null))
+    }
+
     @Test fun novisOwnVoiceIsNotAnAnswer() {
         val spoken = "Claude asks: Which voice system? One, BHASHINI. Two, Whisper. Three, Both. Or say other, and your answer."
         assertTrue(echoOnly("Which voice system? One Bhashini, two whisper", spoken))

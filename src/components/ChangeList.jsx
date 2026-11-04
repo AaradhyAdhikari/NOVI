@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
-import { countParts } from '../lib/changeCounts.js';
+import { countParts, openFileFrom } from '../lib/changeCounts.js';
 
 const post = (api, url, body) => api(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
 const MARK = { add: '+', del: '−', ctx: ' ', gap: '' };
@@ -84,7 +84,7 @@ function ChangesView({ id, file, api, onClose }) {
 
 // On the commit card: the message, then each file with its counts. Tap a file to look inside.
 export default function ChangeList({ changes, api }) {
-  const [open, setOpen] = useState(null);
+  const [open, setOpen] = useState(() => (typeof window === 'undefined' ? null : openFileFrom(window.location.search, changes)));
   return (
     <div className="changes">
       {changes.message && <p className="changes-message">{changes.message}</p>}

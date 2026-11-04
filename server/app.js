@@ -536,6 +536,7 @@ export function createNovi(config, overrides = {}) {
   // questions the whole question (every option with its description) so the phone can show it in full.
   const appCard = (a) => ({
     ...cardAlert(a),
+    ...(a.changes ? { changes: a.changes } : {}), // the commit card's files, for the phone pop-up
     // Claude's question: the question and its options are read out; the phone listens meanwhile, so an
     // early answer counts (user, 2026-10-28).
     spoken: a.question ? `${spokenQuestion({ question: a.question.text, options: a.question.options })} Or say other, and your answer.` : spokenApproval(a),
@@ -596,7 +597,9 @@ export function createNovi(config, overrides = {}) {
     // The answer counts even while she is still reading (user, 2026-11-04).
     if (listen && deviceKey(active) === 'local') wakeTools?.listen?.({ overSpeech: true, waitMs: readMs + 10000, card: approval.id });
   });
-  approvals.on('updated', (approval) => broadcast({ type: 'approval_updated', approval }));
+  approvals.on('updated', (approval) => broadcast({ type: 'approval_updated', approval, alert: appCard(approval) }));
+  // Who answered, and from where: a tapped card left no trace (2026-11-04).
+  approvals.on('answered', ({ allow, by, from, title }) => console.log(`[card] ${allow ? 'yes' : 'no'} by ${by} from ${deviceKey(from)}: ${String(title || '').slice(0, 80)}`));
   approvals.on('resolved', (r) => {
     broadcast({ type: 'approval_resolved', ...r });
     if (!approvals.pending().length) { readOuts.done(); wakeTools?.endListen?.(); }

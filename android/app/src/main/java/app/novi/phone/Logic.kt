@@ -14,6 +14,45 @@ data class QuestionOption(val label: String, val description: String = "")
 /** Claude's question (AskUserQuestion), whole: the phone shows every option and an "Other" box. */
 data class Question(val text: String, val options: List<QuestionOption>, val multiSelect: Boolean = false)
 
+/** A file on a commit card. added == null: not a text change (a picture). */
+data class ChangedFile(val file: String, val added: Int? = null, val removed: Int? = null, val isNew: Boolean = false)
+
+/** The commit card's list: the message and each file with its counts. */
+data class Changes(val id: String, val message: String, val files: List<ChangedFile>, val more: Int = 0, val left: List<String> = emptyList())
+
+/** One count beside a file. tone: 1 green, -1 red, 0 grey. */
+data class CountPart(val text: String, val tone: Int)
+
+fun countParts(f: ChangedFile): List<CountPart> {
+    if (f.isNew) return listOf(CountPart("new", 1))
+    val added = f.added ?: return listOf(CountPart("changed", 0))
+    return listOfNotNull(
+        CountPart("+$added", 1).takeIf { added > 0 },
+        CountPart("−${f.removed ?: 0}", -1).takeIf { (f.removed ?: 0) > 0 },
+    )
+}
+
+/** The page that opens one file of a commit card (the page checks it is really on that card). */
+fun changesPage(id: String, file: String): String {
+    fun enc(s: String) = java.net.URLEncoder.encode(s, "UTF-8").replace("+", "%20")
+    return "/?changes=${enc(id)}&file=${enc(file)}"
+}
+
+/** MainActivity can be started by other apps: only a page of Novi's own, never another address. */
+fun safePage(page: String?): String = if (page != null && page.startsWith("/?")) page else "/"
+
+private fun parseChanges(c: JSONObject?): Changes? {
+    if (c == null) return null
+    val list = c.optJSONArray("files")
+    val files = (0 until (list?.length() ?: 0)).mapNotNull { i ->
+        list!!.optJSONObject(i)?.let {
+            ChangedFile(it.optString("file"), if (it.has("added")) it.optInt("added") else null, if (it.has("removed")) it.optInt("removed") else null, it.optBoolean("isNew"))
+        }
+    }
+    val left = c.optJSONArray("left")
+    return Changes(c.optString("id"), c.optString("message"), files, c.optInt("more"), (0 until (left?.length() ?: 0)).map { left!!.optString(it) })
+}
+
 /** A waiting card as the server's cardAlert() builds it, plus the line Novi speaks. */
 data class Card(
     val id: String,
@@ -23,6 +62,7 @@ data class Card(
     val proof: Boolean = false,
     val spoken: String = "",
     val question: Question? = null,
+    val changes: Changes? = null,
 )
 
 /** The answer sent for Claude's question: your own words win, else the picked labels (", " like the laptop). */
@@ -74,7 +114,7 @@ fun parseCard(msg: JSONObject): Card? {
         val actions = (0 until (list?.length() ?: 0)).mapNotNull { i ->
             list!!.optJSONObject(i)?.let { CardAction(it.optString("action"), it.optString("title")) }
         }
-        return Card(id, alert.optString("title"), alert.optString("body"), actions, alert.optBoolean("proof"), alert.optString("spoken"), parseQuestion(alert.optJSONObject("question")))
+        return Card(id, alert.optString("title"), alert.optString("body"), actions, alert.optBoolean("proof"), alert.optString("spoken"), parseQuestion(alert.optJSONObject("question")), parseChanges(alert.optJSONObject("changes")))
     }
     val a = msg.optJSONObject("approval") ?: return null
     val id = a.optString("id")
@@ -131,6 +171,14 @@ class CardList {
     fun add(card: Card) {
         cards.removeAll { it.id == card.id }
         cards.add(0, card)
+    }
+
+    /** New words for a card already here, in its place. False: not one of ours. */
+    fun update(card: Card): Boolean {
+        val at = cards.indexOfFirst { it.id == card.id }
+        if (at < 0) return false
+        cards[at] = card
+        return true
     }
 
     fun remove(id: String) {

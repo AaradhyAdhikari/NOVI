@@ -88,6 +88,15 @@ class MainActivity : ComponentActivity() {
         })
     }
 
+    // Already open: go to the page asked for (a file tapped on the pop-up).
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val page = intent.getStringExtra("page") ?: return
+        val base = store.base ?: return
+        web?.loadUrl("$base${safePage(page)}")
+    }
+
     override fun onResume() {
         super.onResume()
         // First run, or the pop-up permission not given yet: the setup screen first.
@@ -157,7 +166,7 @@ class MainActivity : ComponentActivity() {
             }
             // Only Novi's own page is ever loaded here (other links open in the browser).
             addJavascriptInterface(Bridge(), "NoviApp")
-            loadUrl("$base/")
+            loadUrl("$base${safePage(intent.getStringExtra("page"))}")
         }
         web?.destroy()
         web = w

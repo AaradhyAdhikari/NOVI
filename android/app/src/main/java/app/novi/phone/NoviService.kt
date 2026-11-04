@@ -191,6 +191,10 @@ class NoviService : Service() {
                 if (announced.add(card.id)) announce(card)
                 showTop()
             }
+            // A card's words changed while it waits (a file edited from it): no new sound, just new words.
+            "approval_updated" -> parseCard(msg)?.let { card ->
+                if (cards.update(card)) showTop()
+            }
             // The words heard for a card weren't an answer to it (or it was already answered).
             "card_voice" -> if (!msg.optBoolean("ok") && msg.optString("reason") == "unclear") {
                 status(msg.optString("id"), "Didn't catch that: tap a button.")
@@ -590,9 +594,13 @@ class NoviService : Service() {
         )
     }
 
-    fun openNovi(cardId: String) {
-        val base = store.base ?: return
-        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("$base/?card=$cardId")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    /** Novi's own screen in this app, signed in (a browser wouldn't be). */
+    fun openNovi(cardId: String) = openPage("/?card=$cardId")
+
+    fun openChanges(viewId: String, file: String) = openPage(changesPage(viewId, file))
+
+    private fun openPage(page: String) {
+        startActivity(Intent(this, MainActivity::class.java).putExtra("page", page).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 
     /** "Send a test card" on the app screen. */

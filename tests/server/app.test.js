@@ -1307,10 +1307,12 @@ describe('card answers heard by the phone app', () => {
     approvals.decide({ title: 'Commit 2 files?', tier: 'medium', source: 'commit', changes: { id: 'v1', files: [] }, timeoutMs: 60_000 }).catch(() => {});
     const added = await c.waitFor((m) => m.type === 'approval_added');
     expect(added.approval.changes.id).toBe('v1');
+    expect(added.alert.changes.id).toBe('v1');
     approvals.update(added.approval.id, { title: 'Commit 1 file?', changes: { id: 'v1', files: [{ file: 'a.js' }] } });
     const updated = await c.waitFor((m) => m.type === 'approval_updated');
     expect(updated.approval.title).toBe('Commit 1 file?');
     expect(updated.approval.changes.files).toEqual([{ file: 'a.js' }]);
+    expect(updated.alert.changes.files).toEqual([{ file: 'a.js' }]); // the phone pop-up draws it too
     c.ws.close();
   });
 
