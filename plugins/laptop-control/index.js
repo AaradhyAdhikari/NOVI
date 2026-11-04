@@ -17,7 +17,7 @@ const POWER_ASK = { lock: 'Lock the laptop?', sleep: 'Put the laptop to sleep?',
 const POWER_NOTE = { lock: 'Locked.', sleep: 'Going to sleep.', signout: 'Signing out.', shutdown: 'Shutting down in 15 seconds. Say cancel to stop.', restart: 'Restarting in 15 seconds. Say cancel to stop.' };
 const MEDIA_NOTE = { play: 'Playing.', pause: 'Paused.', next: 'Next.', previous: 'Previous.' };
 const RADIO = { wifi: 'Wi-Fi', bluetooth: 'Bluetooth' };
-const DONE = { focus: 'Switched to', minimize: 'Minimized', maximize: 'Maximized' };
+const DONE = { focus: 'Switched to', minimize: 'Minimized', maximize: 'Maximized', restore: 'Restored' };
 
 const reply = (details) => ({ content: [], details });
 const obj = (properties, required = []) => ({ type: 'object', properties, required });
@@ -172,7 +172,7 @@ export function createLaptopControlPlugin({
         });
 
       tool(api, 'laptop_window', 'Switch to (focus), minimize, maximize or close an app window by its name, e.g. "Chrome", "WhatsApp", "VS Code". all = every window of that app.',
-        obj({ app: { type: 'string' }, do: { type: 'string', enum: ['focus', 'minimize', 'maximize', 'close'] }, all: { type: 'boolean' } }, ['app', 'do']),
+        obj({ app: { type: 'string' }, do: { type: 'string', enum: ['focus', 'minimize', 'maximize', 'restore', 'close'] }, all: { type: 'boolean' } }, ['app', 'do']),
         async ({ app, do: action, all }) => {
           // "this" / "it" = the window the user is working in (front-most, not Novi) — Screen Mode's "minimize this".
           const list = await windows();

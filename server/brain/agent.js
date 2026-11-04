@@ -33,8 +33,8 @@ import fs from 'node:fs';
 // "What went wrong?" (the activity log) and "what's running?" — answered without the AI.
 const WRONG_RE = /^(?:what went wrong|what happened(?: last time| just now| there)?|why didn'?t (?:that|it|this) work|why did (?:that|it) fail|kya (?:galat )?hua(?: tha)?|kya gadbad hui)$/i;
 const RUNNING_RE = /^(?:what(?:'s| is) (?:running|going on|happening)(?: right now)?|what are you (?:doing|working on)(?: right now)?|(?:sab )?kya (?:kya )?chal raha hai|anything running)$/i;
-const DONE_NOTE = /^(?:Typed it|Pressed Enter|Sent|Searched for)/;
-const STEP_TOOLS = new Set(['open_app', 'open_website', 'screen_type_into', 'screen_enter']);
+const DONE_NOTE = /^(?:Typed it|Pressed Enter|Sent|Searched for|Switched to|Minimized|Maximized|Restored)/;
+const STEP_TOOLS = new Set(['open_app', 'open_website', 'screen_type_into', 'screen_enter', 'laptop_window']);
 const DIRECT_OK = new Set(['code_start_task', 'code_send_message', 'rename_project', 'file_new_folder', 'open_project', 'file_open', 'file_rename', 'note_write', 'notes_ask', 'note_open', 'whatsapp_send', 'claude_project_make', 'remember_project', 'codemap_build', 'donecheck_run', 'donecheck_fix', 'claude_activity', 'code_changes', 'code_tests', 'claude_usage']); // whatsapp_send: the user's decision 2026-10-17 — their command is the yes
 const ASK_ANYWAY = new Set(['file_gather', 'file_undo_move', 'laptop_run', 'preview_show', 'preview_open']); // preview_show/open: only its first start of a project's own command asks
 const MAX_ROUNDS = 10; // screen tasks: open the app, look, click, type, …
@@ -401,6 +401,17 @@ export class Agent {
       if (!/don't see a text box/i.test(String(typed))) return typed;
       await pause();
       return this._handle(chain.type, { from, phoneApp });
+    }
+    // "Should I open it?" after "switch to X" when X isn't open.
+    if (this._openOffer) {
+      const offer = this._openOffer;
+      this._openOffer = null;
+      const kind = offer.until > Date.now() ? answerKind(text) : null;
+      if (kind === 'deny') return this._remember(text, 'Okay.');
+      if (kind) {
+        const { output } = await this._runTool({ id: `open-${Date.now()}`, function: { name: 'open_app', arguments: JSON.stringify({ name: offer.name }) } }, { direct: true });
+        return this._remember(text, output?.error || output?.note || 'Opened.');
+      }
     }
     // Working step by step: "Type." then the words, and "words. Enter.", straight to the box (no AI:
     // these took 8-19 s live).
@@ -1179,7 +1190,12 @@ export class Agent {
       args.text = last;
     }
     const { output } = await this._runTool({ id: `laptop-${Date.now()}`, function: { name: ctl.tool, arguments: JSON.stringify(args) } }, { direct: true });
-    if (output?.notFound && args.do === 'focus') return null;
+    if (output?.notFound && args.do === 'focus') {
+      // "Go to X" may be a website, so it goes on to the AI; "switch to X" means the app.
+      if (!/^\W*(?:(?:ok(?:ay)?|hey novi|please)[, ]+)*(?:switch|jump)\b/i.test(text) || !this.tools.get('open_app')) return null;
+      this._openOffer = { name: args.app, until: Date.now() + 60_000 };
+      return `${args.app} isn't open. Should I open it?`;
+    }
     if (ctl.tool === 'screen_show' && !output?.error) return ''; // the picture is the answer
     return output?.error || output?.note || output?.text || 'Done.';
   }

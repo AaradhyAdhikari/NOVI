@@ -54,6 +54,8 @@ const RULES = [
   [re('paste(?: it| this| that)? (?:in|into|to|on) (?:the )?(.+?)(?: window| app| chat)?'), (m) => app(m[1], (a) => T('laptop_clipboard', { do: 'paste', app: a }))],
   // windows
   [re('(?:switch|jump) to (?:the )?(.+?)(?: window| app)?|go to (?:the )?(.+?)(?: window| app)?'), (m) => app(m[1] || m[2], (a) => T('laptop_window', { app: a, do: 'focus' }))],
+  [re('(minimi[sz]e|maximi[sz]e|restore)(?: (?:this|it|that|this window|the window))?'), (m) => T('laptop_window', { app: 'this', do: /^min/i.test(m[1]) ? 'minimize' : /^max/i.test(m[1]) ? 'maximize' : 'restore' })],
+  [re('(.+?) (?:pe|par) (?:jao|chalo)'), (m) => app(m[1], (a) => T('laptop_window', { app: a, do: 'focus' }))],
   [re('(minimi[sz]e|maximi[sz]e) (?:the )?(.+?)(?: window)?'), (m) => app(m[2], (a) => T('laptop_window', { app: a, do: m[1].toLowerCase().startsWith('mini') ? 'minimize' : 'maximize' }))],
   [re('close (?:this|the|that|my|current|it)(?: current)? tab|tab (?:band|bandh) (?:karo|kar do)'), () => T('laptop_tab', { do: 'close' })],
   [re('(?:re-?open|bring back|restore) (?:the |that |my )?(?:last |closed )*tab(?: again)?|(?:open|bring back) (?:the |that )?(?:last )?closed tab(?: again)?'), () => T('laptop_tab', { do: 'reopen' })],

@@ -1664,6 +1664,42 @@ describe("a card's own words for a spoken no", () => {
   });
 });
 
+describe('switching windows by voice (2026-11-04)', () => {
+  const mk = () => {
+    const ran = [];
+    const tool = (name, out) => ({ name, description: name, parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => name, run: async (a) => { ran.push([name, a]); return typeof out === 'function' ? out(a) : out; } });
+    const tools = new ToolRegistry()
+      .add(tool('laptop_window', (a) => (a.app === 'telegram' ? { error: "I don't see a window for telegram.", notFound: true } : { note: 'Switched to Notepad.' })))
+      .add(tool('open_app', { note: 'Opened Telegram.' }));
+    const agent = new Agent({ router: { chat: async () => ({ message: { role: 'assistant', content: 'From the AI.' }, provider: 'groq', model: 'm' }) }, tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
+    return { agent, ran };
+  };
+  it('a switch shows and stays quiet, and keeps the mic for the next step', async () => {
+    const s = mk();
+    await s.agent.handle('switch to notepad');
+    expect(s.agent.silentTurn()).toBe(true);
+    expect(s.agent.stepsOn()).toBe(true);
+  });
+  it('not open: asks, and "yes" opens it', async () => {
+    const s = mk();
+    expect(await s.agent.handle('switch to telegram')).toBe("telegram isn't open. Should I open it?");
+    expect(s.agent.silentTurn()).toBe(false);
+    await s.agent.handle('yes');
+    expect(s.ran.at(-1)).toEqual(['open_app', { name: 'telegram' }]);
+  });
+  it('"no" drops it, and the question is forgotten', async () => {
+    const s = mk();
+    await s.agent.handle('switch to telegram');
+    expect(await s.agent.handle('no')).toBe('Okay.');
+    expect(s.ran.some(([n]) => n === 'open_app')).toBe(false);
+  });
+  it('"go to X" with no such window still goes to the AI (it may be a website)', async () => {
+    const s = mk();
+    await s.agent.handle('go to telegram');
+    expect(s.agent._openOffer).toBeFalsy();
+  });
+});
+
 describe('step by step or in one go: open, type, enter (2026-11-04)', () => {
   const mk = (typed = 'Typed it.') => {
     const ran = [];
