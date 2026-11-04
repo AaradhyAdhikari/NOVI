@@ -29,18 +29,17 @@ export function createOrbPlugin({ platform = process.platform, env = process.env
 
       // Settings → "Hey Novi" → Clean up dictation; until it is touched, NOVI_DICTATION_CLEANUP decides.
       const cleanupFile = path.join(rt.dataDir || 'data', 'dictation.json');
-      const cleanupOn = () => {
-        try { return JSON.parse(fs.readFileSync(cleanupFile, 'utf8')).cleanup !== false; } catch { /* not set yet */ }
-        return String(env.NOVI_DICTATION_CLEANUP || '').toLowerCase() !== 'off';
-      };
+      const saved = () => { try { return JSON.parse(fs.readFileSync(cleanupFile, 'utf8')); } catch { return {}; } }; // not set yet
+      const cleanupOn = () => saved().cleanup ?? String(env.NOVI_DICTATION_CLEANUP || '').toLowerCase() !== 'off';
+      const polishOn = () => saved().polish === true;
       api.registerHttpRoute({
         path: 'dictation-cleanup',
-        handler: ({ on } = {}) => {
-          if (typeof on === 'boolean') {
+        handler: ({ on, polish } = {}) => {
+          if (typeof on === 'boolean' || typeof polish === 'boolean') {
             fs.mkdirSync(path.dirname(cleanupFile), { recursive: true });
-            fs.writeFileSync(cleanupFile, JSON.stringify({ cleanup: on }));
+            fs.writeFileSync(cleanupFile, JSON.stringify({ ...saved(), ...(typeof on === 'boolean' ? { cleanup: on } : {}), ...(typeof polish === 'boolean' ? { polish } : {}) }));
           }
-          return { on: cleanupOn() };
+          return { on: cleanupOn(), polish: polishOn() };
         },
       });
 
@@ -51,7 +50,9 @@ export function createOrbPlugin({ platform = process.platform, env = process.env
         if (!text || text === '.') return;
         const tidy = cleanupOn() ? cleanDictation(text) : text;
         if (!tidy) return; // nothing left but fillers ("um")
-        const out = await rt.callTool('dictate_type', { text: tidy });
+        // The local AI, when switched on (plugins/rewrite). It gives the same words back if it can't.
+        const polished = polishOn() ? await rt.callTool('text_rewrite', { text: tidy }).catch(() => null) : null;
+        const out = await rt.callTool('dictate_type', { text: polished?.text || tidy });
         if (out?.error) rt.say?.(`I couldn't type that: ${out.error}`, { kind: null, local: true });
       }
       let heldAt = 0;
@@ -66,6 +67,7 @@ export function createOrbPlugin({ platform = process.platform, env = process.env
         if (e.event === 'hold_start') {
           if (open) return undefined; // the second tap: its key-up ends it
           heldAt = now();
+          if (polishOn()) rt.callTool('text_rewrite', { warm: true }).catch(() => {}); // loads while you talk
           return rt.wake?.hold?.({ maxMs: LONG_MS });
         }
         if (e.event === 'hold_end') {

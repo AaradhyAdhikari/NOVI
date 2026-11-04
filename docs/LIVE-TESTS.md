@@ -183,6 +183,7 @@ Needs graphify installed once (`pip install graphifyy` — already done on this 
 - [ ] One go: "open youtube type claude code and enter" (checked with typed lines), "open notepad and type hello".
 - [ ] WhatsApp with a chat open: "type hi", then "enter" (really sends to that chat). And a Hindi line.
 - [x] Hands-free dictation (worked live, 2026-11-04): click in Notepad, quick tap of Ctrl+Shift+Space, talk as long as you like (pauses are fine), tap again: it all types at once. Stops by itself at 5 minutes.
+- [ ] Settings → "Hey Novi" → "Polish with the offline AI" on: tap Ctrl+Shift+Space, say a messy sentence ("um so basically i think we should like move it to tomorrow you know"), tap: a clean sentence types, about 2 s later. Task Manager shows llama-server gone after 5 idle minutes.
 - [ ] Settings → "Hey Novi" → "Clean up hold-to-talk dictation": off types exactly as heard.
 - [ ] "Hey Novi" on your own voice (no training model now — keyword spotting). Does it wake every time? Does it wake by itself?
 - [ ] Say "Hey Novi" while Novi is talking → she stops and listens.

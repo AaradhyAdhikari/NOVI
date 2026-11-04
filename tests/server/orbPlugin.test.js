@@ -222,6 +222,47 @@ describe('hands-free dictation: tap to start, tap to stop (2026-11-04)', () => {
   });
 });
 
+describe('polish with the local AI (2026-11-04)', () => {
+  function make({ polish, rewrite = async (p) => ({ text: `AI: ${p.text}` }) } = {}) {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'novi-orb-'));
+    if (polish !== undefined) fs.writeFileSync(path.join(dataDir, 'dictation.json'), JSON.stringify({ polish }));
+    const did = [];
+    let fire = null;
+    const runtime = {
+      dataDir, wake: { hold() {}, release: () => Buffer.from('wav') }, hear: async () => 'um hello',
+      callTool: async (name, p) => { did.push([name, p]); return name === 'text_rewrite' ? (p.warm ? {} : rewrite(p)) : {}; },
+    };
+    const host = new PluginHost({ runtime, logger: { warn() {}, info() {} } });
+    let clock = 0;
+    host.register(createOrbPlugin({ platform: 'win32', env: {}, now: () => (clock += 1000), createProcess: (o) => { fire = o.onEvent; return { start() {}, stop() {}, send() {} }; } }));
+    return { host, did, fire: (event) => fire({ event }) };
+  }
+  it('off by default: no model, no wait', async () => {
+    const s = make();
+    await s.host.startServices();
+    await s.fire('hold_start');
+    await s.fire('hold_end');
+    expect(s.did).toEqual([['dictate_type', { text: 'Hello' }]]);
+  });
+  it('on: the model loads while you talk, and the polished words are typed', async () => {
+    const s = make({ polish: true });
+    await s.host.startServices();
+    await s.fire('hold_start');
+    expect(s.did).toEqual([['text_rewrite', { warm: true }]]);
+    await s.fire('hold_end');
+    expect(s.did.slice(1)).toEqual([['text_rewrite', { text: 'Hello' }], ['dictate_type', { text: 'AI: Hello' }]]);
+  });
+  it('the switch is saved with the clean-up one, and a failed rewrite still types', async () => {
+    const s = make({ polish: true, rewrite: async () => { throw new Error('no model'); } });
+    await s.host.startServices();
+    await s.fire('hold_start');
+    await s.fire('hold_end');
+    expect(s.did.at(-1)).toEqual(['dictate_type', { text: 'Hello' }]);
+    expect(await s.host.route('dictation-cleanup')({ polish: false })).toEqual({ on: true, polish: false });
+    expect(await s.host.route('dictation-cleanup')({ on: false })).toEqual({ on: false, polish: false });
+  });
+});
+
 describe('Settings: clean up dictation (2026-11-04)', () => {
   it('the setting turns the tidying off and on, is remembered, and starts from NOVI_DICTATION_CLEANUP', async () => {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'novi-orb-'));
@@ -238,16 +279,16 @@ describe('Settings: clean up dictation (2026-11-04)', () => {
     };
     const a = make();
     const route = a.host.route('dictation-cleanup');
-    expect(await route({})).toEqual({ on: true });
-    expect(await route({ on: false })).toEqual({ on: false });
+    expect(await route({})).toMatchObject({ on: true });
+    expect(await route({ on: false })).toMatchObject({ on: false });
     await a.fire();
     expect(a.did).toEqual(['um hello']);
     const b = make();
-    expect(await b.host.route('dictation-cleanup')({})).toEqual({ on: false }); // remembered
-    expect(await b.host.route('dictation-cleanup')({ on: true })).toEqual({ on: true });
+    expect(await b.host.route('dictation-cleanup')({})).toMatchObject({ on: false }); // remembered
+    expect(await b.host.route('dictation-cleanup')({ on: true })).toMatchObject({ on: true });
     await b.fire();
     expect(b.did).toEqual(['Hello']);
     fs.rmSync(path.join(dataDir, 'dictation.json'));
-    expect(await make({ NOVI_DICTATION_CLEANUP: 'off' }).host.route('dictation-cleanup')({})).toEqual({ on: false });
+    expect(await make({ NOVI_DICTATION_CLEANUP: 'off' }).host.route('dictation-cleanup')({})).toMatchObject({ on: false });
   });
 });
