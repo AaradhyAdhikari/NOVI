@@ -164,6 +164,9 @@ export function createNovi(config, overrides = {}) {
         transcript.push({ ...entry, device: deviceKey(active) });
         sendTo(active, { type: 'chat', entry });
       },
+      // The commit card: new words for a waiting card, and its file opened for editing.
+      updateCard: (viewId, patch) => { const card = approvals.pending().find((a) => a.changes?.id === viewId); return card ? approvals.update(card.id, patch) : false; },
+      offerCodeEdit: (card) => codeEdits.offer(card),
       // A message straight to one paired device (plugins/live-screen).
       sendToDevice: (deviceId, msg) => sendTo({ deviceId }, msg),
       // A tap-to-open link in the chat of whoever asked (the preview plugin's live link).
@@ -593,6 +596,7 @@ export function createNovi(config, overrides = {}) {
     // The answer counts even while she is still reading (user, 2026-11-04).
     if (listen && deviceKey(active) === 'local') wakeTools?.listen?.({ overSpeech: true, waitMs: readMs + 10000, card: approval.id });
   });
+  approvals.on('updated', (approval) => broadcast({ type: 'approval_updated', approval }));
   approvals.on('resolved', (r) => {
     broadcast({ type: 'approval_resolved', ...r });
     if (!approvals.pending().length) { readOuts.done(); wakeTools?.endListen?.(); }
@@ -848,6 +852,17 @@ export function createNovi(config, overrides = {}) {
 
   // Phone notifications: the phone subscribes once (Settings → Enable notifications).
   // A phone notification's button (public/sw.js) — the paired phone's own token, like every /api call.
+  // The commit card: a file's changed lines or whole code, and saving an edit made from it.
+  app.post('/api/card-changes', async (req, res) => {
+    const { id, file, whole } = req.body || {};
+    const view = plugins.runtime.commitView?.(String(id || ''), String(file || ''), { whole: Boolean(whole) });
+    res.json(await Promise.resolve(view).catch((err) => ({ error: err.message })) ?? { error: "That file isn't on the card." });
+  });
+  app.post('/api/card-changes/save', async (req, res) => {
+    const { card, file, id, text } = req.body || {};
+    if (!plugins.runtime.commitCanEdit?.(String(card || ''), String(file || ''))) return res.json({ ok: false, error: 'That card has been answered, so nothing was saved.' });
+    return res.json(await saveCode(String(id || ''), String(text ?? ''), req.from));
+  });
   app.post('/api/card-answer', (req, res) => {
     res.json(answerCard(String(req.body?.id || ''), String(req.body?.action || ''), req.from));
   });
@@ -1107,6 +1122,25 @@ export function createNovi(config, overrides = {}) {
     return handleMessage({ type: 'user_message', text: answer }, from);
   }
 
+  // Approve on a code card: the user's version goes into the project now; a running coder is told, and a
+  // waiting commit card shows the new lines.
+  async function saveCode(id, text, from) {
+    try {
+      const saved = codeEdits.save(id, text.slice(0, 200_000));
+      if (saved.changed) await plugins.runtime.commitEdited?.(saved.root, saved.file);
+      const running = tasks.status?.().status === 'running';
+      if (saved.changed && running) tasks.send(`The user edited ${saved.file} (lines ${saved.start}-${saved.end}) by hand and it is already saved. Keep their change: don't overwrite or redo it, and build on it.`);
+      sendTo(from, { type: 'code_saved', id, ok: true, changed: saved.changed });
+      say('novi', !saved.changed ? `No changes to ${saved.file}.` : `Saved your change to ${saved.file}${running ? ', and told Claude' : ''}.`, from);
+      if (saved.changed) broadcast({ type: 'feed', text: `You edited ${saved.file} (lines ${saved.start}–${saved.end}).` });
+      return { ok: true, changed: saved.changed };
+    } catch (err) {
+      sendTo(from, { type: 'code_saved', id, ok: false, error: err.message });
+      say('novi', err.message, from);
+      return { ok: false, error: err.message };
+    }
+  }
+
   async function handleMessage(msg, from = 'local') {
     if (msg.type === 'user_message' && typeof msg.text === 'string' && msg.text.trim()) {
       const text = msg.text.trim().slice(0, 4000);
@@ -1170,18 +1204,7 @@ export function createNovi(config, overrides = {}) {
     } else if (msg.type === 'card_voice' && typeof msg.id === 'string' && typeof msg.text === 'string') {
       return cardVoice(msg.id, msg.text, from);
     } else if (msg.type === 'code_save' && typeof msg.id === 'string' && typeof msg.text === 'string') {
-      // Approve on a code card: the user's version goes into the project now; a running coder is told.
-      try {
-        const saved = codeEdits.save(msg.id, msg.text.slice(0, 200_000));
-        const running = tasks.status?.().status === 'running';
-        if (saved.changed && running) tasks.send(`The user edited ${saved.file} (lines ${saved.start}-${saved.end}) by hand and it is already saved. Keep their change: don't overwrite or redo it, and build on it.`);
-        sendTo(from, { type: 'code_saved', id: msg.id, ok: true, changed: saved.changed });
-        say('novi', !saved.changed ? `No changes to ${saved.file}.` : `Saved your change to ${saved.file}${running ? ', and told Claude' : ''}.`, from);
-        if (saved.changed) broadcast({ type: 'feed', text: `You edited ${saved.file} (lines ${saved.start}–${saved.end}).` });
-      } catch (err) {
-        sendTo(from, { type: 'code_saved', id: msg.id, ok: false, error: err.message });
-        say('novi', err.message, from);
-      }
+      await saveCode(msg.id, msg.text, from);
     } else if (msg.type === 'allow_edits') {
       tasks.setAllowEdits(Boolean(msg.allow));
     } else if (msg.type === 'stop') {

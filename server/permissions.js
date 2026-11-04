@@ -73,7 +73,7 @@ export class ApprovalQueue extends EventEmitter {
   // timeoutMs: null = wait as long as it takes.
   // pin: a dangerous laptop command — allowed only with the voice PIN, on every device (remoteTrust).
   // changeable: "change X" is an answer too (the orchestrator's brief card) → { allow: false, change }.
-  decide({ title, detail = '', tier, source, prompt, choices, category, grantable = false, kind, addable = false, changeable = false, question, pin = false, timeoutMs, speaksOnDeny = false }) {
+  decide({ title, detail = '', tier, source, prompt, choices, category, grantable = false, kind, addable = false, changeable = false, changes, question, pin = false, timeoutMs, speaksOnDeny = false }) {
     const canGrant = Boolean(this.grants && grantable && category && tier === 'medium' && !kind && !question && !pin);
     if (canGrant && this.grants.has(category)) {
       this.grants.record({ category, title });
@@ -84,6 +84,7 @@ export class ApprovalQueue extends EventEmitter {
       id: crypto.randomUUID(), title, detail, tier, source, createdAt: Date.now(), ...(kind ? { kind } : {}),
       ...(prompt ? { prompt } : {}), ...(choices?.length ? { choices } : {}), ...(addable ? { addable: true } : {}),
       ...(question ? { question } : {}), ...(pin ? { pin: true } : {}), ...(changeable ? { changeable: true } : {}),
+      ...(changes ? { changes } : {}), // files on a commit card (plugins/commit)
       ...(speaksOnDeny ? { speaksOnDeny: true } : {}), // its asker says the "no" line itself: a spoken no adds nothing
       ...(canGrant ? { grant: { category, label: labelFor(category) } } : {}),
     };
@@ -124,6 +125,15 @@ export class ApprovalQueue extends EventEmitter {
     const answered = Boolean(allow && answer !== null && item.approval.question);
     const changed = Boolean(!allow && change && item.approval.changeable);
     this.emit('resolved', { id, allow: Boolean(allow), by, ...(picked ? { choice: picked } : {}), ...(noted ? { noted } : {}), ...(answered ? { answered } : {}), ...(changed ? { changed } : {}) });
+    return true;
+  }
+
+  // A card's words changed while it waits (a file edited from the commit card). Only what it shows.
+  update(id, { title, detail, prompt, changes } = {}) {
+    const item = this.items.get(id);
+    if (!item) return false;
+    Object.assign(item.approval, { ...(title ? { title } : {}), ...(detail !== undefined ? { detail } : {}), ...(prompt ? { prompt } : {}), ...(changes ? { changes } : {}) });
+    this.emit('updated', item.approval);
     return true;
   }
 

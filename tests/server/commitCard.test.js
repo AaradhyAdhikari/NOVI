@@ -36,15 +36,20 @@ function repo({ remote = true } = {}) {
   return { dir, bare };
 }
 
-function setup(dir, { decisions = [{ allow: true }], message = 'Add the login page', run } = {}) {
+function setup(dir, { decisions = [{ allow: true }], message = 'Add the login page', run, hold = false } = {}) {
   const asked = [];
   const said = [];
+  const updates = [];
+  const offered = [];
+  let release = null;
   const tasks = new EventEmitter();
   const left = [...decisions];
   let finished;
   const done = new Promise((resolve) => { finished = resolve; });
   const runtime = {
-    ask: async (card) => { asked.push(card); return left.shift() || { allow: false }; },
+    ask: async (card) => { asked.push(card); if (hold) return new Promise((resolve) => { release = resolve; }); return left.shift() || { allow: false }; },
+    updateCard: (id, patch) => updates.push({ id, ...patch }),
+    offerCodeEdit: (card) => { offered.push(card); return 'edit-1'; },
     say: (text) => { said.push(text); },
     privateComplete: async () => { if (message instanceof Error) throw message; return message; },
     codingProject: (name) => (name === 'nothing' || !dir ? null : { name: 'Shop', path: dir }),
@@ -54,7 +59,7 @@ function setup(dir, { decisions = [{ allow: true }], message = 'Add the login pa
   expect(host.register(createCommitPlugin({ run: run || (async () => ({ code: 0, output: '' })), onDone: finished }))).toBe(true);
   const tool = (name, params = {}) => host.get(name).run(params);
   // The work after the card runs in the background.
-  return { asked, said, tasks, tool, settled: () => done };
+  return { asked, said, tasks, tool, updates, offered, settled: () => done, answer: (d) => release(d), view: (...a) => host.runtime.commitView(...a), edited: (...a) => host.runtime.commitEdited(...a), canEdit: (...a) => host.runtime.commitCanEdit(...a) };
 }
 
 describe('the commit card', () => {
@@ -378,5 +383,149 @@ describe('the words', () => {
     for (const said of ['what did I commit yesterday', 'commit this to memory', 'push the button', 'pull up the weather', 'push notifications are off']) {
       expect(commitCommand(said), said).toBe(null);
     }
+  });
+});
+
+// User, 2026-11-04: see the changes from the card, then the code, then fix a line from the phone.
+describe('looking at the changes from the card', () => {
+  const waiting = async (dir) => {
+    const s = setup(dir, { hold: true });
+    await s.tool('code_commit');
+    return { s, id: s.asked[0].changes.id };
+  };
+  const edited = () => {
+    const { dir } = repo();
+    write(dir, 'app.js', 'one\ntwo\nthree\n');
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-q', '-m', 'app');
+    git(dir, 'push', '-q', 'origin', 'main');
+    write(dir, 'app.js', 'one\nTWO\nthree\nfour\n');
+    return dir;
+  };
+
+  it('the card lists each file with its added and removed lines', async () => {
+    const dir = edited();
+    write(dir, 'new.js', 'a\nb\n');
+    const { s } = await waiting(dir);
+    expect(s.asked[0].changes.message).toBe('Add the login page');
+    expect(s.asked[0].changes.files).toEqual([{ file: 'app.js', added: 2, removed: 1 }, { file: 'new.js', isNew: true }]);
+  });
+
+  it('a file shows its changed lines with a little around them', async () => {
+    const { s, id } = await waiting(edited());
+    const v = await s.view(id, 'app.js');
+    expect(v.lines.filter((l) => l.type === 'del').map((l) => l.text)).toEqual(['two']);
+    expect(v.lines.filter((l) => l.type === 'add').map((l) => l.text)).toEqual(['TWO', 'four']);
+    expect(v.lines.some((l) => l.type === 'ctx' && l.text === 'one')).toBe(true);
+  });
+
+  it('a new file is all added', async () => {
+    const { dir } = repo();
+    write(dir, 'new.js', 'a\nb\n');
+    const { s, id } = await waiting(dir);
+    expect((await s.view(id, 'new.js')).lines).toEqual([{ type: 'add', text: 'a' }, { type: 'add', text: 'b' }]);
+  });
+
+  it('very long changes stop at 300 lines and say so', async () => {
+    const { dir } = repo();
+    write(dir, 'big.js', Array.from({ length: 400 }, (_, i) => `line ${i}`).join('\n'));
+    const { s, id } = await waiting(dir);
+    const v = await s.view(id, 'big.js');
+    expect(v.lines.length).toBe(300);
+    expect(v.cut).toBe(true);
+  });
+
+  it('pictures just say so', async () => {
+    const { dir } = repo();
+    fs.writeFileSync(path.join(dir, 'logo.png'), Buffer.from([0x89, 0x50, 0, 1, 2, 0, 3]));
+    const { s, id } = await waiting(dir);
+    expect(await s.view(id, 'logo.png')).toEqual({ file: 'logo.png', binary: true });
+    expect(await s.view(id, 'logo.png', { whole: true })).toEqual({ file: 'logo.png', binary: true });
+  });
+
+  it('the whole file marks what changed and can be edited', async () => {
+    const dir = edited();
+    const { s, id } = await waiting(dir);
+    const v = await s.view(id, 'app.js', { whole: true });
+    expect(v.text).toBe('one\nTWO\nthree\nfour\n');
+    expect(v.changed).toEqual([2, 4]);
+    expect(v.editId).toBe('edit-1');
+    expect(s.offered[0]).toMatchObject({ root: dir, file: 'app.js', start: 1 });
+  });
+
+  it('only files on the card: private ones and anything else are refused', async () => {
+    const dir = edited();
+    write(dir, '.env', 'KEY=1\n');
+    const { s, id } = await waiting(dir);
+    for (const file of ['.env', 'README.md', '../secret.txt']) expect(await s.view(id, file), file).toEqual({ error: "That file isn't on the card." });
+    expect(await s.view('nope', 'app.js')).toEqual({ error: "That file isn't on the card." });
+    expect(s.asked[0].detail).not.toContain('KEY=1');
+  });
+
+  it('an edit made through the card refreshes it, and the yes then commits it', async () => {
+    const dir = edited();
+    const { s, id } = await waiting(dir);
+    write(dir, 'app.js', 'one\nTWO\nthree\nfour\nfive\n');
+    await s.edited(dir, 'app.js');
+    expect(s.updates[0].id).toBe(id);
+    expect(s.updates[0].changes.files).toEqual([{ file: 'app.js', added: 3, removed: 1 }]);
+    s.answer({ allow: true });
+    await s.settled();
+    expect(fs.readFileSync(path.join(dir, 'app.js'), 'utf8')).toContain('five');
+    expect(git(dir, 'log', '-1', '--format=%s')).toBe('Add the login page');
+  });
+
+  it('an edit does not bless another file that changed meanwhile', async () => {
+    const dir = edited();
+    write(dir, 'other.js', 'a\n');
+    const { s } = await waiting(dir);
+    write(dir, 'other.js', 'changed by someone else\n');
+    write(dir, 'app.js', 'mine\n');
+    await s.edited(dir, 'app.js');
+    s.answer({ allow: true });
+    await s.settled();
+    expect(s.said.at(-1)).toMatch(/changed after the card/);
+    expect(git(dir, 'log', '-1', '--format=%s')).toBe('app');
+  });
+
+  it('an edit that puts a file back takes it off the card', async () => {
+    const dir = edited();
+    write(dir, 'other.js', 'a\n');
+    const { s } = await waiting(dir);
+    write(dir, 'app.js', 'one\ntwo\nthree\n');
+    await s.edited(dir, 'app.js');
+    expect(s.updates[0].changes.files).toEqual([{ file: 'other.js', isNew: true }]);
+    expect(s.updates[0].title).toBe('Commit and push 1 file in Shop?');
+    s.answer({ allow: true });
+    await s.settled();
+    expect(git(dir, 'log', '-1', '--name-only', '--format=')).toBe('other.js');
+  });
+
+  it('putting the only file back leaves nothing to send', async () => {
+    const dir = edited();
+    const { s } = await waiting(dir);
+    write(dir, 'app.js', 'one\ntwo\nthree\n');
+    await s.edited(dir, 'app.js');
+    s.answer({ allow: true });
+    await s.settled();
+    expect(s.said.at(-1)).toBe('Nothing new to commit in Shop.');
+  });
+
+  it('an edit is only taken while the card waits', async () => {
+    const dir = edited();
+    const { s, id } = await waiting(dir);
+    expect(s.canEdit(id, 'app.js')).toBe(true);
+    expect(s.canEdit(id, 'README.md')).toBe(false);
+    expect(s.canEdit('nope', 'app.js')).toBe(false);
+    s.answer({ allow: true });
+    await s.settled();
+    expect(s.canEdit(id, 'app.js')).toBe(false);
+  });
+
+  it('a file off the card is not refreshed', async () => {
+    const dir = edited();
+    const { s } = await waiting(dir);
+    await s.edited(dir, 'README.md');
+    expect(s.updates).toEqual([]);
   });
 });

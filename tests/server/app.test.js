@@ -1302,6 +1302,18 @@ describe('card answers heard by the phone app', () => {
     expect(heard).toEqual([]);
   });
 
+  it('a waiting card that changes reaches every screen', async () => {
+    const { approvals, c } = await setup();
+    approvals.decide({ title: 'Commit 2 files?', tier: 'medium', source: 'commit', changes: { id: 'v1', files: [] }, timeoutMs: 60_000 }).catch(() => {});
+    const added = await c.waitFor((m) => m.type === 'approval_added');
+    expect(added.approval.changes.id).toBe('v1');
+    approvals.update(added.approval.id, { title: 'Commit 1 file?', changes: { id: 'v1', files: [{ file: 'a.js' }] } });
+    const updated = await c.waitFor((m) => m.type === 'approval_updated');
+    expect(updated.approval.title).toBe('Commit 1 file?');
+    expect(updated.approval.changes.files).toEqual([{ file: 'a.js' }]);
+    c.ws.close();
+  });
+
   it('passes a clear answer on as a request, and drops anything else', async () => {
     const { approvals, heard, c } = await setup();
     approvals.decide({ title: 'Start the site?', tier: 'medium', source: 'novi', timeoutMs: 60_000 }).catch(() => {});

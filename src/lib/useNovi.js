@@ -42,6 +42,7 @@ export function useNovi({ onSpeak }) {
         case 'quiet': setState((s) => ({ ...s, quiet: { on: msg.on, until: msg.until } })); break;
         case 'code_saved': setState((s) => ({ ...s, codeSaved: { ...(s.codeSaved || {}), [msg.id]: { ok: msg.ok, changed: msg.changed, error: msg.error, at: Date.now() } } })); break;
         case 'approval_added': setState((s) => ({ ...s, approvals: [...s.approvals.filter((a) => a.id !== msg.approval.id), msg.approval] })); break;
+        case 'approval_updated': setState((s) => ({ ...s, approvals: s.approvals.map((a) => (a.id === msg.approval.id ? { ...msg.approval, need: a.need } : a)) })); break;
         case 'approval_needs_proof': setState((s) => ({ ...s, approvals: s.approvals.map((a) => (a.id === msg.id ? { ...a, need: msg.need } : a)) })); break;
         case 'approval_resolved': {
           // The card goes; a short status ("Approved", "Change sent") shows for a moment (2026-10-28).

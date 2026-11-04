@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { foldDetail } from '../lib/approvalText.js';
 import { MessageCircleQuestion, ShieldAlert, ShieldQuestion } from 'lucide-react';
 import PinCapture from './PinCapture.jsx';
+import ChangeList from './ChangeList.jsx';
 import { confirmWithPasskey } from '../lib/passkey.js';
 
 // Shown on a phone when an allow needs more proof (server/remoteTrust.js).
@@ -61,7 +62,7 @@ function ApprovalCard({ a, onAnswer, api }) {
             {a.tier === 'high' ? <ShieldAlert size={18} /> : <ShieldQuestion size={18} />}
             <span>{a.title}</span>
           </div>
-          {a.detail && (foldDetail(a.detail)
+          {a.changes ? <ChangeList changes={a.changes} api={api} /> : a.detail && (foldDetail(a.detail)
             ? <details className="detail"><summary>{/'s plan for /.test(a.title || '') ? 'Show the full plan' : a.source === 'claude' ? 'Show the command' : a.source === 'orchestrator' ? 'Show the full brief' : 'Show details'}</summary><pre>{a.detail}</pre></details>
             : <p className="detail">{a.detail}</p>)}
           {a.tier === 'high' && <p className="warn">High risk — this needs your explicit confirmation.</p>}

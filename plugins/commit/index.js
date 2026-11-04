@@ -5,7 +5,8 @@ import path from 'node:path';
 import { definePluginEntry } from '#plugin-sdk';
 import { runShell } from '../changes/index.js';
 import { testCommand } from '../changes/tests.js';
-import { isPrivateFile, fileWithKey, parseStatus, parseNames, plural, namesMessage, cleanMessage, changedMessage } from './work.js';
+import { parseNumstat } from '../changes/changes.js';
+import { isPrivateFile, fileWithKey, parseStatus, parseNames, plural, namesMessage, cleanMessage, changedMessage, parseDiff, newFileLines, looksBinary, countOf } from './work.js';
 
 // GitHub from the phone (user, 2026-11-04): one card with the changes and a suggested message; a yes
 // commits under the user's own name and pushes. Offered by itself when a coding task ends with its tests
@@ -14,17 +15,21 @@ const reply = (details) => ({ content: [], details });
 const obj = (properties, required = []) => ({ type: 'object', properties, required });
 const MAX_ROUNDS = 3;
 const MESSAGE_MS = 8000;
+const MAX_EDIT = 90_000; // an edit is saved through Novi's 100 KB request limit
+const CARD_FILES = 50;
 const firstLine = (err) => String(err?.message || err).split('\n').map((l) => l.trim()).find(Boolean)?.slice(0, 160) || 'unknown error';
 
-// The files as the card saw them: same names with new content are not what the user said yes to.
-const fingerprint = (dir, files) => files.map((f) => {
-  try { return `${f}:${crypto.createHash('sha1').update(fs.readFileSync(path.join(dir, f))).digest('hex')}`; } catch { return `${f}:gone`; }
-}).sort().join('\0');
+// A file as the card saw it: same name with new content is not what the user said yes to.
+const printOf = (dir, file) => {
+  try { return crypto.createHash('sha1').update(fs.readFileSync(path.join(dir, file))).digest('hex'); } catch { return 'gone'; }
+};
+const printsOf = (dir, files) => Object.fromEntries(files.map((f) => [f, printOf(dir, f)]));
+const samePlace = (a, b) => path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
 
-function gitRun(args, cwd, { input } = {}) {
+function gitRun(args, cwd, { input, literal = false } = {}) {
   return new Promise((resolve, reject) => {
     // No prompts: a push waiting for a password would hang with nobody at the laptop.
-    const env = { ...process.env, GIT_TERMINAL_PROMPT: '0', ...(input != null ? { GIT_LITERAL_PATHSPECS: '1' } : {}) };
+    const env = { ...process.env, GIT_TERMINAL_PROMPT: '0', ...(input != null || literal ? { GIT_LITERAL_PATHSPECS: '1' } : {}) };
     const child = execFile('git', args, { cwd, env, windowsHide: true, timeout: 90_000, maxBuffer: 32 * 1024 * 1024 }, (err, stdout, stderr) => {
       if (err) reject(new Error(String(stderr || err.message).trim()));
       else resolve(String(stdout));
@@ -41,6 +46,7 @@ export function createCommitPlugin({ git = gitRun, run = runShell, onDone = () =
     register(api) {
       const rt = api.runtime || {};
       const offering = new Set();
+      const live = new Map(); // card view id → { id, p, work, message, note }
       const seen = new Set();
       const say = (text) => rt.say?.(text, { kind: null });
 
@@ -57,7 +63,8 @@ export function createCommitPlugin({ git = gitRun, run = runShell, onDone = () =
         const ahead = remote ? Number((await g(['rev-list', '--count', 'HEAD', '--not', '--remotes=origin'])).trim()) || 0 : 0;
         if (!files.length && !ahead) return { note: `Nothing new to commit in ${p.name}.` };
         const head = (await g(['rev-parse', 'HEAD'])).trim();
-        return { branch, head, files, left, remote, ahead, print: fingerprint(p.path, files) };
+        const rows = parseNumstat(await g(['diff', '--numstat', '--no-renames', 'HEAD']).catch(() => ''));
+        return { branch, head, files, left, remote, ahead, counts: files.map((f) => countOf(f, rows)), prints: printsOf(p.path, files) };
       }
 
       async function suggest(p, files) {
@@ -86,7 +93,7 @@ export function createCommitPlugin({ git = gitRun, run = runShell, onDone = () =
       }
 
       async function send(p, work, message) {
-        const { files, branch, remote } = work;
+        const { files, branch, remote } = work; // read at the yes: an edit from the card may have changed them
         const count = plural(files.length, 'file');
         // Exactly what the card showed, or nothing: same branch, same commit, same files, same content.
         const changed = `The files in ${p.name} changed after the card. Nothing was committed. Say commit my work again.`;
@@ -94,7 +101,8 @@ export function createCommitPlugin({ git = gitRun, run = runShell, onDone = () =
         const nowBranch = (await git(['branch', '--show-current'], p.path)).trim();
         const nowHead = (await git(['rev-parse', 'HEAD'], p.path)).trim();
         const nowFiles = parseStatus(await git(['status', '--porcelain', '-z', '-uall', '--no-renames'], p.path)).filter((f) => !isPrivateFile(f));
-        if (nowBranch !== branch || nowHead !== work.head || !same(nowFiles, files) || fingerprint(p.path, files) !== work.print) return say(changed);
+        if (nowBranch !== branch || nowHead !== work.head || !same(nowFiles, files) || files.some((f) => printOf(p.path, f) !== work.prints[f])) return say(changed);
+        if (!files.length && !work.ahead) return say(`Nothing new to commit in ${p.name}.`);
         if (files.length) {
           const undo = () => git(['reset', '-q'], p.path).catch(() => {});
           try {
@@ -127,33 +135,87 @@ export function createCommitPlugin({ git = gitRun, run = runShell, onDone = () =
         return say(files.length ? `Committed and pushed ${count} in ${p.name}.` : `Pushed ${p.name} to GitHub.`);
       }
 
-      async function card(p, work, startMessage, note) {
-        const { files, left, ahead } = work;
-        let message = startMessage;
+      // What a card says, from where its work stands now.
+      function cardWords(view) {
+        const { p, work, message, note } = view;
+        const { files, left, ahead, counts } = work;
         const what = files.length ? `commit ${plural(files.length, 'file')} and push` : `push ${plural(ahead, 'commit')}`;
-        const title = files.length ? `Commit and push ${plural(files.length, 'file')} in ${p.name}?` : `Push ${plural(ahead, 'commit')} in ${p.name}?`;
+        const lines = [
+          ...(message ? [`Message: ${message}`] : []),
+          ...(note ? [note] : []),
+          ...(files.length ? ['', ...files.slice(0, 30), ...(files.length > 30 ? [`and ${files.length - 30} more`] : [])] : []),
+          ...(left.length ? ['', `Left out: ${left.join(', ')}`] : []),
+        ];
+        return {
+          title: files.length ? `Commit and push ${plural(files.length, 'file')} in ${p.name}?` : `Push ${plural(ahead, 'commit')} in ${p.name}?`,
+          prompt: `${p.name}: ${what}?`,
+          detail: lines.join('\n'),
+          changes: { id: view.id, message: message || '', note: note || '', files: counts.slice(0, CARD_FILES), more: Math.max(0, counts.length - CARD_FILES), left },
+        };
+      }
+
+      async function card(p, work, startMessage, note) {
+        const view = { id: crypto.randomUUID(), p, work, message: startMessage, note };
+        live.set(view.id, view);
         try {
           for (let round = 0; round < MAX_ROUNDS; round++) {
-            const lines = [
-              ...(message ? [`Message: ${message}`] : []),
-              ...(note ? [note] : []),
-              ...(files.length ? ['', ...files.slice(0, 30), ...(files.length > 30 ? [`and ${files.length - 30} more`] : [])] : []),
-              ...(left.length ? ['', `Left out: ${left.join(', ')}`] : []),
-            ];
-            const d = await rt.ask({ title, prompt: `${p.name}: ${what}?`, detail: lines.join('\n'), detailLabel: 'Show the changes', changeable: Boolean(message), source: 'commit', category: 'github', speaksOnDeny: true });
-            if (d?.allow) { await send(p, work, message); return; }
+            const d = await rt.ask({ ...cardWords(view), detailLabel: 'Show the changes', changeable: Boolean(view.message), source: 'commit', category: 'github', speaksOnDeny: true });
+            if (d?.allow) { view.sending = true; await send(p, work, view.message); return; }
             const next = d?.change ? changedMessage(d.change) : null;
             if (!next) { if (!d?.timedOut) say('Okay, not committed.'); return; }
-            message = next;
+            view.message = next;
           }
           say('Okay, not committed.');
         } catch (err) {
           say(`I couldn't finish that in ${p.name}: ${firstLine(err)}`);
         } finally {
+          live.delete(view.id);
           offering.delete(p.path);
           onDone();
         }
       }
+
+      // A file on a waiting card: its changed lines, or the whole code ready to edit. Only files on that card.
+      if (api.runtime) api.runtime.commitView = async (id, file, { whole = false } = {}) => {
+        const view = live.get(id);
+        if (!view?.work.files.includes(file)) return { error: "That file isn't on the card." };
+        const { p, work } = view;
+        let buffer = null;
+        try { buffer = fs.readFileSync(path.join(p.path, file)); } catch { /* deleted */ }
+        if (buffer && looksBinary(buffer)) return { file, binary: true };
+        const isNew = work.counts.find((c) => c.file === file)?.isNew;
+        const text = buffer ? buffer.toString('utf8') : '';
+        const diff = isNew ? newFileLines(text) : parseDiff(await git(['diff', 'HEAD', '-U3', '--no-color', '--no-ext-diff', '--', file], p.path, { literal: true }));
+        if (diff.binary) return { file, binary: true };
+        if (!whole) return { file, lines: diff.lines, ...(diff.cut ? { cut: true } : {}) };
+        if (!buffer) return { file, gone: true };
+        if (text.length > MAX_EDIT) return { file, tooBig: true };
+        const editId = rt.offerCodeEdit?.({ root: p.path, file, start: 1, lines: text.split(/\r?\n/) });
+        return { file, text: text.replace(/\r\n/g, '\n'), changed: diff.changed, editId };
+      };
+
+      // No edits once the card has its answer: the save would land after, or in the middle of, the commit.
+      if (api.runtime) api.runtime.commitCanEdit = (id, file) => { const view = live.get(id); return Boolean(view && !view.sending && view.work.files.includes(file)); };
+
+      // The user saved an edit from the card: it stands for that file only, so a change anyone else made
+      // to another file still stops the commit.
+      if (api.runtime) api.runtime.commitEdited = async (root, file) => {
+        for (const view of live.values()) {
+          const { p, work } = view;
+          if (!samePlace(p.path, root) || !work.files.includes(file)) continue;
+          const still = (await git(['status', '--porcelain', '--', file], p.path, { literal: true })).trim();
+          if (still) {
+            const rows = parseNumstat(await git(['diff', '--numstat', '--no-renames', 'HEAD', '--', file], p.path, { literal: true }).catch(() => ''));
+            work.counts = work.counts.map((c) => (c.file === file ? countOf(file, rows) : c));
+            work.prints[file] = printOf(p.path, file);
+          } else {
+            work.files = work.files.filter((f) => f !== file);
+            work.counts = work.counts.filter((c) => c.file !== file);
+            delete work.prints[file];
+          }
+          rt.updateCard?.(view.id, cardWords(view));
+        }
+      };
 
       async function offer(p, note) {
         if (offering.has(p.path)) return { note: `A commit card for ${p.name} is already waiting.` };

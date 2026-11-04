@@ -49,7 +49,7 @@ export function createCodeEdits({ now = Date.now, ttlMs = 30 * 60_000 } = {}) {
         card.hash = hash(out);
         card.count = replacement.length;
       }
-      return { file: card.file, start: card.start, end: card.start + replacement.length - 1, changed };
+      return { root: card.root, file: card.file, start: card.start, end: card.start + replacement.length - 1, changed };
     },
   };
 }
