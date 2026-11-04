@@ -30,6 +30,20 @@ export function safeRewrite(said, result) {
 // Mostly another script: left alone, the small model turns it into English.
 const notLatin = (text) => (String(text).match(/[^\x00-ɏ\s\p{P}\p{N}]/gu) || []).length > String(text).length * 0.3;
 
+// Edit selected text by voice: what each request asks of the model.
+const EDITS = {
+  shorter: 'Make the user\'s text shorter. Keep the meaning and the same language. Reply with only the new text.',
+  bullets: 'Turn the user\'s text into short bullet points, one per line, each starting with "- ". Keep the same language. Reply with only the bullets.',
+  formal: 'Rewrite the user\'s text in a formal, professional tone. Keep the meaning. Reply with only the new text.',
+  casual: 'Rewrite the user\'s text in a casual, friendly tone. Keep the meaning. Reply with only the new text.',
+  grammar: 'Fix the grammar and spelling in the user\'s text. Change nothing else. Reply with only the corrected text.',
+};
+const editPrompt = (how) => (String(how).startsWith('translate:')
+  ? `Translate the user's text into ${String(how).slice(10)}. Reply with only the translation.`
+  : EDITS[how]);
+const NOTHING = '\u200bnovi-nothing-selected';
+const MAX_EDIT = 1999; // laptop_clipboard read stops at 2000 characters; a cut-off selection must never be pasted back
+
 export function createRewritePlugin({ llama = createLlama({ model: MODEL }) } = {}) {
   return definePluginEntry({
     id: 'rewrite',
@@ -55,6 +69,40 @@ export function createRewritePlugin({ llama = createLlama({ model: MODEL }) } = 
           }
         },
       });
+      // Copy the selection, rewrite it, paste over it, put the old copy back. Anything odd changes nothing.
+      const clip = (args) => api.runtime.callTool('laptop_clipboard', args);
+      api.registerTool({
+        name: 'text_edit_selection',
+        description: 'Rewrite the text selected in the app in front with the AI on the laptop: how = shorter, bullets, formal, casual, grammar or translate:<language>.',
+        parameters: { type: 'object', properties: { how: { type: 'string', description: 'shorter, bullets, formal, casual, grammar or translate:<language>' } }, required: ['how'] },
+        async execute(_id, { how } = {}) {
+          const fail = (error) => ({ content: [], details: { error } });
+          const prompt = editPrompt(how);
+          if (!prompt) return fail("I can't do that to selected text.");
+          const before = (await clip({ do: 'read' })).text;
+          const putBack = () => (before ? clip({ do: 'set', text: before }) : null);
+          await clip({ do: 'set', text: NOTHING });
+          await clip({ do: 'copy' });
+          const seen = await clip({ do: 'read' });
+          const text = seen.text;
+          if (!text) { await putBack(); return fail("That looks like a password, so I won't change it."); }
+          if (text === NOTHING) { await putBack(); return fail('Select the text first, then ask again.'); }
+          if (text.length > MAX_EDIT) { await putBack(); return fail("That's too much text for the offline AI. Select a smaller part."); }
+          let result = '';
+          try { result = String(await llama.ask(prompt, text)).trim().replace(/^["“]+|["”]+$/g, '').trim(); } catch (err) { api.logger?.warn?.(`[rewrite] edit failed: ${err.message}`); }
+          if (!result || CHATTY.test(result) || (how === 'shorter' && result.length >= text.length)) {
+            await putBack();
+            return fail("I couldn't rewrite that, so I left it as it was.");
+          }
+          await clip({ do: 'type', text: result });
+          await putBack();
+          return { content: [], details: { note: 'Rewrote it.' } };
+        },
+      });
+      api.on('before_tool_call', ({ toolName, direct }) => (toolName === 'text_edit_selection' && !direct
+        ? { requireApproval: { title: 'Rewrite the selected text', description: 'It replaces the text you selected.', severity: 'warning', category: 'screen', grantable: false } }
+        : undefined));
+
       api.registerService({ id: 'rewrite-model', start() {}, stop() { llama.stop(); } });
     },
   });

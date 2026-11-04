@@ -19,6 +19,7 @@ import { claudeLinkCommand, linkFolderCommand, projectStatusCommand, projectAbou
 import { changesCommand } from './changesCommand.js';
 import { codemapCommand } from './codemapCommand.js';
 import { diagramCommand } from './diagramCommand.js';
+import { editCommand } from './editCommand.js';
 import { doneCheckCommand } from './doneCheckCommand.js';
 import { isScreenModeStart } from './screenModeCommand.js';
 import { parseApproval } from './approvalIntent.js';
@@ -33,9 +34,9 @@ import fs from 'node:fs';
 // "What went wrong?" (the activity log) and "what's running?" — answered without the AI.
 const WRONG_RE = /^(?:what went wrong|what happened(?: last time| just now| there)?|why didn'?t (?:that|it|this) work|why did (?:that|it) fail|kya (?:galat )?hua(?: tha)?|kya gadbad hui)$/i;
 const RUNNING_RE = /^(?:what(?:'s| is) (?:running|going on|happening)(?: right now)?|what are you (?:doing|working on)(?: right now)?|(?:sab )?kya (?:kya )?chal raha hai|anything running)$/i;
-const DONE_NOTE = /^(?:Typed it|Pressed Enter|Sent|Searched for|Switched to|Minimized|Maximized|Restored)/;
-const STEP_TOOLS = new Set(['open_app', 'open_website', 'screen_type_into', 'screen_enter', 'laptop_window']);
-const DIRECT_OK = new Set(['code_start_task', 'code_send_message', 'rename_project', 'file_new_folder', 'open_project', 'file_open', 'file_rename', 'note_write', 'notes_ask', 'note_open', 'whatsapp_send', 'claude_project_make', 'remember_project', 'codemap_build', 'donecheck_run', 'donecheck_fix', 'claude_activity', 'code_changes', 'code_tests', 'claude_usage']); // whatsapp_send: the user's decision 2026-10-17 — their command is the yes
+const DONE_NOTE = /^(?:Typed it|Pressed Enter|Sent|Searched for|Switched to|Minimized|Maximized|Restored|Rewrote it)/;
+const STEP_TOOLS = new Set(['open_app', 'open_website', 'screen_type_into', 'screen_enter', 'laptop_window', 'text_edit_selection']);
+const DIRECT_OK = new Set(['text_edit_selection', 'code_start_task', 'code_send_message', 'rename_project', 'file_new_folder', 'open_project', 'file_open', 'file_rename', 'note_write', 'notes_ask', 'note_open', 'whatsapp_send', 'claude_project_make', 'remember_project', 'codemap_build', 'donecheck_run', 'donecheck_fix', 'claude_activity', 'code_changes', 'code_tests', 'claude_usage']); // whatsapp_send: the user's decision 2026-10-17 — their command is the yes
 const ASK_ANYWAY = new Set(['file_gather', 'file_undo_move', 'laptop_run', 'preview_show', 'preview_open']); // preview_show/open: only its first start of a project's own command asks
 const MAX_ROUNDS = 10; // screen tasks: open the app, look, click, type, …
 const MAX_HISTORY = 40;
@@ -401,6 +402,12 @@ export class Agent {
       if (!/don't see a text box/i.test(String(typed))) return typed;
       await pause();
       return this._handle(chain.type, { from, phoneApp });
+    }
+    // "Make it shorter" with text selected (plugins/rewrite). While Claude is coding those words are for Claude.
+    const edit = this.tools.get('text_edit_selection') && !this.tasks?.status?.().active ? editCommand(text) : null;
+    if (edit) {
+      const { output } = await this._runTool({ id: `edit-${Date.now()}`, function: { name: edit.tool, arguments: JSON.stringify(edit.args) } }, { direct: true });
+      return this._remember(text, output?.error || output?.note || 'Done.');
     }
     // "Should I open it?" after "switch to X" when X isn't open.
     if (this._openOffer) {

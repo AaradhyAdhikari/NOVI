@@ -3,7 +3,7 @@
   "name": "Offline rewrite",
   "description": "Polishes dictated words with a small AI model on the laptop. Nothing leaves the laptop.",
   "categories": ["other"],
-  "contracts": { "tools": ["text_rewrite"] },
+  "contracts": { "tools": ["text_rewrite", "text_edit_selection"] },
   "activation": { "onStartup": true },
   "configSchema": { "type": "object", "additionalProperties": false }
 }
