@@ -41,6 +41,13 @@
   .buttons { display: flex; gap: 4px; padding-top: 8px; }
   .btn { flex: 1; min-height: 44px; border: 0; border-radius: 4px; background: #d6d7d7; color: #000; font: 500 14px/1 inherit; }
 
+  /* A finished task: small, at the top, so it never covers an approval at the bottom. */
+  .notice { position: absolute; top: 44px; left: 12px; right: 12px; z-index: 2; display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 14px; background: #fff; color: #000; border: 1px solid var(--green); border-radius: 16px; box-shadow: 0 6px 16px rgba(0, 0, 0, .45); }
+  .notice-words { flex: 1; min-width: 0; }
+  .notice-words strong { display: block; font-size: 14px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .notice-words span { display: -webkit-box; color: #444; font-size: 13px; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .notice .btn { flex: none; width: 56px; }
+
   /* Screen off: the card fills the lock screen. */
   .lock { position: absolute; inset: 0; overflow: auto; display: flex; flex-direction: column; justify-content: center; padding: 40px 24px; background: var(--lock); color: #fff; }
   .lock .brand { color: var(--lock-label); font-size: 14px; }
@@ -59,6 +66,24 @@
   <h1>Novi card samples</h1>
   <p class="lead">Sample only, built to match the app's colours and sizes. Fonts and buttons may look a little different on your phone.</p>
   <div class="phones">
+    <figure>
+      <figcaption>Task finished<small>Small card at the top, one OK</small></figcaption>
+      <div class="phone">
+        <div class="punch"></div>
+        <div class="bar"><span>9:52</span><span>5G 68%</span></div>
+        <div class="app">
+          <div class="video">Your video keeps showing here</div>
+          <div class="feed"><i></i><i></i><i></i><i></i><i></i></div>
+        </div>
+        <div class="notice">
+          <div class="notice-words">
+            <strong>Claude finished in NOVI</strong>
+            <span>The voice-clip freezes are fixed, and all 2005 tests pass.</span>
+          </div>
+          <button class="btn">OK</button>
+        </div>
+      </div>
+    </figure>
     <figure>
       <figcaption>Screen on<small>Pop-up over any app</small></figcaption>
       <div class="phone">

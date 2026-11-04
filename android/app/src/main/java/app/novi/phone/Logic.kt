@@ -14,6 +14,21 @@ data class QuestionOption(val label: String, val description: String = "")
 /** Claude's question (AskUserQuestion), whole: the phone shows every option and an "Other" box. */
 data class Question(val text: String, val options: List<QuestionOption>, val multiSelect: Boolean = false)
 
+/** A small card that only says something happened: one OK. */
+data class Notice(val id: String, val title: String, val body: String = "", val repeat: Boolean = false)
+
+private fun noticeFrom(n: JSONObject?): Notice? {
+    val id = n?.optString("id").orEmpty()
+    return if (id.isEmpty()) null else Notice(id, n!!.optString("title"), n.optString("body"), n.optBoolean("repeat"))
+}
+
+fun parseNotice(msg: JSONObject): Notice? = noticeFrom(msg.optJSONObject("notice"))
+
+fun parseNotices(msg: JSONObject): List<Notice> {
+    val list = msg.optJSONArray("notices") ?: return emptyList()
+    return (0 until list.length()).mapNotNull { noticeFrom(list.optJSONObject(it)) }
+}
+
 /** A file on a commit card. added == null: not a text change (a picture). */
 data class ChangedFile(val file: String, val added: Int? = null, val removed: Int? = null, val isNew: Boolean = false)
 

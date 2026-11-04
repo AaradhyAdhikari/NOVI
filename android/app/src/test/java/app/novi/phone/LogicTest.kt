@@ -83,6 +83,13 @@ class LogicTest {
         assertEquals(few, lockChanges(few))
     }
 
+    @Test fun aNoticeArrivesWhole() {
+        val n = parseNotice(JSONObject("""{"notice":{"id":"n1","title":"Claude finished in NOVI","body":"All pass."}}""".trimIndent()))!!
+        assertEquals(Notice("n1", "Claude finished in NOVI", "All pass."), n)
+        assertEquals(null, parseNotice(JSONObject("{}")))
+        assertEquals(true, parseNotice(JSONObject("""{"notice":{"id":"n2","title":"t","repeat":true}}"""))!!.repeat)
+    }
+
     @Test fun zeroCountsAreLeftOut() {
         assertEquals(listOf(CountPart("+5", 1)), countParts(ChangedFile("a.js", 5, 0)))
         assertEquals(listOf(CountPart("−7", -1)), countParts(ChangedFile("a.js", 0, 7)))

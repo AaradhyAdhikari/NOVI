@@ -10,6 +10,7 @@ import Transcript from './components/Transcript.jsx';
 import Composer from './components/Composer.jsx';
 import TaskPanel from './components/TaskPanel.jsx';
 import ApprovalCards from './components/ApprovalCards.jsx';
+import NoticeCards from './components/NoticeCards.jsx';
 import TalkButton from './components/TalkButton.jsx';
 import PairScreen from './components/PairScreen.jsx';
 import PairRequests from './components/PairRequests.jsx';
@@ -102,6 +103,7 @@ export default function App() {
       </main>
       {state.live?.open && <LiveScreen send={novi.send} />}
       {novi.isLocal && <PairRequests requests={state.pairRequests} api={novi.api} />}
+      <NoticeCards notices={state.notices} onOk={(id) => send({ type: 'notice_ok', id })} />
       <ApprovalCards api={novi.api} approvals={state.approvals} resolved={state.resolvedNote} onAnswer={(id, allow, choice, opts = {}) => send({ type: 'approval', id, allow, ...(choice ? { choice } : {}), ...(opts.always ? { always: true } : {}), ...(typeof opts.answer === 'string' ? { answer: opts.answer } : {}), ...(opts.proof || {}) })} />
       <TalkButton onText={sendVoice} api={novi.api} onRecording={(on) => handsFree.current?.enabled && handsFree.current.pause(on)} handsFreeOn={handsFreeOn || serverWake} answerAt={answerAt} />
       <SettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} projects={state.projects} devices={state.devices} accounts={state.accounts} googleConfigured={state.googleConfigured} api={novi.api} isLocal={novi.isLocal} />

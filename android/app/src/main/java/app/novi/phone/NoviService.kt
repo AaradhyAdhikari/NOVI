@@ -37,6 +37,8 @@ import java.util.concurrent.Executors
  * Keeps one WebSocket to Novi on the laptop (over Tailscale) and puts every waiting card on screen,
  * over any app, until it is answered here, on the laptop or anywhere else.
  */
+private const val NOTICE_ID = 5
+
 class NoviService : Service() {
     companion object {
         @Volatile var instance: NoviService? = null
@@ -59,6 +61,9 @@ class NoviService : Service() {
     private val cards = CardList()
     private val announced = HashSet<String>()
     private lateinit var overlay: CardOverlay
+    private lateinit var noticeOverlay: NoticeOverlay
+    private val notices = ArrayList<Notice>()
+    private var noticePosted: String? = null
     private lateinit var bubble: MicBubble
     private var tts: TextToSpeech? = null
     private var lastAsk = 0L
@@ -92,6 +97,7 @@ class NoviService : Service() {
         })
         ServiceCompat.startForeground(this, 1, connNotice("Connecting to Novi…"), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         overlay = CardOverlay(this)
+        noticeOverlay = NoticeOverlay(this)
         bubble = MicBubble(this) { bubbleListen() }
         tts = TextToSpeech(this) { }
         getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(netWatch)
@@ -181,10 +187,24 @@ class NoviService : Service() {
                     backoff.reset()
                     setState("Connected to Novi")
                 }
+                notices.clear()
+                notices.addAll(parseNotices(msg))
+                showNotice()
                 val list = msg.optJSONArray("cards") ?: return
                 cards.replace((0 until list.length()).mapNotNull { list.optJSONObject(it)?.let(::parseCard) })
                 cards.all().reversed().filter { announced.add(it.id) }.forEach(::announce)
                 showTop()
+            }
+            "notice_added" -> parseNotice(msg)?.let { n ->
+                notices.removeAll { it.id == n.id }
+                notices.add(n)
+                announceNotice(n)
+                showNotice()
+            }
+            "notice_gone" -> {
+                val id = msg.optString("id")
+                notices.removeAll { it.id == id }
+                showNotice()
             }
             "approval_added" -> parseCard(msg)?.let { card ->
                 cards.add(card)
@@ -257,11 +277,51 @@ class NoviService : Service() {
     /** The app's Novi page opened (it shows the cards itself) or closed (waiting cards pop up again). */
     fun pageShown(on: Boolean) = main.post {
         if (on) overlay.hide() else showTop()
+        showNotice()
         bubbleUpdate()
     }
 
     /** The mic bubble: while Novi's typing (NoviAccess) is on and the Novi app isn't on screen. */
     fun bubbleUpdate() = main.post { bubble.update(NoviAccess.instance != null && !MainActivity.visible) }
+
+    /** The newest small card, unless the Novi page is on screen (it shows them itself). */
+    private fun showNotice() {
+        val top = notices.lastOrNull()
+        val nm = getSystemService(NotificationManager::class.java)
+        if (top == null) {
+            noticeOverlay.hide()
+            nm.cancel(NOTICE_ID)
+            noticePosted = null
+            return
+        }
+        if (MainActivity.visible || !Settings.canDrawOverlays(this)) noticeOverlay.hide()
+        else noticeOverlay.show(top, notices.size - 1)
+        // A pop-up can't show over the lock screen: a plain notification stands in for it there.
+        if (MainActivity.visible) {
+            nm.cancel(NOTICE_ID)
+            noticePosted = null
+        } else if (noticePosted != top.id) {
+            noticePosted = top.id
+            val open = PendingIntent.getActivity(this, 2, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+            nm.notify(NOTICE_ID, NotificationCompat.Builder(this, "cards").setSmallIcon(R.drawable.ic_novi).setContentTitle(top.title)
+                .setContentText(top.body).setContentIntent(open).setPriority(NotificationCompat.PRIORITY_DEFAULT).setSilent(true).build())
+        }
+    }
+
+    /** One short buzz and the title out loud: nothing to answer, so no mic and no paused video. */
+    private fun announceNotice(n: Notice) {
+        // Never over a card: speaking would cut its read-out, and its listening and paused video with it.
+        if (MainActivity.visible || n.repeat || cards.top() != null || listeningFor != null) return
+        getSystemService(Vibrator::class.java)?.vibrate(VibrationEffect.createOneShot(120, VibrationEffect.DEFAULT_AMPLITUDE))
+        say("${n.title}.")
+    }
+
+    /** OK on a small card: gone here at once, and everywhere else through Novi. */
+    fun noticeOk(id: String) {
+        notices.removeAll { it.id == id }
+        showNotice()
+        socket?.send(JSONObject().put("type", "notice_ok").put("id", id).toString())
+    }
 
     private fun showTop() {
         val top = cards.top()

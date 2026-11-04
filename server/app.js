@@ -63,16 +63,18 @@ import { PairRequests } from './pairRequests.js';
 import { enrollVoice, readClips, createVoiceprintStore } from './voice/speaker/enroll.js';
 import { readWavInt16 } from './voice/wakeword/detector.js';
 import { createVocabulary } from './voice/vocabulary.js';
-import { judgeHeard, cardSlack } from './voice/heardFilter.js';
+import { judgeHeard, voiceSlack } from './voice/heardFilter.js';
 import { hintNames, fixNames } from './voice/techWords.js';
 import { createVoiceLog } from './voice/voiceLog.js';
 import { createWatchWindows } from './claude/watchWindow.js';
 import { createLagMeter } from './lag.js';
+import { createNotices } from './notices.js';
 
 export function createNovi(config, overrides = {}) {
   // Requests running right now (busy → background work waits) and how long Novi's one thread gets blocked.
   let working = 0;
   const lag = overrides.lag || createLagMeter({ logger: console });
+  const notices = createNotices();
   const memory = overrides.memory || new Memory(path.join(config.dataDir, 'memory.json'), { projectsDir: config.projectsDir });
   const accounts = overrides.accounts || new AccountRegistry(path.join(config.dataDir, 'accounts.json'));
   const secrets = new SecretStore({ file: path.join(config.dataDir, 'secrets.json'), cipher: overrides.cipher || defaultCipher(config.dataDir) });
@@ -140,6 +142,11 @@ export function createNovi(config, overrides = {}) {
         say('novi', text, to);
         sendTo(to, { type: 'speak', text: plainText(spoken || text) });
         if (kind) notify(kind, to);
+      },
+      // A small card with one OK ("Claude finished in NOVI"): no chat line. spoken: said where you last were.
+      notice: ({ key, title, body = '', spoken = null }) => {
+        const { repeat } = notices.add({ key, title, body });
+        if (spoken && !repeat) sendTo(active, { type: 'speak', text: plainText(spoken) });
       },
       // One AI answer on the private provider only (Groq) — for plugin summaries of private data.
       privateComplete: async (text) => {
@@ -355,12 +362,12 @@ export function createNovi(config, overrides = {}) {
   // can't be checked (not 16 kHz WAV, too short, no voiceprint, check off) goes through: never deaf.
   const NOT_YOU = "That didn't sound like you.";
   const notYouSaid = new Map(); // device → when NOT_YOU was last said (said once, not on every clip)
-  function voiceVerdict(audio, slack = 0) {
+  async function voiceVerdict(audio, slack = 0) {
     if (!usableVoiceprint()) return null;
     let samples;
     try { samples = readWavInt16(Buffer.from(audio)); } catch { return null; }
     const t0 = Date.now();
-    const { ok, score } = checkVoice(samples.subarray(0, 16000 * 4), slack); // 4 s is plenty to know a voice (~230 ms; 8 s took 527 ms)
+    const { ok, score } = await checkVoice(samples.subarray(0, 16000 * 4), slack); // 4 s is plenty to know a voice (~230 ms; 8 s took 527 ms)
     const ms = Date.now() - t0;
     console.log(`[timing] voice check ${ms} ms (${ok === false ? 'not the owner' : ok ? 'owner' : 'unchecked'})`);
     return { ok, score, ms };
@@ -383,7 +390,7 @@ export function createNovi(config, overrides = {}) {
     const waiting = approvals.pending();
     const early = waiting.length ? stt(audio, mimeType) : null;
     early?.catch(() => {});
-    const verdict = voiceChecked ? null : voiceVerdict(audio, cardSlack(waiting));
+    const verdict = voiceChecked ? null : await voiceVerdict(audio, voiceSlack(waiting, from));
     // Not the owner: only a PIN for a card that waits for one is worth transcribing.
     if (verdict?.ok === false && !agent.wantsPin?.(from)) {
       if (!clip) notYou(from, verdict);
@@ -552,6 +559,7 @@ export function createNovi(config, overrides = {}) {
     approvals: approvals.pending(),
     // The same cards, short (Android app: the ones already waiting when it connects).
     cards: approvals.pending().map(appCard),
+    notices: notices.list(),
     providers: router.status(),
     projects: memory.listProjects(),
     devices: pairing.listDevices(),
@@ -597,6 +605,8 @@ export function createNovi(config, overrides = {}) {
     // The answer counts even while she is still reading (user, 2026-11-04).
     if (listen && deviceKey(active) === 'local') wakeTools?.listen?.({ overSpeech: true, waitMs: readMs + 10000, card: approval.id });
   });
+  notices.on('added', (notice) => broadcast({ type: 'notice_added', notice }));
+  notices.on('gone', ({ id }) => broadcast({ type: 'notice_gone', id }));
   approvals.on('updated', (approval) => broadcast({ type: 'approval_updated', approval, alert: appCard(approval) }));
   // Who answered, and from where: a tapped card left no trace (2026-11-04).
   approvals.on('answered', ({ allow, by, from, title }) => console.log(`[card] ${allow ? 'yes' : 'no'} by ${by} from ${deviceKey(from)}: ${String(title || '').slice(0, 80)}`));
@@ -742,7 +752,7 @@ export function createNovi(config, overrides = {}) {
     if (!isLocal(req)) return res.status(403).json({ error: 'Record these on the laptop (they use its microphone).' });
     if (!wakeTools) return res.status(409).json({ error: 'The laptop wake word is not running.' });
     const { audio, best } = await wakeTools.capture(2500);
-    res.json({ ...wakeSamples.save(audio, best), voiceMatch: checkVoice(audio).score });
+    res.json({ ...wakeSamples.save(audio, best), voiceMatch: (await checkVoice(audio)).score });
   });
 
   // Settings → Words (laptop only: the log holds what you said).
@@ -805,11 +815,14 @@ export function createNovi(config, overrides = {}) {
     return speaker.verifier && saved?.enabled && saved.voiceprint.length === speaker.verifier.dim ? saved : null;
   };
   // ok: true = the owner, false = someone else, null = check off (never makes Novi deaf).
-  function checkVoice(audio, slack = 0) {
+  // embedAsync: the model in its own thread, so a check never holds up Novi (server/index.js).
+  async function checkVoice(audio, slack = 0) {
     const saved = usableVoiceprint();
     if (!saved) return { ok: null, score: null };
+    const { verifier } = speaker;
     try {
-      const score = Math.round(speaker.verifier.score(speaker.verifier.embed(audio), saved.voiceprint) * 1000) / 1000;
+      const vector = await (verifier.embedAsync ? verifier.embedAsync(audio) : verifier.embed(audio));
+      const score = Math.round(verifier.score(vector, saved.voiceprint) * 1000) / 1000;
       return { ok: score >= saved.strictness - slack, score };
     } catch {
       return { ok: null, score: null };
@@ -1208,6 +1221,8 @@ export function createNovi(config, overrides = {}) {
       return cardVoice(msg.id, msg.text, from);
     } else if (msg.type === 'code_save' && typeof msg.id === 'string' && typeof msg.text === 'string') {
       await saveCode(msg.id, msg.text, from);
+    } else if (msg.type === 'notice_ok' && typeof msg.id === 'string') {
+      notices.ok(msg.id);
     } else if (msg.type === 'allow_edits') {
       tasks.setAllowEdits(Boolean(msg.allow));
     } else if (msg.type === 'stop') {

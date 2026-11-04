@@ -39,7 +39,7 @@ export function createClaudeLinkPlugin({ driver = null, listCode = () => listCla
         return token;
       };
       const secret = Buffer.from(hookToken());
-      const claudeHook = createHookHandler({ ask: (card) => rt.ask(card), say: (text) => rt.say?.(text, { kind: 'claude' }) });
+      const claudeHook = createHookHandler({ ask: (card) => rt.ask(card), say: (text) => rt.say?.(text, { kind: 'claude' }), notice: (n) => rt.notice?.({ ...n, spoken: n.body ? `${n.title}: ${n.body}` : `${n.title}.` }) });
       api.registerHttpRoute({
         path: 'claude-hook',
         handler: (body, { headers = {} } = {}) => {

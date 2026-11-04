@@ -1429,3 +1429,31 @@ describe('voice at the laptop', () => {
     expect((await chats({ text: 'skip', voice: true }, { from: { deviceId: 'p' } })).length).toBe(2);
   });
 });
+
+// User, 2026-11-05: a finished task is a small card with one OK, on every screen.
+describe('small cards', () => {
+  it('reach every screen, are in the snapshot, and one OK clears them everywhere', async () => {
+    const env = await start({});
+    const a = connect(env.ws);
+    await a.waitFor((m) => m.type === 'snapshot');
+    env.novi.plugins.runtime.notice({ key: 'claude:NOVI', title: 'Claude finished in NOVI', body: 'All pass.' });
+    const added = await a.waitFor((m) => m.type === 'notice_added');
+    expect(added.notice).toMatchObject({ title: 'Claude finished in NOVI', body: 'All pass.' });
+    const b = connect(env.ws);
+    const snap = await b.waitFor((m) => m.type === 'snapshot');
+    expect(snap.notices.map((n) => n.id)).toEqual([added.notice.id]);
+    b.ws.send(JSON.stringify({ type: 'notice_ok', id: added.notice.id }));
+    expect((await a.waitFor((m) => m.type === 'notice_gone')).id).toBe(added.notice.id);
+    a.ws.close(); b.ws.close();
+  });
+
+  it('are read out, and leave no line in the chat', async () => {
+    const env = await start({});
+    const a = connect(env.ws);
+    await a.waitFor((m) => m.type === 'snapshot');
+    env.novi.plugins.runtime.notice({ key: 'k', title: 'Claude finished in NOVI', body: 'All pass.', spoken: 'Claude finished in NOVI: All pass.' });
+    expect((await a.waitFor((m) => m.type === 'speak')).text).toBe('Claude finished in NOVI: All pass.');
+    expect(env.novi.snapshot().transcript).toEqual([]);
+    a.ws.close();
+  });
+});

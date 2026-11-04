@@ -65,12 +65,12 @@ describe('keepRestarting', () => {
 describe('speakerOptions (only my voice + interrupt wiring)', () => {
   const quietLogger = { log: () => {}, warn: () => {} };
 
-  it('asks Novi whether it is the owner: yes, no, or off', () => {
+  it('asks Novi whether it is the owner: yes, no, or off', async () => {
     const answers = [true, false, null];
     const novi = { checkVoice: () => ({ ok: answers.shift(), score: 0.5 }) };
     const { checkSpeaker } = speakerOptions({ novi, env: {}, logger: quietLogger });
-    expect([checkSpeaker(new Int16Array(1)), checkSpeaker(new Int16Array(1)), checkSpeaker(new Int16Array(1))]).toEqual([true, false, null]);
-    expect(speakerOptions({ novi: {}, env: {}, logger: quietLogger }).checkSpeaker(new Int16Array(1))).toBeNull();
+    expect(await Promise.all([checkSpeaker(new Int16Array(1)), checkSpeaker(new Int16Array(1)), checkSpeaker(new Int16Array(1))])).toEqual([true, false, null]);
+    expect(await speakerOptions({ novi: {}, env: {}, logger: quietLogger }).checkSpeaker(new Int16Array(1))).toBeNull();
   });
 
   it('takes the interrupt level from NOVI_WAKEWORD_INTERRUPT_THRESHOLD, else leaves it to the listener', () => {

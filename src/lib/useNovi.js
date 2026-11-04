@@ -41,6 +41,8 @@ export function useNovi({ onSpeak }) {
         case 'live_frame': case 'live_same': case 'live_note': emitLive(msg); break;
         case 'quiet': setState((s) => ({ ...s, quiet: { on: msg.on, until: msg.until } })); break;
         case 'code_saved': setState((s) => ({ ...s, codeSaved: { ...(s.codeSaved || {}), [msg.id]: { ok: msg.ok, changed: msg.changed, error: msg.error, at: Date.now() } } })); break;
+        case 'notice_added': setState((s) => ({ ...s, notices: [...(s.notices || []).filter((n) => n.id !== msg.notice.id), msg.notice] })); break;
+        case 'notice_gone': setState((s) => ({ ...s, notices: (s.notices || []).filter((n) => n.id !== msg.id) })); break;
         case 'approval_added': setState((s) => ({ ...s, approvals: [...s.approvals.filter((a) => a.id !== msg.approval.id), msg.approval] })); break;
         case 'approval_updated': setState((s) => ({ ...s, approvals: s.approvals.map((a) => (a.id === msg.approval.id ? { ...msg.approval, need: a.need } : a)) })); break;
         case 'approval_needs_proof': setState((s) => ({ ...s, approvals: s.approvals.map((a) => (a.id === msg.id ? { ...a, need: msg.need } : a)) })); break;

@@ -44,7 +44,7 @@ function lastReply(file) {
 // claude-mem's observers run as Claude sessions too; nobody is waiting on them.
 const background = (h) => /claude-mem|observer-sessions/i.test(`${h.cwd || ''} ${h.transcript_path || ''}`);
 
-export function createHookHandler({ ask, say, now = Date.now }) {
+export function createHookHandler({ ask, say, notice, now = Date.now }) {
   const sessions = new Map(); // session_id → { project, state, line, at }
   const note = (h, state, line = '') => sessions.set(h.session_id || h.cwd, { project: projectOf(h.cwd), state, line, at: now() });
 
@@ -97,7 +97,7 @@ export function createHookHandler({ ask, say, now = Date.now }) {
       case 'Stop': {
         const line = firstSentence(lastReply(h.transcript_path));
         note(h, 'finished', line);
-        say(line ? `Claude finished in ${projectOf(h.cwd)}: ${line}` : `Claude finished in ${projectOf(h.cwd)}.`);
+        notice({ key: `claude:${projectOf(h.cwd)}`, title: `Claude finished in ${projectOf(h.cwd)}`, body: line });
         return {};
       }
       case 'UserPromptSubmit':

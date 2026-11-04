@@ -89,15 +89,15 @@ describe('only my voice (speaker check)', () => {
     const env = await start();
     recordClips(env.dataDir);
     env.novi.setSpeakerVerifier({ verifier: fakeVerifier(), status: 'ready' });
-    expect(env.novi.checkVoice(voice(1))).toEqual({ ok: null, score: null }); // not learned yet
+    expect(await env.novi.checkVoice(voice(1))).toEqual({ ok: null, score: null }); // not learned yet
     await json(env.base, '/api/voiceprint/learn', 'POST');
-    const owner = env.novi.checkVoice(voice(1));
+    const owner = await env.novi.checkVoice(voice(1));
     expect(owner.ok).toBe(true);
     expect(owner.score).toBeGreaterThan(0.9);
-    expect(env.novi.checkVoice(voice(9)).ok).toBe(false);
+    expect((await env.novi.checkVoice(voice(9))).ok).toBe(false);
     expect((await json(env.base, '/api/voiceprint', 'PUT', { strictness: 2 })).status).toBe(400);
     expect((await json(env.base, '/api/voiceprint', 'PUT', { enabled: false })).status).toBe(200);
-    expect(env.novi.checkVoice(voice(9))).toEqual({ ok: null, score: null });
+    expect(await env.novi.checkVoice(voice(9))).toEqual({ ok: null, score: null });
   });
 
   it('never goes deaf: a crashing model or a voiceprint from another model counts as "off"', async () => {
@@ -106,9 +106,9 @@ describe('only my voice (speaker check)', () => {
     env.novi.setSpeakerVerifier({ verifier: fakeVerifier(), status: 'ready' });
     await json(env.base, '/api/voiceprint/learn', 'POST');
     env.novi.setSpeakerVerifier({ verifier: fakeVerifier({ broken: true }), status: 'ready' });
-    expect(env.novi.checkVoice(voice(9))).toEqual({ ok: null, score: null });
+    expect(await env.novi.checkVoice(voice(9))).toEqual({ ok: null, score: null });
     env.novi.setSpeakerVerifier({ verifier: fakeVerifier({ dim: 4 }), status: 'ready' });
-    expect(env.novi.checkVoice(voice(9))).toEqual({ ok: null, score: null });
+    expect(await env.novi.checkVoice(voice(9))).toEqual({ ok: null, score: null });
     expect((await (await json(env.base, '/api/health')).json()).speakerCheck).toBe('relearn');
   });
 

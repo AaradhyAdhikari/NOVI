@@ -15,7 +15,7 @@ const KWS_DIR = path.resolve('models/kws');
 // (true / false / null = check off) and silences Novi when the owner interrupts it.
 export function speakerOptions({ novi, env, logger }) {
   return {
-    checkSpeaker: (audio) => (novi.checkVoice ? novi.checkVoice(audio).ok : null),
+    checkSpeaker: async (audio) => (novi.checkVoice ? (await novi.checkVoice(audio)).ok : null),
     interruptThreshold: env.NOVI_WAKEWORD_INTERRUPT_THRESHOLD ? Number(env.NOVI_WAKEWORD_INTERRUPT_THRESHOLD) : null,
     onRejected: ({ score }) => {
       if (env.NOVI_WAKEWORD_DEBUG) logger.log(`[wake] not the owner's voice (wake score ${score.toFixed(2)}), ignored`);

@@ -10,6 +10,8 @@ import { startKeepAwake } from './laptop/keepAwake.js';
 import { checkClaude } from './claude/check.js';
 import { startWakeWordService } from './voice/wakeword/service.js';
 import { loadSpeakerVerifier, speakerModelPath } from './voice/speaker/verifier.js';
+import { createSpeakerWorker } from './voice/speaker/speakerWorker.js';
+import { startFreezeWatch } from './freezeWatch.js';
 import { createLocalSpeaker } from './voice/localSpeaker.js';
 import { rememberOwnProject } from './ownProject.js';
 import { createEdgeTts, DEFAULT_VOICES } from './voice/edgeTts.js';
@@ -47,9 +49,15 @@ const novi = createNovi(config, { lanUrls, localSpeaker, logBuffer, system, tsNa
 // "Only my voice" on every voice path (phone, app, laptop mic), so the speaker model loads here, not with the wake word.
 const speaker = loadSpeakerVerifier({ modelPath: speakerModelPath() }).then((loaded) => {
   if (loaded.status === 'error') console.warn(`⚠  Voice check off: the speaker model failed to load (${loaded.error}).`);
+  if (loaded.verifier) {
+    const thread = createSpeakerWorker({ modelPath: speakerModelPath() });
+    thread.start();
+    loaded.verifier.embedAsync = thread.embed;
+  }
   novi.setSpeakerVerifier(loaded);
   return loaded;
 });
+startFreezeWatch();
 await novi.plugins.loadDirectory(path.resolve('plugins'));
 rememberOwnProject(novi.memory, process.cwd());
 await novi.plugins.startServices({ skip: testCopy ? TEST_SKIP_SERVICES : [] });

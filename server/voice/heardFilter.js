@@ -30,3 +30,11 @@ export function judgeHeard({ text, confidence, followUp = false } = {}) {
 // riskier keeps the full check (and needs its PIN or a tap anyway).
 const CARD_SLACK = 0.08;
 export const cardSlack = (pending = []) => (pending.length && pending.every((a) => a.tier !== 'high' && !a.pin && !a.kind) ? CARD_SLACK : 0);
+
+// The voice was learned on the laptop mic, and a phone sounds different (live: a real clip scored 0.568 against
+// 0.57). A paired phone is already trusted, so its check is a little easier, unless a riskier card waits.
+const PHONE_SLACK = 0.05;
+export const voiceSlack = (pending = [], from = 'local') => {
+  if (pending.some((a) => a.tier === 'high' || a.pin || a.kind)) return 0;
+  return Math.max(cardSlack(pending), from === 'local' ? 0 : PHONE_SLACK);
+};

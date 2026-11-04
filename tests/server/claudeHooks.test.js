@@ -10,9 +10,10 @@ import { createHookHandler } from '../../plugins/claude-link/hooks.js';
 function mk({ answer = { allow: true } } = {}) {
   const asked = [];
   const said = [];
+  const notices = [];
   const ask = async (card) => { asked.push(card); return typeof answer === 'function' ? answer(card) : answer; };
-  const handle = createHookHandler({ ask, say: (text) => said.push(text), now: () => 1000 });
-  return { asked, said, handle };
+  const handle = createHookHandler({ ask, say: (text) => said.push(text), notice: (n) => notices.push(n), now: () => 1000 });
+  return { asked, said, notices, handle };
 }
 const base = { session_id: 's1', cwd: 'C:\\dev\\NOVI', transcript_path: '' };
 
@@ -73,7 +74,9 @@ describe('Claude Code hooks → Novi', () => {
     await h.handle({ ...base, hook_event_name: 'Notification', notification_type: 'permission_prompt', message: 'Claude needs your permission' });
     await h.handle({ ...base, hook_event_name: 'Notification', notification_type: 'idle_prompt', message: 'Claude is waiting for your input' });
     await h.handle({ ...base, transcript_path: transcript, hook_event_name: 'Stop' });
-    expect(h.said).toEqual(['Claude in NOVI is waiting for you.', 'Claude finished in NOVI: All 1700 tests pass.']);
+    expect(h.said).toEqual(['Claude in NOVI is waiting for you.']);
+    // Finished: a small card with one OK, one per project (user, 2026-11-05).
+    expect(h.notices).toEqual([{ key: 'claude:NOVI', title: 'Claude finished in NOVI', body: 'All 1700 tests pass.' }]);
     expect(h.handle.updates()).toBe('NOVI: finished — All 1700 tests pass.');
   });
 
@@ -94,6 +97,7 @@ describe('background sessions stay quiet', () => {
     expect(await h.handle({ ...observer, hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'ls' } })).toEqual({});
     await h.handle({ session_id: 'o2', cwd: 'C:/Users/A/.claude-mem/observer-sessions/3', hook_event_name: 'Stop' });
     expect(h.said).toEqual([]);
+    expect(h.notices).toEqual([]);
     expect(h.asked).toEqual([]);
     expect(h.handle.updates()).toBe('');
   });
