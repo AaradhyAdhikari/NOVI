@@ -17,6 +17,7 @@ import { briefCommand, changeCommand } from './briefCommand.js';
 import { dictationCommand, enterCommand, chainCommand, typeNextCommand, sentenceEnter, nextLineWords } from './dictationCommand.js';
 import { claudeLinkCommand, linkFolderCommand, projectStatusCommand, projectAboutCommand, claudeActivityCommand, claudeUsageCommand } from './claudeLinkCommand.js';
 import { changesCommand } from './changesCommand.js';
+import { commitCommand } from './commitCommand.js';
 import { codemapCommand } from './codemapCommand.js';
 import { diagramCommand } from './diagramCommand.js';
 import { editCommand } from './editCommand.js';
@@ -41,7 +42,7 @@ const STEP_TOOLS = new Set(['open_app', 'open_website', 'screen_type_into', 'scr
 const LAPTOP_QUIET = new Set(['laptop_seek', 'laptop_media', 'laptop_video_mute', 'laptop_select']);
 const QUIET_NOTE = /^(?:Skipped ahead|Went back|Jumped to|Paused|Playing|Next|Previous|Already paused|Muted the video|Unmuted the video|The video is already|Selected)/;
 const SAID_NOT_WRITTEN = /^Copied \d+ lines?\.$/; // nothing to see, so it is said, but not written
-const DIRECT_OK = new Set(['live_screen_open', 'text_edit_selection', 'code_start_task', 'code_send_message', 'rename_project', 'file_new_folder', 'open_project', 'file_open', 'file_rename', 'note_write', 'notes_ask', 'note_open', 'whatsapp_send', 'claude_project_make', 'remember_project', 'codemap_build', 'donecheck_run', 'donecheck_fix', 'claude_activity', 'code_changes', 'code_tests', 'claude_usage']); // whatsapp_send: the user's decision 2026-10-17 — their command is the yes
+const DIRECT_OK = new Set(['live_screen_open', 'text_edit_selection', 'code_start_task', 'code_send_message', 'rename_project', 'file_new_folder', 'open_project', 'file_open', 'file_rename', 'note_write', 'notes_ask', 'note_open', 'whatsapp_send', 'claude_project_make', 'remember_project', 'codemap_build', 'donecheck_run', 'donecheck_fix', 'claude_activity', 'code_changes', 'code_tests', 'code_pull', 'claude_usage']); // whatsapp_send: the user's decision 2026-10-17 — their command is the yes
 const ASK_ANYWAY = new Set(['file_gather', 'file_undo_move', 'laptop_run', 'preview_show', 'preview_open']); // preview_show/open: only its first start of a project's own command asks
 const MAX_ROUNDS = 10; // screen tasks: open the app, look, click, type, …
 const MAX_HISTORY = 40;
@@ -489,6 +490,12 @@ export class Agent {
       const quickReply = await this._quick(quick, from);
       if (quickReply != null) return this._remember(text, quickReply); // '' = the card's asker already answered
     }
+    // "Commit my work" / "pull my code" (plugins/commit), no AI. A commit answers with its card ('').
+    const commit = commitCommand(text);
+    if (commit && this.tools.get(commit.tool)) {
+      const { output } = await this._runTool({ id: `git-${Date.now()}`, function: { name: commit.tool, arguments: JSON.stringify(commit.args) } }, { direct: true });
+      return this._remember(text, output?.error ?? output?.note ?? 'Done.');
+    }
     // "What did Claude change" / "run the tests" (plugins/changes), "show me my Claude usage"
     // (plugins/claude-link), no AI.
     const change = changesCommand(text) || claudeUsageCommand(text);
@@ -761,7 +768,7 @@ export class Agent {
     if (mem && this.tools.get(mem.tool)) return { quick: null, calls: [{ name: mem.tool, args: mem.args }], reply: null, provider: 'direct' };
     const activity = claudeActivityCommand(text);
     if (activity && this.tools.get('claude_activity')) return { quick: null, calls: [{ name: 'claude_activity', args: {} }], reply: null, provider: 'direct' };
-    const change = changesCommand(text) || claudeUsageCommand(text);
+    const change = commitCommand(text) || changesCommand(text) || claudeUsageCommand(text);
     if (change && this.tools.get(change.tool)) return { quick: null, calls: [{ name: change.tool, args: change.args }], reply: null, provider: 'direct' };
     const check = doneCheckCommand(text);
     if (check && this.tools.get(check.tool)) return { quick: null, calls: [{ name: check.tool, args: check.args }], reply: null, provider: 'direct' };

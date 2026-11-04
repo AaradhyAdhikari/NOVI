@@ -17,6 +17,7 @@ export function normalizeVolume(samples, maxGain = 50) {
   return Int16Array.from(samples, (s) => Math.round(s * gain));
 }
 
+const CLIP_OVERLAP = 6; // frames, about half a second
 export function createWakeListener({
   recorder,
   detector,
@@ -66,9 +67,21 @@ export function createWakeListener({
     return audio;
   };
 
+  const overClip = (overSpeech) => ({ frames: [], heard: false, quietMs: 0, elapsedMs: 0, waitMs: overSpeech.until - clock, followUp: true, overSpeech });
+
   async function finish() {
-    const { frames, heard, followUp = false } = command;
+    const { frames, heard, followUp = false, overSpeech } = command;
     command = null;
+    if (overSpeech) {
+      // Clip after clip until the time is up; the last bit is kept in case a word was cut in two.
+      if (clock < overSpeech.until) command = { ...overClip(overSpeech), frames: frames.slice(-CLIP_OVERLAP) };
+      else cooldownUntil = clock + cooldownMs;
+      if (!heard) return command ? undefined : onNoCommand({ followUp });
+      // Novi's voice is in the clip too: hear() checks it, and knows a clip may be nothing but her.
+      // Not awaited: the mic keeps going while this clip is transcribed and handled.
+      onCommand(join(frames), { followUp, overSpeech: true, card: overSpeech.card });
+      return undefined;
+    }
     cooldownUntil = clock + cooldownMs;
     if (!heard) return onNoCommand({ followUp });
     const audio = join(frames);
@@ -99,7 +112,7 @@ export function createWakeListener({
     }
     recent.push(frame);
     if (recent.length > RECENT_FRAMES) recent.shift();
-    if (speaking || clock <= deafUntil) {
+    if ((speaking || clock <= deafUntil) && !command?.overSpeech) {
       // Novi is talking: a strong "Hey Novi" in the owner's voice stops it.
       const best = Math.max(0, ...scores);
       const level = interruptThreshold ?? threshold + 0.15;
@@ -136,7 +149,8 @@ export function createWakeListener({
       command.quietMs += FRAME_MS;
     }
     if (command.heard) command.frames.push(frame);
-    if ((command.heard && command.quietMs >= endSilenceMs) || (!command.heard && command.elapsedMs >= (command.waitMs ?? noSpeechMs)) || command.elapsedMs >= maxCommandMs) await finish();
+    if (command.overSpeech && command.heard && command.frames.length * FRAME_MS >= command.overSpeech.clipMs) await finish();
+    else if ((command.heard && command.quietMs >= endSilenceMs) || (!command.heard && command.elapsedMs >= (command.waitMs ?? noSpeechMs)) || command.elapsedMs >= maxCommandMs) await finish();
   }
 
   return {
@@ -159,9 +173,16 @@ export function createWakeListener({
     },
     // Conversation mode: after Novi answers, listen for the next sentence without the wake word.
     // deafMs: how long Novi will be speaking (so it doesn't answer itself); waitMs: how long to wait.
-    followUp({ deafMs = 0, waitMs = 8000 } = {}) {
+    // overSpeech (a card being read): no deaf time, the mic takes the answer while Novi talks and hands
+    // over a clip every clipMs, because the read-out never leaves a quiet spell to end on.
+    followUp({ deafMs = 0, waitMs = 8000, overSpeech = false, clipMs = 3000, card } = {}) {
+      if (overSpeech) { command = overClip({ until: clock + waitMs, clipMs, card }); return; }
       deafUntil = clock + deafMs;
       command = { frames: [], heard: false, quietMs: 0, elapsedMs: 0, waitMs, followUp: true };
+    },
+    // The card was answered another way.
+    endFollowUp() {
+      if (command?.overSpeech) command = null;
     },
     // Novi started / stopped talking on the laptop. Off leaves a short tail for the room's echo.
     // (After an interrupt Novi already counts as silent: a late "stopped" must not deafen the

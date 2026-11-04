@@ -380,3 +380,58 @@ describe('hold to record', () => {
     expect(got.length).toBe(2 * FRAME);
   });
 });
+
+// User, 2026-11-04: "keep the mic open and let it register my answer even if she is speaking".
+describe('answering while Novi reads a card', () => {
+  async function card(frames, opts, speaking = true) {
+    const ref = {};
+    const events = [];
+    const listener = createWakeListener({
+      recorder: fakeRecorder(frames, ref),
+      detector: fakeDetector(frames),
+      onCommand: (audio, info) => events.push({ ms: (audio.length / FRAME) * 80, ...info }),
+      onNoCommand: () => events.push({ noCommand: true }),
+      checkSpeaker: async () => false, // Novi's voice in the clip: the check is left to hear()
+    });
+    ref.current = listener;
+    listener.setSpeaking(speaking);
+    listener.followUp(opts);
+    await listener.start();
+    return events;
+  }
+
+  it('hears over Novi\'s voice and hands over a short clip without waiting for quiet', async () => {
+    const events = await card(repeat(50, () => f(loud())), { waitMs: 3000, overSpeech: true, clipMs: 1600 });
+    expect(events[0]).toMatchObject({ ms: 1600, followUp: true, overSpeech: true });
+  });
+  it('keeps listening: clip after clip until the time is up, a bit of the last one kept', async () => {
+    const events = await card(repeat(60, () => f(loud())), { waitMs: 4000, overSpeech: true, clipMs: 1600 });
+    expect(events.filter((e) => e.overSpeech).length).toBeGreaterThanOrEqual(2);
+    expect(events[1].ms).toBeGreaterThan(1600 - 80);
+  });
+  it('says which card a clip was recorded for, and never waits for it to be handled', async () => {
+    const frames = repeat(30, () => f(loud()));
+    const ref = {};
+    const got = [];
+    const listener = createWakeListener({ recorder: fakeRecorder(frames, ref), detector: fakeDetector(frames), onCommand: (audio, info) => { got.push(info.card); return new Promise(() => {}); }, onNoCommand: () => {} });
+    ref.current = listener;
+    listener.followUp({ waitMs: 1000, overSpeech: true, clipMs: 800, card: 'c1' });
+    await listener.start(); // a handler that never ends must not stop the mic
+    expect(got[0]).toBe('c1');
+  });
+  it('a normal follow-up still stays deaf while Novi talks', async () => {
+    const events = await card(repeat(30, () => f(loud())), { waitMs: 8000 });
+    expect(events).toEqual([]);
+  });
+  it('the answer came another way: the mic stops listening', async () => {
+    const frames = repeat(50, () => f(loud()));
+    const ref = {};
+    const events = [];
+    const listener = createWakeListener({ recorder: fakeRecorder(frames, ref), detector: fakeDetector(frames), onCommand: () => events.push('clip'), onNoCommand: () => {} });
+    ref.current = listener;
+    listener.followUp({ waitMs: 3000, overSpeech: true, clipMs: 1600 });
+    listener.endFollowUp();
+    await listener.start();
+    expect(events).toEqual([]);
+  });
+});

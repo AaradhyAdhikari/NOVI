@@ -1251,6 +1251,57 @@ describe('card answers heard by the phone app', () => {
     return { approvals, heard, c };
   }
 
+  // Live 2026-11-04: the laptop mic heard the answer plus the phone's read-out, and Claude got all of it.
+  async function overRead(said, opts = {}) {
+    const approvals = new ApprovalQueue();
+    const heard = [];
+    const env = await start({ approvals, transcribe: async () => ({ text: said }), agent: { handle: async (text) => { heard.push(text); return 'ok'; } } });
+    const c = connect(env.ws);
+    await c.waitFor((m) => m.type === 'snapshot');
+    const options = [{ label: 'Blue' }, { label: 'Green' }, { label: 'Red' }];
+    approvals.decide({ title: 'Claude asks: Which colour?', tier: 'medium', source: 'claude', question: { text: 'Which colour?', options, multiSelect: false }, timeoutMs: null }).catch(() => {});
+    const { id } = (await c.waitFor((m) => m.type === 'approval_added')).approval;
+    const out = await env.novi.runVoiceCommand(Buffer.from('RIFF'), { followUp: true, overSpeech: true, card: id, ...opts });
+    c.ws.close();
+    return { out, heard };
+  }
+
+  it('an answer said over the read-out reaches the card without her words', async () => {
+    const { heard } = await overRead('Option 2. Green. 2. Green. 3. Red. Or say other. And your answer.');
+    expect(heard).toEqual(['Option 2. Green.']);
+  });
+
+  it('a clip that is only the read-out answers nothing', async () => {
+    const { out, heard } = await overRead('Two, Green.');
+    expect(out).toBe(null);
+    expect(heard).toEqual([]);
+  });
+
+  it('a clip recorded for a card that is gone answers no other card', async () => {
+    const { heard } = await overRead('Option 2. Green.', { card: 'an-older-card' });
+    expect(heard).toEqual([]);
+  });
+
+  it('with no card waiting, a command that repeats part of the read-out still runs', async () => {
+    const approvals = new ApprovalQueue();
+    const heard = [];
+    const env = await start({ approvals, transcribe: async () => ({ text: 'Which colour is best for a button' }), agent: { handle: async (text) => { heard.push(text); return 'ok'; } } });
+    const c = connect(env.ws);
+    await c.waitFor((m) => m.type === 'snapshot');
+    const card = approvals.decide({ title: 'Which colour is best?', tier: 'medium', source: 'novi', timeoutMs: 60_000 });
+    const id = (await c.waitFor((m) => m.type === 'approval_added')).approval.id;
+    approvals.resolve(id, false, 'test');
+    await card.catch(() => {});
+    await env.novi.runVoiceCommand(Buffer.from('RIFF'));
+    expect(heard).toEqual(['for a button']);
+    c.ws.close();
+  });
+
+  it('words over the read-out that answer nothing are no request either', async () => {
+    const { heard } = await overRead('subscribe to my channel');
+    expect(heard).toEqual([]);
+  });
+
   it('passes a clear answer on as a request, and drops anything else', async () => {
     const { approvals, heard, c } = await setup();
     approvals.decide({ title: 'Start the site?', tier: 'medium', source: 'novi', timeoutMs: 60_000 }).catch(() => {});

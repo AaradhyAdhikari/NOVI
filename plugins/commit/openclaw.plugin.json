@@ -1,0 +1,9 @@
+{
+  "id": "commit",
+  "name": "Commit and push",
+  "description": "One card with the changes and a suggested message; a yes commits under your name and pushes to GitHub.",
+  "categories": ["other"],
+  "contracts": { "tools": ["code_commit", "code_pull"] },
+  "activation": { "onStartup": true },
+  "configSchema": { "type": "object", "additionalProperties": false, "properties": {} }
+}

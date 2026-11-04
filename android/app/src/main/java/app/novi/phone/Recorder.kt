@@ -71,8 +71,9 @@ object Recorder {
                 val chunk = bytes.array()
                 if (!anySound && !isSilent(chunk)) anySound = true
                 val rms = sqrt(sum / n)
-                // While Novi talks, only a clearly louder voice for 0.3 s counts as the user (echo leftovers don't).
-                val level = if (talking) 1500 else 700
+                // While Novi talks, a voice for 0.3 s counts as the user (live 2026-11-04: 1500 missed an answer
+                // said over her; echo cancelling takes most of her out and the server drops what is left).
+                val level = if (talking) 900 else 700
                 if (!spoke) {
                     loud = if (rms > level) loud + 1 else 0
                     before.addLast(chunk)

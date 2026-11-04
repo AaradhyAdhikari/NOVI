@@ -83,3 +83,18 @@ describe('Claude Code hooks → Novi', () => {
     expect(h.asked).toEqual([]);
   });
 });
+
+// Live 2026-11-04: claude-mem's own background sessions said "Claude finished in NOVI: Session Summary…".
+describe('background sessions stay quiet', () => {
+  const observer = { session_id: 'o1', cwd: 'C:/dev/NOVI', transcript_path: 'C:/Users/A/.claude/projects/C--Users-A--claude-mem-observer-sessions/o1.jsonl' };
+  it('a claude-mem observer says nothing and asks nothing', async () => {
+    const h = mk();
+    await h.handle({ ...observer, hook_event_name: 'Stop' });
+    await h.handle({ ...observer, hook_event_name: 'Notification', notification_type: 'idle_prompt' });
+    expect(await h.handle({ ...observer, hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'ls' } })).toEqual({});
+    await h.handle({ session_id: 'o2', cwd: 'C:/Users/A/.claude-mem/observer-sessions/3', hook_event_name: 'Stop' });
+    expect(h.said).toEqual([]);
+    expect(h.asked).toEqual([]);
+    expect(h.handle.updates()).toBe('');
+  });
+});

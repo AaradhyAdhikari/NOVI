@@ -33,6 +33,7 @@ import { createSpeechEngine } from './voice/speechEngine.js';
 import { answerHint, spokenApproval } from './brain/answers.js';
 import { parseApproval } from './brain/approvalIntent.js';
 import { spokenQuestion } from './claude/questions.js';
+import { createReadOuts } from './voice/echo.js';
 import { cardAlert } from './cardAlerts.js';
 import { createPhoneActions } from './phoneActions.js';
 import { createGroqWhisperStt } from './voice/providers/groqWhisper.js';
@@ -372,7 +373,9 @@ export function createNovi(config, overrides = {}) {
   }
   // Speech → text with your fixes applied; logged (with the recording) for Settings → Words.
   // voiceChecked: the wake listener already checked this very clip (a follow-up).
-  async function hear(audio, mimeType, source, { from = 'local', voiceChecked = false } = {}) {
+  // clip: taken while a card is read out. Most of them are only Novi's voice, so a rejected one says
+  // nothing and none is logged.
+  async function hear(audio, mimeType, source, { from = 'local', voiceChecked = false, clip = false } = {}) {
     // A card waits: the words are on their way while the voice is checked, a second off every answer.
     const waiting = approvals.pending();
     const early = waiting.length ? stt(audio, mimeType) : null;
@@ -380,7 +383,7 @@ export function createNovi(config, overrides = {}) {
     const verdict = voiceChecked ? null : voiceVerdict(audio, cardSlack(waiting));
     // Not the owner: only a PIN for a card that waits for one is worth transcribing.
     if (verdict?.ok === false && !agent.wantsPin?.(from)) {
-      notYou(from, verdict);
+      if (!clip) notYou(from, verdict);
       return { text: '', id: null, notYou: true };
     }
     working += 1;
@@ -394,13 +397,13 @@ export function createNovi(config, overrides = {}) {
     // Your word fixes, then near-misses of your project / tech names ("tracebytes" → TraceBites).
     const text = fixNames(vocabulary.apply(heard), projectWords());
     if (verdict?.ok === false && !parseSpokenPin(text)) {
-      notYou(from, verdict);
+      if (!clip) notYou(from, verdict);
       return { text: '', id: null, notYou: true };
     }
     let id = null;
     // A PIN said while a card waits is never kept in the voice log (text or recording).
     const maybePin = approvals.pending().length > 0 && parseSpokenPin(text);
-    if (heard && heard !== '.' && !maybePin) {
+    if (heard && heard !== '.' && !maybePin && !clip) {
       try { id = voiceLog.add({ heard, text, audio, mimeType, source }); } catch (err) { console.warn(`[voice] log failed: ${err.message}`); }
     }
     return { text, id, confidence };
@@ -440,6 +443,7 @@ export function createNovi(config, overrides = {}) {
   let lastSaid = { words: '', at: 0 };
   let lastSilent = false; // the last reply went to the chat only
   let talkedAt = 0; // when the laptop's talk button last sent words
+  const readOuts = createReadOuts();
   let wakeTools = null; // { capture, setThreshold, threshold, setSpeaking } from the wake-word service
   let talking = 0;
   const speakLocal = (text) => {
@@ -456,6 +460,7 @@ export function createNovi(config, overrides = {}) {
   let pageUse = 0;
   const speakingPage = (key) => [...clients].filter((ws) => viewerKey(ws) === key).sort((a, b) => (b.usedAt || 0) - (a.usedAt || 0))[0];
   const broadcast = (msg) => {
+    noteSpoken(msg);
     laptopState.feed(msg);
     if (msg.type === 'speak') {
       const keys = new Set([...clients].map(viewerKey));
@@ -469,7 +474,9 @@ export function createNovi(config, overrides = {}) {
   let active = 'local';
   const deviceKey = (from) => (from === 'local' || !from ? 'local' : from.deviceId);
   const viewerKey = (ws) => ws.deviceId || 'local';
+  const noteSpoken = (msg) => { if (msg.type === 'speak' && msg.text && approvals.pending().length) readOuts.add([msg.text]); };
   const sendTo = (from, msg) => {
+    noteSpoken(msg);
     // Quiet mode: nothing is spoken; lines that were only spoken (show: true) go into the chat.
     if (msg.type === 'speak' && quiet.isOn()) {
       if (msg.show && msg.text) say('novi', msg.text, from);
@@ -580,11 +587,15 @@ export function createNovi(config, overrides = {}) {
     // (its page through `listen`, the laptop mic without "Hey Novi").
     // High-risk cards too: the answer can be the voice PIN (user's choice 2026-10-28).
     const listen = !approval.kind;
+    // Each device reads its own wording; the mic must know both to tell them from the answer.
+    const readMs = readOuts.add([text, appCard(approval).spoken]);
     sendTo(active, { type: 'speak', text, ...(listen ? { listen: true } : {}) });
-    if (listen && deviceKey(active) === 'local') wakeTools?.listen?.({ deafMs: isOpen('local') ? 1500 + 70 * text.length : 0, waitMs: 10000 });
+    // The answer counts even while she is still reading (user, 2026-11-04).
+    if (listen && deviceKey(active) === 'local') wakeTools?.listen?.({ overSpeech: true, waitMs: readMs + 10000, card: approval.id });
   });
   approvals.on('resolved', (r) => {
     broadcast({ type: 'approval_resolved', ...r });
+    if (!approvals.pending().length) { readOuts.done(); wakeTools?.endListen?.(); }
     Promise.resolve(plugins.runtime.laptopNotifyClear?.(r.id)).catch(() => {});
   });
   // A notification's button (a phone's, through /api/card-answer, or the laptop's, through the
@@ -1073,7 +1084,7 @@ export function createNovi(config, overrides = {}) {
   // "change…" / the PIN); never Claude-question free text, never a new request.
   const VOICE_ANSWERS = new Set(['approve', 'deny', 'skip', 'option', 'ambiguous', 'approve_with_note', 'addition', 'change']);
   async function cardVoice(id, said, from) {
-    const text = said.trim().slice(0, 300);
+    const text = readOuts.strip(said.trim().slice(0, 300)).text;
     const card = approvals.pending().find((a) => a.id === id);
     if (!card) return sendTo(from, { type: 'card_voice', id, ok: false, reason: 'gone' });
     // Claude's question: your own words only after "other" ("in other, I want …", "other: …").
@@ -1092,6 +1103,7 @@ export function createNovi(config, overrides = {}) {
     const answer = pin ? text : [text, ...sentences.reverse()].find((s) => VOICE_ANSWERS.has(parseApproval(s, card).intent));
     if (!answer) return sendTo(from, { type: 'card_voice', id, ok: false, reason: 'unclear' });
     sendTo(from, { type: 'card_voice', id, ok: true });
+    stopSpeaking();
     return handleMessage({ type: 'user_message', text: answer }, from);
   }
 
@@ -1220,9 +1232,24 @@ export function createNovi(config, overrides = {}) {
   // A command heard by the always-on laptop microphone (16 kHz WAV).
   // followUp: heard while Novi kept listening after a reply (no "Hey Novi") — noise there is dropped,
   // which also ends the listening (live 2026-10-20: "Aung!" ran a sync and answers chained).
-  async function runVoiceCommand(wav, { followUp = false, voiceChecked = false } = {}) {
-    const { text, id, confidence } = await hear(wav, 'audio/wav', 'wake', { voiceChecked });
-    if (!text || text === '.') return null;
+  async function runVoiceCommand(wav, { followUp = false, voiceChecked = false, overSpeech = false, card: cardId } = {}) {
+    const { text: words, id, confidence } = await hear(wav, 'audio/wav', 'wake', { voiceChecked, clip: overSpeech });
+    if (!words || words === '.') return null;
+    const { text, removed } = readOuts.strip(words);
+    const waiting = approvals.pending();
+    if (removed) console.log("[wake] took Novi's read-out out of what was heard");
+    if (!text) {
+      if (id) voiceLog.setReply(id, "(ignored: Novi's own read-out)");
+      return null;
+    }
+    // Taken over the read-out, or with her words in it: a clear answer to the card or nothing, never a
+    // request, and never free words for Claude.
+    if (overSpeech || (removed && waiting.length)) {
+      // The card this clip was recorded for, never a newer one.
+      const card = overSpeech ? waiting.find((a) => a.id === cardId) : waiting.at(-1);
+      if (card) await cardVoice(card.id, text, 'local');
+      return null;
+    }
     // A PIN said for a waiting card is never "noise" (it is often one word: "4829").
     // While working step by step a command word is judged like one right after "Hey Novi".
     const step = followUp && agent.stepsOn?.() && /^\W*(?:type|enter|send|press|open|search|go|likho)\b/i.test(text);

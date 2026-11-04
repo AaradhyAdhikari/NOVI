@@ -16,7 +16,7 @@ function gitExec(args, cwd) {
 }
 
 // The project's own test command (fixed: "npm test" / "python -m pytest -q"), in its folder, ≤ 5 min.
-function runShell(command, cwd, { timeoutMs = 5 * 60_000 } = {}) {
+export function runShell(command, cwd, { timeoutMs = 5 * 60_000 } = {}) {
   return new Promise((resolve) => {
     const child = spawn(command, { cwd, shell: true, windowsHide: true, env: { ...process.env, FORCE_COLOR: '0', CI: '1' } });
     let output = '';

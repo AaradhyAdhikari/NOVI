@@ -26,7 +26,7 @@ const WORDS = {
   ide: 'cursor vscode antigravity kiro editor ide claude',
   projects: 'project projects folder leave left progress far continue rename app apps repo about',
   // "claude" is in both ide and code: "open X in Claude and do Y" may open it and start a task.
-  code: 'code html css javascript jsx fix bug bugs build implement refactor tests coding coder feature claude back takeover sambhal add bana banao karwa karwao change mode page button',
+  code: 'commit push pull git code html css javascript jsx fix bug bugs build implement refactor tests coding coder feature claude back takeover sambhal add bana banao karwa karwao change mode page button',
   memory: 'remember forget memory memories told yesterday earlier talked said ago',
   // codemap_build / codemap_ask / codemap_show (plugins/codemap: graphify, no AI).
   codemap: 'map graph graphify connect connects connected class function method module architecture structure codebase',

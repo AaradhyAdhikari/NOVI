@@ -105,10 +105,11 @@ export async function startWakeWordService({ novi, env = process.env, logger = c
         logger.log(`[wake] heard the wake word (${score.toFixed(2)})`);
         novi.broadcast({ type: 'wake' });
       },
-      onCommand: async (audio, { followUp } = {}) => {
+      onCommand: async (audio, { followUp, overSpeech, card } = {}) => {
         logger.log(`[wake] ${followUp ? 'follow-up' : 'command'} recorded (${(audio.length / 16000).toFixed(1)} s)`);
         try {
-          const result = await novi.runVoiceCommand(Buffer.from(encodeWav(Float32Array.from(normalizeVolume(audio), (s) => s / 32768), 16000)), { followUp: Boolean(followUp), voiceChecked: Boolean(followUp) }); // the listener checked a follow-up's voice itself
+          const result = await novi.runVoiceCommand(Buffer.from(encodeWav(Float32Array.from(normalizeVolume(audio), (s) => s / 32768), 16000)), { followUp: Boolean(followUp), voiceChecked: Boolean(followUp && !overSpeech), overSpeech: Boolean(overSpeech), card });
+          if (overSpeech) return; // the listener keeps going by itself // the listener checked a follow-up's voice itself
           // Conversation mode: keep listening for the next sentence, no "Hey Novi" needed.
           // Working step by step: dropped noise doesn't end it, the mic stays open for the next step.
           const next = result ? conversationNext(result) : followUp && novi.stepsOn?.() ? { deafMs: 0, waitMs: 20000 } : null;
@@ -142,6 +143,7 @@ export async function startWakeWordService({ novi, env = process.env, logger = c
       setSpeaking: (on) => current?.listener.setSpeaking(on),
       // Novi just asked for a yes / no: hear the answer without "Hey Novi".
       listen: (opts) => { current?.listener.followUp(opts); novi.broadcast({ type: 'wake' }); },
+      endListen: () => current?.listener.endFollowUp(),
       // Dictation keys held / let go: everything in between as 16 kHz WAV (null if under 0.3 s).
       hold: (opts) => { current?.listener.hold(opts); novi.broadcast({ type: 'wake' }); },
       release: () => {

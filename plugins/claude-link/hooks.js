@@ -41,6 +41,9 @@ function lastReply(file) {
   return '';
 }
 
+// claude-mem's observers run as Claude sessions too; nobody is waiting on them.
+const background = (h) => /claude-mem|observer-sessions/i.test(`${h.cwd || ''} ${h.transcript_path || ''}`);
+
 export function createHookHandler({ ask, say, now = Date.now }) {
   const sessions = new Map(); // session_id → { project, state, line, at }
   const note = (h, state, line = '') => sessions.set(h.session_id || h.cwd, { project: projectOf(h.cwd), state, line, at: now() });
@@ -81,7 +84,7 @@ export function createHookHandler({ ask, say, now = Date.now }) {
   }
 
   async function handle(h = {}) {
-    if (h.novi_task) return {};
+    if (h.novi_task || background(h)) return {};
     switch (h.hook_event_name) {
       case 'PermissionRequest': return permission(h);
       case 'PreToolUse': return h.tool_name === 'AskUserQuestion' ? questions(h) : {};
