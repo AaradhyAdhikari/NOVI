@@ -32,3 +32,18 @@ export async function tailscaleCert({ run = (file, args) => defaultRun(file, arg
     return null;
   }
 }
+
+// Novi can start with Windows before Tailscale is up: no certificate then, and a phone gets the self-signed
+// one (the Android app shows a blank page). Keep checking for a while; onFound runs once when it is there.
+export function waitForTailscale({ check, onFound, everyMs = 20_000, tries = 30, setTimer = (fn, ms) => setTimeout(fn, ms).unref() }) {
+  let left = tries;
+  const next = () => {
+    if (left-- <= 0) return;
+    setTimer(async () => {
+      const found = await Promise.resolve().then(check).catch(() => null);
+      if (found) onFound(found);
+      else next();
+    }, everyMs);
+  };
+  next();
+}

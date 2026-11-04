@@ -5,7 +5,7 @@ import path from 'node:path';
 import { loadConfig } from './config.js';
 import { createNovi } from './app.js';
 import { loadOrCreateCert, lanAddresses } from './certs.js';
-import { tailscaleCert } from './tailscale.js';
+import { tailscaleCert, waitForTailscale } from './tailscale.js';
 import { startKeepAwake } from './laptop/keepAwake.js';
 import { checkClaude } from './claude/check.js';
 import { startWakeWordService } from './voice/wakeword/service.js';
@@ -54,6 +54,15 @@ await novi.plugins.loadDirectory(path.resolve('plugins'));
 rememberOwnProject(novi.memory, process.cwd());
 await novi.plugins.startServices({ skip: testCopy ? TEST_SKIP_SERVICES : [] });
 const server = https.createServer(serverTls, novi.app);
+// Tailscale came up after Novi: a clean restart, so the phone address, certificate and passkeys all use it.
+if (!ts && !testCopy) waitForTailscale({
+  check: () => tailscaleCert({ dir: certDir }),
+  onFound: () => {
+    console.log('[tailscale] connected after Novi started; restarting Novi to use it');
+    process.send?.({ type: 'restarting' });
+    setTimeout(() => process.exit(75), 300);
+  },
+});
 // Tailscale certificates last 90 days; `tailscale cert` renews only when needed.
 if (ts) setInterval(async () => {
   const fresh = await tailscaleCert({ dir: certDir });
