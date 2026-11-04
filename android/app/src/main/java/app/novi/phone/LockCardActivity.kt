@@ -72,6 +72,10 @@ class LockCardActivity : Activity() {
             setTypeface(typeface, Typeface.BOLD)
             setPadding(0, dp(8), 0, dp(8))
         })
+        // The files too, like the pop-up. Code stays behind the phone's own lock: a tap unlocks first.
+        card.changes?.let { ch ->
+            col.addView(changeListView(this, lockChanges(ch), dark = true) { file -> unlock { NoviService.instance?.openChanges(ch.id, file) } })
+        }
         status = TextView(this).apply {
             setTextColor(Color.parseColor("#FFA5B4FC"))
             textSize = 16f
@@ -111,9 +115,16 @@ class LockCardActivity : Activity() {
     }
 
     /** Opens the phone (PIN / fingerprint); the pop-up card is there afterwards for the Novi PIN. */
-    private fun unlock() {
+    private fun unlock(then: () -> Unit = {}) {
         getSystemService(KeyguardManager::class.java).requestDismissKeyguard(this, object : KeyguardManager.KeyguardDismissCallback() {
-            override fun onDismissSucceeded() = finish()
+            override fun onDismissSucceeded() {
+                then()
+                finish()
+            }
+
+            override fun onDismissCancelled() {
+                status.text = "Unlock to see the code."
+            }
         })
     }
 

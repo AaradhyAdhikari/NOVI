@@ -42,10 +42,16 @@
   .btn { flex: 1; min-height: 44px; border: 0; border-radius: 4px; background: #d6d7d7; color: #000; font: 500 14px/1 inherit; }
 
   /* Screen off: the card fills the lock screen. */
-  .lock { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; padding: 48px 24px; background: var(--lock); color: #fff; }
+  .lock { position: absolute; inset: 0; overflow: auto; display: flex; flex-direction: column; justify-content: center; padding: 40px 24px; background: var(--lock); color: #fff; }
   .lock .brand { color: var(--lock-label); font-size: 14px; }
-  .lock .title { margin: 8px 0 32px; font-size: 24px; line-height: 1.25; }
-  .lock .btn { flex: none; width: 100%; height: 64px; margin-bottom: 12px; background: #e6e6e6; font-size: 18px; }
+  .lock .title { margin: 8px 0; font-size: 24px; line-height: 1.25; }
+  .lock .message { color: #d1d5db; font-size: 16px; }
+  .lock .files { max-height: none; overflow: visible; }
+  .lock .file { background: #1f2937; color: #fff; }
+  .lock .plus { color: #34d399; }
+  .lock .minus { color: #f87171; }
+  .lock .left { margin: 0 0 24px; color: #9ca3af; }
+  .lock .btn { flex: none; width: 100%; height: 56px; margin-bottom: 10px; background: #e6e6e6; font-size: 18px; }
   .lock .btn.small { height: 56px; margin: 0; font-size: 14px; }
 </style>
 </head>
@@ -85,6 +91,14 @@
         <div class="lock">
           <div class="brand">NOVI</div>
           <div class="title">Commit and push 4 files in novi?</div>
+          <p class="message">Add the file list to the phone pop-up</p>
+          <div class="files">
+            <div class="file"><span class="name">android/.../CardOverlay.kt</span><span class="plus">+58</span><span class="minus">−4</span></div>
+            <div class="file"><span class="name">server/app.js</span><span class="plus">+12</span><span class="minus">−3</span></div>
+            <div class="file"><span class="name">src/lib/changeCounts.js</span><span class="plus">+7</span></div>
+            <div class="file"><span class="name">tools/card-preview/index.html</span><span class="plus">new</span></div>
+          </div>
+          <p class="left">Left out: NOVI CONTEXT.txt</p>
           <button class="btn">Approve</button>
           <button class="btn">Deny</button>
           <button class="btn small">Later</button>

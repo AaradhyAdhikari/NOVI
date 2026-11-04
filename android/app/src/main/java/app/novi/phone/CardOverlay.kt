@@ -190,54 +190,11 @@ class CardOverlay(private val svc: NoviService) {
         contentDescription = c.title
     }
 
-    /** The commit card: the message, then each file with green and red counts. Tap a file to look inside. */
-    private fun changeList(c: Card, ch: Changes): View {
-        val list = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
-        if (ch.message.isNotBlank()) list.addView(TextView(ctx).apply {
-            text = ch.message
-            textSize = 14f
-            setTextColor(Color.DKGRAY)
-            setPadding(0, 0, 0, dp(6))
-        })
-        for (f in ch.files) list.addView(LinearLayout(ctx).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            minimumHeight = dp(40)
-            setPadding(dp(8), dp(4), dp(8), dp(4))
-            background = GradientDrawable().apply {
-                setColor(Color.parseColor("#FFF3F4F8"))
-                cornerRadius = dp(8).toFloat()
-            }
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(3) }
-            setOnClickListener { svc.openChanges(ch.id, f.file) }
-            addView(TextView(ctx).apply {
-                text = f.file
-                textSize = 13f
-                typeface = Typeface.MONOSPACE
-                setTextColor(Color.BLACK)
-                maxLines = 1
-                ellipsize = android.text.TextUtils.TruncateAt.START
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-            })
-            for (part in countParts(f)) addView(TextView(ctx).apply {
-                text = part.text
-                textSize = 13f
-                typeface = Typeface.MONOSPACE
-                setTextColor(Color.parseColor(if (part.tone > 0) "#FF0B8A4B" else if (part.tone < 0) "#FFD32F2F" else "#FF777777"))
-                setPadding(dp(8), 0, 0, 0)
-            })
-        })
-        val extra = listOfNotNull(
-            "and ${ch.more} more".takeIf { ch.more > 0 },
-            "Left out: ${ch.left.joinToString(", ")}".takeIf { ch.left.isNotEmpty() },
-        )
-        if (extra.isNotEmpty()) list.addView(TextView(ctx).apply {
-            text = extra.joinToString("\n")
-            textSize = 12f
-            setTextColor(Color.GRAY)
-        })
-        return MaxScroll(ctx, (svc.resources.displayMetrics.heightPixels * 0.4).toInt()).apply { addView(list) }
-    }
+    /** The commit card's list, scrolling when it is long. */
+    private fun changeList(c: Card, ch: Changes): View =
+        MaxScroll(ctx, (svc.resources.displayMetrics.heightPixels * 0.4).toInt()).apply {
+            addView(changeListView(ctx, ch, dark = false) { svc.openChanges(ch.id, it) })
+        }
 
     private fun full(c: Card): View {
         val outer = LinearLayout(ctx).apply { setPadding(dp(12), 0, dp(12), 0) }

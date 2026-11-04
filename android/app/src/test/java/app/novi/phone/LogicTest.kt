@@ -74,6 +74,15 @@ class LogicTest {
         assertEquals(listOf(CountPart("changed", 0)), countParts(ch.files[2]))
     }
 
+    @Test fun theLockScreenShowsAFewFilesSoItsButtonsStayOnScreen() {
+        val files = (1..8).map { ChangedFile("f$it.js", 1, 0) }
+        val short = lockChanges(Changes("v1", "Msg", files, more = 2))
+        assertEquals(5, short.files.size)
+        assertEquals(5, short.more)
+        val few = Changes("v1", "Msg", files.take(3))
+        assertEquals(few, lockChanges(few))
+    }
+
     @Test fun zeroCountsAreLeftOut() {
         assertEquals(listOf(CountPart("+5", 1)), countParts(ChangedFile("a.js", 5, 0)))
         assertEquals(listOf(CountPart("−7", -1)), countParts(ChangedFile("a.js", 0, 7)))

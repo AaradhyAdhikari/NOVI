@@ -32,6 +32,10 @@ fun countParts(f: ChangedFile): List<CountPart> {
     )
 }
 
+/** The lock screen has no room for a long list: its buttons must stay on screen. */
+fun lockChanges(ch: Changes, keep: Int = 5): Changes =
+    if (ch.files.size <= keep) ch else ch.copy(files = ch.files.take(keep), more = ch.more + ch.files.size - keep)
+
 /** The page that opens one file of a commit card (the page checks it is really on that card). */
 fun changesPage(id: String, file: String): String {
     fun enc(s: String) = java.net.URLEncoder.encode(s, "UTF-8").replace("+", "%20")
