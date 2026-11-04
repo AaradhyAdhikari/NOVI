@@ -38,6 +38,8 @@ import java.util.concurrent.Executors
  * over any app, until it is answered here, on the laptop or anywhere else.
  */
 private const val NOTICE_ID = 5
+const val LOCK_NOTICE_ID = 6
+private const val NOTICE_OK = "app.novi.phone.NOTICE_OK"
 
 class NoviService : Service() {
     companion object {
@@ -105,7 +107,11 @@ class NoviService : Service() {
         bubbleUpdate()
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // OK on the lock-screen notification of a finished task.
+        if (intent?.action == NOTICE_OK) intent.getStringExtra("id")?.let { id -> main.post { noticeOk(id) } }
+        return START_STICKY
+    }
 
     override fun onDestroy() {
         stopped = true
@@ -114,6 +120,7 @@ class NoviService : Service() {
         runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(netWatch) }
         socket?.close(1000, "bye")
         overlay.hide()
+        noticeOverlay.hide()
         bubble.remove()
         tts?.shutdown()
         stateText = "Not running"
@@ -204,6 +211,7 @@ class NoviService : Service() {
             "notice_gone" -> {
                 val id = msg.optString("id")
                 notices.removeAll { it.id == id }
+                LockNoticeActivity.current?.gone(id)
                 showNotice()
             }
             "approval_added" -> parseCard(msg)?.let { card ->
@@ -303,8 +311,11 @@ class NoviService : Service() {
         } else if (noticePosted != top.id) {
             noticePosted = top.id
             val open = PendingIntent.getActivity(this, 2, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+            val ok = PendingIntent.getService(this, 3, Intent(this, NoviService::class.java).setAction(NOTICE_OK).putExtra("id", top.id),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
             nm.notify(NOTICE_ID, NotificationCompat.Builder(this, "cards").setSmallIcon(R.drawable.ic_novi).setContentTitle(top.title)
-                .setContentText(top.body).setContentIntent(open).setPriority(NotificationCompat.PRIORITY_DEFAULT).setSilent(true).build())
+                .setContentText(top.body).setContentIntent(open).addAction(0, "OK", ok)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC).setPriority(NotificationCompat.PRIORITY_HIGH).setSilent(true).build())
         }
     }
 
@@ -312,8 +323,23 @@ class NoviService : Service() {
     private fun announceNotice(n: Notice) {
         // Never over a card: speaking would cut its read-out, and its listening and paused video with it.
         if (MainActivity.visible || n.repeat || cards.top() != null || listeningFor != null) return
+        val pm = getSystemService(PowerManager::class.java)
+        if (!pm.isInteractive || getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked) lockNotice(n)
         getSystemService(Vibrator::class.java)?.vibrate(VibrationEffect.createOneShot(120, VibrationEffect.DEFAULT_AMPLITUDE))
         say("${n.title}.")
+    }
+
+    /** Screen off or locked: the small card opens over the lock screen and lights it up. */
+    private fun lockNotice(n: Notice) {
+        val open = Intent(this, LockNoticeActivity::class.java).putExtra("id", n.id).putExtra("title", n.title).putExtra("body", n.body)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        val pi = PendingIntent.getActivity(this, 4, open, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val nm = getSystemService(NotificationManager::class.java)
+        nm.notify(LOCK_NOTICE_ID, NotificationCompat.Builder(this, "lockcard").setSmallIcon(R.drawable.ic_novi).setContentTitle(n.title)
+            .setContentText(n.body).setPriority(NotificationCompat.PRIORITY_MAX).setCategory(NotificationCompat.CATEGORY_CALL)
+            .setFullScreenIntent(pi, true).setContentIntent(pi).build())
+        // Without the full-screen permission: an app allowed over other apps may open it directly.
+        if (android.os.Build.VERSION.SDK_INT >= 34 && !nm.canUseFullScreenIntent()) runCatching { startActivity(open) }
     }
 
     /** OK on a small card: gone here at once, and everywhere else through Novi. */

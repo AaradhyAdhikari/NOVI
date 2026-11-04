@@ -19,8 +19,8 @@ const firstSentence = (text) => {
 };
 const projectOf = (cwd) => path.basename(String(cwd || '').replace(/[\\/]+$/, '')) || 'a project';
 
-// The last thing Claude said in this session (end of its transcript).
-function lastReply(file) {
+// The end of a session's transcript, newest row first; null when it can't be read.
+function lastRows(file) {
   try {
     const st = fs.statSync(file);
     const fd = fs.openSync(file, 'r');
@@ -28,17 +28,35 @@ function lastReply(file) {
     const buf = Buffer.alloc(size);
     fs.readSync(fd, buf, 0, size, st.size - size);
     fs.closeSync(fd);
-    const lines = buf.toString('utf8').split('\n').reverse();
-    for (const line of lines) {
-      let row;
-      try { row = JSON.parse(line); } catch { continue; }
-      const msg = row?.message;
-      if (row?.type !== 'assistant' || msg?.role !== 'assistant') continue;
-      const text = Array.isArray(msg.content) ? msg.content.filter((c) => c?.type === 'text').map((c) => c.text).join(' ') : String(msg.content || '');
-      if (said(text)) return said(text);
-    }
-  } catch { /* no transcript */ }
+    return buf.toString('utf8').split('\n').reverse().flatMap((line) => {
+      try { return [JSON.parse(line)]; } catch { return []; }
+    });
+  } catch {
+    return null; // no transcript
+  }
+}
+
+// The last thing Claude said in this session.
+function lastReply(rows) {
+  for (const row of rows || []) {
+    const msg = row?.message;
+    if (row?.type !== 'assistant' || msg?.role !== 'assistant') continue;
+    const text = Array.isArray(msg.content) ? msg.content.filter((c) => c?.type === 'text').map((c) => c.text).join(' ') : String(msg.content || '');
+    if (said(text)) return said(text);
+  }
   return '';
+}
+
+// Did Claude change something since the user's last request? A chat reply or a look around isn't a finished job.
+const WORK_TOOLS = new Set(['Edit', 'MultiEdit', 'Write', 'NotebookEdit', 'Bash', 'PowerShell']);
+const isRequest = (row) => row?.type === 'user' && (typeof row.message?.content === 'string' || row.message?.content?.some?.((c) => c?.type === 'text'));
+function didWork(rows) {
+  if (!rows) return true; // can't tell: better a card than a missed finish
+  for (const row of rows) {
+    if (isRequest(row)) return false;
+    if (row?.type === 'assistant' && [].concat(row.message?.content || []).some((c) => c?.type === 'tool_use' && WORK_TOOLS.has(c.name))) return true;
+  }
+  return false;
 }
 
 // claude-mem's observers run as Claude sessions too; nobody is waiting on them.
@@ -95,9 +113,11 @@ export function createHookHandler({ ask, say, notice, now = Date.now }) {
         return {};
       }
       case 'Stop': {
-        const line = firstSentence(lastReply(h.transcript_path));
+        const rows = lastRows(h.transcript_path);
+        const line = firstSentence(lastReply(rows));
         note(h, 'finished', line);
-        notice({ key: `claude:${projectOf(h.cwd)}`, title: `Claude finished in ${projectOf(h.cwd)}`, body: line });
+        // One card for all of Claude: the newest finish takes the place of the last, whichever project.
+        if (didWork(rows)) notice({ key: 'claude', title: `Claude finished in ${projectOf(h.cwd)}`, body: line });
         return {};
       }
       case 'UserPromptSubmit':

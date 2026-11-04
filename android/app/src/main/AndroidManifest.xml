@@ -49,6 +49,15 @@
 
         <!-- The card over the lock screen (opened by a full-screen notification, lights the screen up). -->
         <activity
+            android:name=".LockNoticeActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:showWhenLocked="true"
+            android:taskAffinity=""
+            android:turnScreenOn="true" />
+
+        <activity
             android:name=".LockCardActivity"
             android:excludeFromRecents="true"
             android:exported="false"

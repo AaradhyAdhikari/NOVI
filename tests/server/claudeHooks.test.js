@@ -68,6 +68,8 @@ describe('Claude Code hooks → Novi', () => {
     const transcript = path.join(dir, 't.jsonl');
     fs.writeFileSync(transcript, [
       JSON.stringify({ type: 'user', message: { role: 'user', content: 'do it' } }),
+      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', name: 'Edit', input: {} }] } }),
+      JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', content: 'ok' }] } }),
       JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'All 1700 tests pass. Nothing is committed yet.' }] } }),
     ].join('\n'));
     const h = mk();
@@ -75,8 +77,8 @@ describe('Claude Code hooks → Novi', () => {
     await h.handle({ ...base, hook_event_name: 'Notification', notification_type: 'idle_prompt', message: 'Claude is waiting for your input' });
     await h.handle({ ...base, transcript_path: transcript, hook_event_name: 'Stop' });
     expect(h.said).toEqual(['Claude in NOVI is waiting for you.']);
-    // Finished: a small card with one OK, one per project (user, 2026-11-05).
-    expect(h.notices).toEqual([{ key: 'claude:NOVI', title: 'Claude finished in NOVI', body: 'All 1700 tests pass.' }]);
+    // Finished: one small card with one OK, the newest in place of the last (user, 2026-11-05).
+    expect(h.notices).toEqual([{ key: 'claude', title: 'Claude finished in NOVI', body: 'All 1700 tests pass.' }]);
     expect(h.handle.updates()).toBe('NOVI: finished — All 1700 tests pass.');
   });
 
@@ -100,5 +102,46 @@ describe('background sessions stay quiet', () => {
     expect(h.notices).toEqual([]);
     expect(h.asked).toEqual([]);
     expect(h.handle.updates()).toBe('');
+  });
+});
+
+// User, 2026-11-05: "i dont want it repeatative".
+describe('only real work makes a finished card', () => {
+  const finished = async (rows) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'novi-hooks-'));
+    const transcript_path = path.join(dir, 't.jsonl');
+    fs.writeFileSync(transcript_path, rows.map((r) => JSON.stringify(r)).join('\n'));
+    const h = mk();
+    await h.handle({ ...base, transcript_path, hook_event_name: 'Stop' });
+    return h;
+  };
+  const asked = (text) => ({ type: 'user', message: { role: 'user', content: text } });
+  const replied = (text) => ({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text }] } });
+  const used = (name) => ({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', name, input: {} }] } });
+  const result = { type: 'user', message: { role: 'user', content: [{ type: 'tool_result', content: 'ok' }] } };
+
+  it('a plain answer makes no card, but still counts for "what is the update"', async () => {
+    const h = await finished([asked('what is next?'), replied('Fix the freezes next.')]);
+    expect(h.notices).toEqual([]);
+    expect(h.handle.updates()).toBe('NOVI: finished — Fix the freezes next.');
+  });
+  it('only reading files makes no card', async () => {
+    const h = await finished([asked('look at it'), used('Read'), result, used('Grep'), result, replied('It looks fine.')]);
+    expect(h.notices).toEqual([]);
+  });
+  it('changing files or running commands does', async () => {
+    for (const tool of ['Edit', 'Write', 'Bash', 'PowerShell']) {
+      const h = await finished([asked('fix it'), used(tool), result, replied('Fixed it.')]);
+      expect(h.notices.length, tool).toBe(1);
+    }
+  });
+  it('work from an earlier request does not count for this one', async () => {
+    const h = await finished([asked('fix it'), used('Edit'), result, replied('Fixed it.'), asked('thanks'), replied('You are welcome.')]);
+    expect(h.notices).toEqual([]);
+  });
+  it('no transcript to read: the card still comes, better than missing a finish', async () => {
+    const h = mk();
+    await h.handle({ ...base, transcript_path: 'C:/nope/missing.jsonl', hook_event_name: 'Stop' });
+    expect(h.notices).toEqual([{ key: 'claude', title: 'Claude finished in NOVI', body: '' }]);
   });
 });
