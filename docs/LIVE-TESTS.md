@@ -292,3 +292,10 @@ Enable the Calendar, Tasks, Drive and Sheets APIs in Google Cloud Console, then 
 - Laptop: on a question card say "option two" while she is still reading. It should answer in about 5 s and Claude gets only the option. Say "option two", not a bare "two" or "green": while she reads, words that are only hers are ignored.
 - Phone: install `android\Novi.apk` (2.2.1) and do the same away from the laptop.
 - Known limit: with loud laptop speakers the voice check may not recognise you over her voice. Then say it again after she stops.
+
+## Finished-task card (2026-11-05, app 2.4.2)
+
+- [x] Screen off: the phone lights up with the small card and OK.
+- [ ] Screen on: the small white card at the top, over any app.
+- [ ] A chat reply from Claude makes no card; a job that changes files does.
+- Not built: tasks Novi starts itself still say "Claude finished" in the chat.
