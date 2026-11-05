@@ -73,7 +73,7 @@ export class ApprovalQueue extends EventEmitter {
   // timeoutMs: null = wait as long as it takes.
   // pin: a dangerous laptop command — allowed only with the voice PIN, on every device (remoteTrust).
   // changeable: "change X" is an answer too (the orchestrator's brief card) → { allow: false, change }.
-  decide({ title, detail = '', tier, source, prompt, choices, category, grantable = false, kind, addable = false, changeable = false, changes, tag, question, pin = false, timeoutMs, speaksOnDeny = false }) {
+  decide({ title, detail = '', plan, tier, source, prompt, choices, category, grantable = false, kind, addable = false, changeable = false, changes, tag, question, pin = false, timeoutMs, speaksOnDeny = false }) {
     const canGrant = Boolean(this.grants && grantable && category && tier === 'medium' && !kind && !question && !pin);
     if (canGrant && this.grants.has(category)) {
       this.grants.record({ category, title });
@@ -85,6 +85,7 @@ export class ApprovalQueue extends EventEmitter {
       ...(prompt ? { prompt } : {}), ...(choices?.length ? { choices } : {}), ...(addable ? { addable: true } : {}),
       ...(question ? { question } : {}), ...(pin ? { pin: true } : {}), ...(changeable ? { changeable: true } : {}),
       ...(changes ? { changes } : {}), // files on a commit card (plugins/commit)
+      ...(plan ? { plan } : {}), // Claude's plan in short: name, what you get, real steps (claude/planSummary.js)
       ...(tag ? { tag } : {}), // lets its asker close it (plugins/permission-watch)
       ...(speaksOnDeny ? { speaksOnDeny: true } : {}), // its asker says the "no" line itself: a spoken no adds nothing
       ...(canGrant ? { grant: { category, label: labelFor(category) } } : {}),

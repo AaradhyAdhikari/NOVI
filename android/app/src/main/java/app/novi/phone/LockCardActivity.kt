@@ -76,6 +76,8 @@ class LockCardActivity : Activity() {
         card.changes?.let { ch ->
             col.addView(changeListView(this, lockChanges(ch), dark = true) { file -> unlock { NoviService.instance?.openChanges(ch.id, file) } })
         }
+        // The plan's steps, so it can be judged from here. The whole plan is behind the phone's own lock.
+        card.plan?.let { col.addView(planView(this, it, dark = true)) }
         status = TextView(this).apply {
             setTextColor(Color.parseColor("#FFA5B4FC"))
             textSize = 16f
@@ -98,6 +100,12 @@ class LockCardActivity : Activity() {
                 }
             })
         }
+        if (card.plan != null) buttons.addView(Button(this).apply {
+            text = "Read the whole plan"
+            isAllCaps = false
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56)).apply { bottomMargin = dp(12) }
+            setOnClickListener { unlock { NoviService.instance?.openNovi(card.id) } }
+        })
         buttons.addView(Button(this).apply {
             text = "Later"
             isAllCaps = false
@@ -123,7 +131,7 @@ class LockCardActivity : Activity() {
             }
 
             override fun onDismissCancelled() {
-                status.text = "Unlock to see the code."
+                status.text = "Unlock to see it."
             }
         })
     }

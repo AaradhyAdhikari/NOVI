@@ -148,4 +148,11 @@ class LogicTest {
     @Test fun fingerprintLooksLikeColonHex() {
         assertEquals("01:AB:FF", fingerprintText(byteArrayOf(1, 0xAB.toByte(), 0xFF.toByte())))
     }
+
+    @Test
+    fun planCardKeepsItsRealSteps() {
+        val c = parseCard(JSONObject("""{"alert":{"id":"p1","title":"Claude's plan","plan":{"title":"Split Bill","summary":"Share the bill.","steps":["Add tests","Add styles"],"more":3}}}"""))!!
+        assertEquals("Split Bill", c.plan!!.title)
+        assertEquals(listOf("1. Add tests", "2. Add styles", "and 3 more"), planLines(c.plan!!))
+    }
 }

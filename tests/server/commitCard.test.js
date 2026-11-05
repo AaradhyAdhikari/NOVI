@@ -357,7 +357,7 @@ describe('when Claude finishes a task', () => {
     write(dir, 'package.json', '{"scripts":{"test":"vitest"}}');
     const s = setup(dir, { run: async () => ({ code: 1, output: '' }) });
     finish(s, dir);
-    await new Promise((r) => { setTimeout(r, 500); });
+    for (let i = 0; i < 100 && !s.said.length; i++) await new Promise((r) => { setTimeout(r, 100); });
     expect(s.asked).toEqual([]);
     expect(s.said).toEqual(["Shop's tests failed, so I'm not offering a commit."]);
   });

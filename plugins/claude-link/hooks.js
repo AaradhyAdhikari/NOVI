@@ -1,3 +1,4 @@
+import { planSummary, planLine } from '../../server/claude/planSummary.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { classifyClaudeTool } from '../../server/permissions.js';
@@ -66,13 +67,18 @@ export function createHookHandler({ ask, say, notice, worked = (cwd, card) => no
   const sessions = new Map(); // session_id → { project, state, line, at }
   const note = (h, state, line = '') => sessions.set(h.session_id || h.cwd, { project: projectOf(h.cwd), state, line, at: now() });
 
+  function planCard(project, plan) {
+    const short = planSummary(plan);
+    return { title: `Claude's plan for ${project} is ready`, prompt: planLine('Claude', project, short), detail: plan, plan: short };
+  }
+
   async function permission(h) {
     const project = projectOf(h.cwd);
     const tool = h.tool_name;
     if (tool === 'AskUserQuestion') return {}; // its PreToolUse card already asks
     const input = h.tool_input || {};
     const card = tool === 'ExitPlanMode'
-      ? { title: `Claude's plan for ${project} is ready`, prompt: `Claude's plan for ${project} is ready. Go ahead?`, detail: String(input.plan || '') }
+      ? planCard(project, String(input.plan || ''))
       : claudeAsk(tool, input, input.description || '', `Claude (${project})`);
     const tier = classifyClaudeTool(tool, input, h.cwd) === 'high' ? 'high' : 'medium';
     note(h, 'asking', card.title);

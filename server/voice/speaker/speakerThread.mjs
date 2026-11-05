@@ -4,7 +4,8 @@ import { loadSpeakerVerifier } from './verifier.js';
 
 const loaded = loadSpeakerVerifier({ modelPath: workerData.modelPath });
 
-parentPort.on('message', async ({ id, audio }) => {
+parentPort.on('message', async ({ id, audio, quit }) => {
+  if (quit) return parentPort.close();
   try {
     const { verifier, error } = await loaded;
     if (!verifier) throw new Error(error || 'no speaker model');

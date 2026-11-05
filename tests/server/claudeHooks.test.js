@@ -42,7 +42,8 @@ describe('Claude Code hooks → Novi', () => {
   it('Claude\'s plan is a plan card', async () => {
     const h = mk();
     await h.handle({ ...base, hook_event_name: 'PermissionRequest', tool_name: 'ExitPlanMode', tool_input: { plan: '1. Add the hook\n2. Test it' } });
-    expect(h.asked[0]).toMatchObject({ title: "Claude's plan for NOVI is ready", detail: '1. Add the hook\n2. Test it' });
+    expect(h.asked[0]).toMatchObject({ title: "Claude's plan for NOVI is ready", detail: '1. Add the hook\n2. Test it', prompt: "Claude's plan for NOVI: 2 steps. Go ahead?" });
+    expect(h.asked[0].plan.steps).toEqual(['Add the hook', 'Test it']);
   });
 
   it('a multiple-choice question is answered on Novi and handed back as answers', async () => {

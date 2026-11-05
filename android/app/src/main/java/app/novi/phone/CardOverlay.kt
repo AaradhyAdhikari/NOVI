@@ -240,7 +240,11 @@ class CardOverlay(private val svc: NoviService) {
         changesArea = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
         root.addView(changesArea)
         c.changes?.let { changesArea?.addView(changeList(c, it)) }
-        if (c.body.isNotBlank() && c.question == null && c.changes == null) {
+        c.plan?.let { p ->
+            changesArea?.addView(MaxScroll(ctx, (svc.resources.displayMetrics.heightPixels * 0.4).toInt()).apply { addView(planView(ctx, p, dark = false)) })
+            changesArea?.addView(button("Read the whole plan") { svc.openNovi(c.id) })
+        }
+        if (c.body.isNotBlank() && c.question == null && c.changes == null && c.plan == null) {
             root.addView(TextView(ctx).apply {
                 text = c.body.replace("Tap to open Novi.", "").replace("Tap to answer in Novi.", "").trim()
                 textSize = 14f

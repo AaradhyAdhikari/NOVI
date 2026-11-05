@@ -1,4 +1,5 @@
-import { describe, it, expect } from 'vitest';
+import { EventEmitter } from 'node:events';
+import { vi, describe, it, expect } from 'vitest';
 import { createWorkerRecorder } from '../../server/voice/wakeword/micWorker.js';
 
 // Live 2026-10-22: Novi froze for 97 s. PvRecorder's "async" read() is a blocking native call on Novi's
@@ -35,5 +36,18 @@ describe('mic in a worker thread', () => {
     const first = await r.read();
     expect(first[0]).toBeGreaterThan(1); // the oldest were dropped
     r.release();
+  });
+  it('a mic stuck in a read is never force-ended: that crashes Novi', () => {
+    vi.useFakeTimers();
+    let ended = 0;
+    class Thread extends EventEmitter {
+      unref() {}
+      postMessage() {}
+      terminate() { ended += 1; return Promise.resolve(); }
+    }
+    createWorkerRecorder({ Thread, frameLength: 1, deviceIndex: -1 }).release();
+    vi.advanceTimersByTime(60_000);
+    vi.useRealTimers();
+    expect(ended).toBe(0);
   });
 });

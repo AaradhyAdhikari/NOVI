@@ -278,15 +278,15 @@ export function createNovi(config, overrides = {}) {
       tls: overrides.tls || null,
       dataDir: config.dataDir, logger: console },
   });
-  // A Claude task started by voice (e.g. from a walk): a laptop window follows its progress, and
-  // "I'm back, I'll take over" continues the same conversation in interactive Claude Code.
+  // A Claude task runs in the background with no window (user, 2026-11-05: "i dont want any terminal to
+  // open"): its progress goes to a log file, and only "I'm back, I'll take over" opens Claude Code.
   const watchWindows = overrides.watchWindows || createWatchWindows({ dir: path.join(config.dataDir, 'task-logs'), claudeCommand: config.claudeCommand });
   const watched = new Set();
   tasks.on('task', (st) => {
     if (!st?.active || st.agent !== 'Claude' || !tasks.task || tasks.task.id !== st.id) return;
     if (st.status === 'running' && !watched.has(st.id)) {
       watched.add(st.id);
-      watchWindows.openWatch({ taskId: st.id, project: tasks.task.project, path: tasks.task.path, instruction: tasks.task.instruction });
+      watchWindows.append(st.id, `Claude Code is working on ${tasks.task.project}: ${tasks.task.instruction}`);
     } else if (watched.has(st.id) && (st.status === 'done' || st.status === 'failed')) {
       watchWindows.append(st.id, `${st.status === 'done' ? 'Done' : 'Stopped with an error'}: ${st.summary || ''} Say "I'm back, I'll take over" to continue in Claude Code.`);
     }
@@ -546,6 +546,7 @@ export function createNovi(config, overrides = {}) {
   const appCard = (a) => ({
     ...cardAlert(a),
     ...(a.changes ? { changes: a.changes } : {}), // the commit card's files, for the phone pop-up
+    ...(a.plan ? { plan: a.plan } : {}), // Claude's plan in short, for the phone. Never in a push: that goes through Google.
     // Claude's question: the question and its options are read out; the phone listens meanwhile, so an
     // early answer counts (user, 2026-10-28).
     spoken: a.question ? `${spokenQuestion({ question: a.question.text, options: a.question.options })} Or say other, and your answer.` : spokenApproval(a),

@@ -1,3 +1,4 @@
+import { planSummary, planLine } from './planSummary.js';
 import crypto from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { classifyClaudeTool, EDIT_TOOLS } from '../permissions.js';
@@ -232,12 +233,10 @@ export class TaskManager extends EventEmitter {
   // (edits allowed; "yes, also X" adds X); "change X" → it plans again; no → it stops.
   async _planCard(task, input = {}) {
     const plan = String(input.plan || '').trim();
-    const steps = plan.split('\n').map((l) => /^\s*(?:\d+[.)]|[-*•])\s+(.+)$/.exec(l)?.[1]?.trim()).filter(Boolean);
-    // Said short (user, 2026-10-28: "it read everything — make it short"); the steps are on the card.
-    const said = steps.length ? `${steps.length} step${steps.length === 1 ? '' : 's'}` : 'the plan is on the card';
+    const short = planSummary(plan);
     const name = task.agentName || this.agentName;
     const d = await this.approvals.decide({
-      title: `${name}'s plan for ${task.project}`, detail: plan, prompt: `${name}'s plan for ${task.project} is ready: ${said}. Go ahead?`,
+      title: `${name}'s plan for ${task.project}`, detail: plan, plan: short, prompt: planLine(name, task.project, short),
       tier: 'medium', source: 'claude', changeable: true, addable: true, grantable: false, timeoutMs: 30 * 60_000,
     });
     if (d.allow) {

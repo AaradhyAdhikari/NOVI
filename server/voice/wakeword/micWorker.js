@@ -5,8 +5,8 @@
 // Same shape the listener uses: start, read, stop, release, getSelectedDevice.
 import { Worker } from 'node:worker_threads';
 
-export function createWorkerRecorder({ frameLength, deviceIndex, name = null, stallMs = 5000, maxQueue = 50, workerUrl = new URL('./micThread.mjs', import.meta.url), workerData = {} }) {
-  const worker = new Worker(workerUrl, { workerData: { ...workerData, frameLength, deviceIndex } });
+export function createWorkerRecorder({ Thread = Worker, frameLength, deviceIndex, name = null, stallMs = 5000, maxQueue = 50, workerUrl = new URL('./micThread.mjs', import.meta.url), workerData = {} }) {
+  const worker = new Thread(workerUrl, { workerData: { ...workerData, frameLength, deviceIndex } });
   worker.unref();
   const frames = []; // waiting to be read; the oldest go first when the reader falls behind (≤ ~4 s)
   let waiting = null;
@@ -37,10 +37,10 @@ export function createWorkerRecorder({ frameLength, deviceIndex, name = null, st
     },
     stop() { worker.postMessage('stop'); },
     // The thread frees the mic itself once its read has returned (freeing it mid-read crashes the
-    // process), then ends; one stuck in a read is ended after 3 s without waiting here.
+    // process), then ends. One stuck in a read is left to finish: terminate() inside the native read
+    // crashes all of Novi too (exit 0xC0000409, live 2026-11-05), and a waiting thread costs nothing.
     release() {
       worker.postMessage('release');
-      setTimeout(() => { worker.terminate().catch(() => {}); }, 3000).unref?.();
     },
     getSelectedDevice: () => device,
   };

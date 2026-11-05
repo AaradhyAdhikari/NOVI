@@ -73,6 +73,19 @@ private fun parseChanges(c: JSONObject?): Changes? {
 }
 
 /** A waiting card as the server's cardAlert() builds it, plus the line Novi speaks. */
+/** Claude's plan in short: its name, what you get, the real steps. */
+data class Plan(val title: String, val summary: String, val steps: List<String>, val more: Int = 0)
+
+fun planLines(p: Plan): List<String> =
+    p.steps.mapIndexed { i, s -> "${i + 1}. $s" } + listOfNotNull("and ${p.more} more".takeIf { p.more > 0 })
+
+private fun parsePlan(p: JSONObject?): Plan? {
+    if (p == null) return null
+    val list = p.optJSONArray("steps")
+    val steps = (0 until (list?.length() ?: 0)).map { list!!.optString(it) }.filter { it.isNotBlank() }
+    return Plan(p.optString("title"), p.optString("summary"), steps, p.optInt("more"))
+}
+
 data class Card(
     val id: String,
     val title: String,
@@ -82,6 +95,7 @@ data class Card(
     val spoken: String = "",
     val question: Question? = null,
     val changes: Changes? = null,
+    val plan: Plan? = null,
 )
 
 /** The answer sent for Claude's question: your own words win, else the picked labels (", " like the laptop). */
@@ -133,7 +147,7 @@ fun parseCard(msg: JSONObject): Card? {
         val actions = (0 until (list?.length() ?: 0)).mapNotNull { i ->
             list!!.optJSONObject(i)?.let { CardAction(it.optString("action"), it.optString("title")) }
         }
-        return Card(id, alert.optString("title"), alert.optString("body"), actions, alert.optBoolean("proof"), alert.optString("spoken"), parseQuestion(alert.optJSONObject("question")), parseChanges(alert.optJSONObject("changes")))
+        return Card(id, alert.optString("title"), alert.optString("body"), actions, alert.optBoolean("proof"), alert.optString("spoken"), parseQuestion(alert.optJSONObject("question")), parseChanges(alert.optJSONObject("changes")), parsePlan(alert.optJSONObject("plan")))
     }
     val a = msg.optJSONObject("approval") ?: return null
     val id = a.optString("id")

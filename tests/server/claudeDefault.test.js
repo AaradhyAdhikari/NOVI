@@ -37,7 +37,6 @@ describe('watching a Claude task from the laptop', () => {
     });
     const watchWindows = {
       append: (id, text) => calls.push(['append', id, text]),
-      openWatch: (t) => calls.push(['watch', t.taskId, t.project, t.path, t.instruction]),
       openTakeOver: (h) => calls.push(['takeOver', h.sessionId]),
     };
     const novi = createNovi({ dataDir, providers: [], order: { fast: [], long: [] }, claudeCommand: process.execPath, coder: 'auto' }, {
@@ -47,14 +46,14 @@ describe('watching a Claude task from the laptop', () => {
     return { novi, tasks, calls };
   }
 
-  it('opens one watch window when a Claude task starts and logs its progress there', async () => {
+  it('a Claude task opens no window; its progress goes to the log once', async () => {
     const { tasks, calls } = await wired();
     tasks.emit('task', { active: true, id: 't1', agent: 'Claude', status: 'running', project: 'novi' });
     tasks.emit('task', { active: true, id: 't1', agent: 'Claude', status: 'running', project: 'novi' });
     tasks.emit('feed', { taskId: 't1', text: 'Editing App.jsx' });
     tasks.emit('task', { active: true, id: 't1', agent: 'Claude', status: 'done', project: 'novi', summary: 'Dark mode added.' });
-    expect(calls[0]).toEqual(['watch', 't1', 'novi', 'C:\\novi', 'add dark mode']);
-    expect(calls.filter((c) => c[0] === 'watch')).toHaveLength(1);
+    expect(calls[0]).toEqual(['append', 't1', 'Claude Code is working on novi: add dark mode']);
+    expect(calls.filter((c) => /working on/.test(c[2] || ''))).toHaveLength(1);
     expect(calls).toContainEqual(['append', 't1', 'Editing App.jsx']);
     expect(calls.at(-1)[2]).toMatch(/Done: Dark mode added\..*take over/);
   });

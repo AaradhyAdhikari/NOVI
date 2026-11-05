@@ -132,10 +132,24 @@ describe('one sync', () => {
     expect(fs.existsSync(path.join(s.novi, 'Claude Brain', 'About-Me.md'))).toBe(true);
     expect(fs.existsSync(path.join(s.novi, 'Claude Brain', 'Laptop', 'Shop.md'))).toBe(true);
   });
+  it('both brains hold everything, and neither copy loops into the other', async () => {
+    const s = setup();
+    put(path.join(s.novi, 'Notes', 'Portfolio brief.md'), 'from Novi');
+    put(path.join(s.novi, 'Actions', '2026-11-05.md'), 'did things');
+    await syncOnce(s);
+    await syncOnce(s);
+    expect(fs.readFileSync(path.join(s.brain, 'Novi', 'Notes', 'Portfolio brief.md'), 'utf8')).toBe('from Novi');
+    expect(fs.existsSync(path.join(s.brain, 'Novi', 'Actions', '2026-11-05.md'))).toBe(true);
+    expect(fs.existsSync(path.join(s.brain, 'Novi', 'Claude Brain'))).toBe(false);
+    expect(fs.existsSync(path.join(s.novi, 'Claude Brain', 'Novi'))).toBe(false);
+    expect(fs.existsSync(path.join(s.novi, 'Claude Brain', 'About-Me.md'))).toBe(true);
+  });
   it('writes nothing else in Claude Brain', async () => {
     const s = setup();
     await syncOnce(s);
-    expect(fs.readdirSync(s.brain).sort()).toEqual(['About-Me.md', 'Laptop', 'Sessions']);
+    put(path.join(s.novi, 'Notes', 'A.md'), 'x');
+    await syncOnce(s);
+    expect(fs.readdirSync(s.brain).sort()).toEqual(['About-Me.md', 'Laptop', 'Novi', 'Sessions']);
     expect(fs.readFileSync(path.join(s.brain, 'About-Me.md'), 'utf8')).toBe('me');
   });
   it('background observer sessions make no notes', async () => {

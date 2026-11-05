@@ -109,7 +109,7 @@ describe('code map plugin (graphify, no AI)', () => {
   it('shows the interactive map: a link on the phone (sandboxed page), the browser on the laptop', async () => {
     const phone = setup({ host: 'novi.tail1234.ts.net' });
     const { out } = await phone.tool('codemap_show', { project: 'novi' });
-    expect(phone.links).toEqual([{ url: '/api/download/t?inline&f=graph.html', label: "Novi's code map" }]);
+    expect(phone.links).toEqual([{ url: '/api/download/t?inline&f=graph-phone.html', label: "Novi's code map" }]);
     expect(out.note).toBe("Here's Novi's code map. Tap the link to open it.");
     // Live (2026-10-24): a file:// link through url.dll opened nothing (the ドキュメント folder);
     // the plain path through explorer.exe opens it in the default browser.

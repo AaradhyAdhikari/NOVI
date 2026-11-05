@@ -20,36 +20,21 @@ describe('Claude watch window + take over', () => {
     expect(log).toMatch(/\d\d:\d\d:\d\d {2}Reading App.jsx\n.*Editing App.jsx\n$/);
   });
 
-  it('opens a Windows Terminal window (in the log folder, so the project can be renamed) that follows the log', () => {
-    const { w, runs, dir } = setup();
-    w.openWatch({ taskId: 't1', project: 'novi', path: 'C:\\code\\novi;x', instruction: 'add dark mode' });
-    expect(runs).toHaveLength(1);
-    const { cmd, args } = runs[0];
-    expect(cmd).toBe('wt.exe');
-    expect(args.slice(0, 5)).toEqual(['-w', 'new', '--title', 'Claude · novi', '-d']);
-    expect(args[5]).toBe(dir);
-    expect(args).toContain('powershell.exe');
-    expect(args.at(-1)).toContain(`Get-Content -Wait -Encoding UTF8 -LiteralPath '${path.join(dir, 't1.log')}'`);
-    expect(fs.readFileSync(path.join(dir, 't1.log'), 'utf8')).toMatch(/Claude Code is working on novi: add dark mode/);
-  });
-
   it('take over opens interactive Claude Code on the same conversation', () => {
     const { w, runs } = setup();
     w.openTakeOver({ project: 'novi', path: 'C:\\code\\novi', sessionId: 'abc-123' });
     expect(runs[0].args).toEqual(['-w', 'new', '--title', 'Claude · novi', '-d', 'C:\\code\\novi', 'C:\\Users\\A\\.local\\bin\\claude.exe', '--resume', 'abc-123']);
   });
 
-  it('a project folder that no longer exists: the watch window starts in the log folder, take over says so', () => {
-    const { w, runs, dir } = setup('win32', () => false);
-    w.openWatch({ taskId: 't1', project: 'gone', path: 'C:\\Temp\\gone', instruction: 'x' });
-    expect(runs[0].args.slice(4, 6)).toEqual(['-d', dir]);
+  it('a project folder that no longer exists: take over says so', () => {
+    const { w, runs } = setup('win32', () => false);
     expect(w.openTakeOver({ project: 'gone', path: 'C:\\Temp\\gone', sessionId: 's' })).toBe(false);
-    expect(runs).toHaveLength(1);
+    expect(runs).toHaveLength(0);
   });
 
   it('does nothing outside Windows and never throws if Windows Terminal is missing', () => {
     const off = setup('linux');
-    off.w.openWatch({ taskId: 't', project: 'p', path: '/p', instruction: 'x' });
+    off.w.openTakeOver({ project: 'p', path: '/p', sessionId: 's' });
     expect(off.runs).toEqual([]);
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'novi-watch-'));
     const broken = createWatchWindows({ dir, platform: 'win32', claudeCommand: 'claude', run: () => { throw new Error('ENOENT'); } });

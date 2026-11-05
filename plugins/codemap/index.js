@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process';
 import { definePluginEntry } from '#plugin-sdk';
 import { loadGraph, findNode, explain, explainText, shortestPath, pathText, summary } from './graph.js';
 import { runGraphify, graphifyCommand } from './run.js';
+import { phonePage } from './phonePage.js';
 
 // A code map of each project with graphify (github.com/safishamsi/graphify, Apache-2.0; user,
 // 2026-10-24: "use graphify in novi and for novi"). `graphify update` reads the code without AI;
@@ -140,7 +141,9 @@ export function createCodemapPlugin({ run = null, track = () => {}, openFile = o
             openFile(pageFile(p.path));
             return reply({ note: `Opened ${p.name}'s code map in the browser.` });
           }
-          rt.showLink?.({ url: rt.fileLink(pageFile(p.path), { inline: true }), label: `${p.name}'s code map` });
+          const phoneFile = path.join(p.path, OUT, 'graph-phone.html');
+          fs.writeFileSync(phoneFile, phonePage(fs.readFileSync(pageFile(p.path), 'utf8')));
+          rt.showLink?.({ url: rt.fileLink(phoneFile, { inline: true }), label: `${p.name}'s code map` });
           return reply({ note: `Here's ${p.name}'s code map. Tap the link to open it.` });
         },
       });

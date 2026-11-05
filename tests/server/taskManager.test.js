@@ -277,7 +277,9 @@ describe('plan first', async () => {
     expect(await tm._onPermission(tm.task, { toolName: 'ExitPlanMode', input: { plan: PLAN } })).toEqual({ allow: true });
     expect(cards[0]).toMatchObject({ title: "Claude's plan for portfolio", source: 'claude', changeable: true, addable: true, tier: 'medium' });
     // User (2026-10-28): "it read everything — just make the note short". The steps stay on the card.
-    expect(cards[0].prompt).toBe("Claude's plan for portfolio is ready: 4 steps. Go ahead?");
+    expect(cards[0].prompt).toBe("Claude's plan for portfolio: Blog for portfolio. 4 steps. Go ahead?");
+    expect(cards[0].plan).toMatchObject({ title: 'Blog for portfolio', count: 4 });
+    expect(cards[0].plan.steps[0]).toBe('Add a blog page');
     expect(cards[0].detail).toBe(PLAN);
     expect(tm.task.allowEdits).toBe(true);
   });

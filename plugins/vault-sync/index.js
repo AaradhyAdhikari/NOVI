@@ -3,9 +3,9 @@ import path from 'node:path';
 import { definePluginEntry } from '#plugin-sdk';
 import { syncOnce } from './sync.js';
 
-// Two brains (user, 2026-11-05). Claude Brain holds Claude, its sessions and the laptop; Novi Brain holds all
-// of that plus Novi. Every few minutes this writes session and project notes into Claude Brain's Sessions and
-// Laptop folders, then copies Claude Brain into Novi Brain. The flow is one way: nothing of Novi's goes back.
+// Two brains that both hold everything (user, 2026-11-05), each with its own graph. Every few minutes this
+// writes session and project notes into Claude Brain, copies Novi's notes into its Novi folder, and copies
+// Claude Brain into Novi Brain's Claude Brain folder.
 const EVERY_MS = 5 * 60_000;
 
 export function createVaultSyncPlugin({ everyMs = EVERY_MS } = {}) {

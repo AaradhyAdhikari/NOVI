@@ -30,8 +30,7 @@ async function sessionFiles(dir, now) {
   return out;
 }
 
-// One pass: sessions and projects into Claude Brain (its Sessions and Laptop folders, nothing else), then a
-// copy of all of Claude Brain into Novi Brain. `state` remembers which sessions were read.
+// One pass: sessions and projects into Claude Brain (its Sessions and Laptop folders), then a copy each way. `state` remembers which sessions were read.
 export async function syncOnce({
   sessions = path.join(os.homedir(), '.claude', 'projects'), brain, novi, projects = [], state = {}, read = readSession, now = Date.now, perRun = 40,
 }) {
@@ -50,6 +49,10 @@ export async function syncOnce({
     const note = await projectNote(project).catch(() => null);
     if (note && await write(path.join(brain, 'Laptop', note.rel), note.text)) notes += 1;
   }
-  const copy = await mirror(brain, path.join(novi, 'Claude Brain'));
-  return { notes, ...copy };
+  // Both brains hold everything (user, 2026-11-05): Novi's notes into Claude Brain, Claude Brain into Novi
+  // Brain. Each leaves out the other's copy, or they would keep copying each other.
+  await fs.promises.mkdir(novi, { recursive: true });
+  const back = await mirror(novi, path.join(brain, 'Novi'), { leaveOut: ['Claude Brain'] });
+  const copy = await mirror(brain, path.join(novi, 'Claude Brain'), { leaveOut: ['Novi'] });
+  return { notes, copied: back.copied + copy.copied, removed: back.removed + copy.removed };
 }

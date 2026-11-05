@@ -3,6 +3,18 @@ import { foldDetail } from '../lib/approvalText.js';
 import { MessageCircleQuestion, ShieldAlert, ShieldQuestion } from 'lucide-react';
 import PinCapture from './PinCapture.jsx';
 import ChangeList from './ChangeList.jsx';
+
+// Claude's plan in short, so the card can be judged without opening the whole plan.
+function PlanSteps({ plan }) {
+  return (
+    <div className="plan-steps">
+      {plan.title && <strong>{plan.title}</strong>}
+      {plan.summary && <p>{plan.summary}</p>}
+      <ol>{plan.steps.map((s, i) => <li key={i}>{s}</li>)}</ol>
+      {plan.more > 0 && <p>and {plan.more} more</p>}
+    </div>
+  );
+}
 import { confirmWithPasskey } from '../lib/passkey.js';
 
 // Shown on a phone when an allow needs more proof (server/remoteTrust.js).
@@ -62,6 +74,7 @@ function ApprovalCard({ a, onAnswer, api }) {
             {a.tier === 'high' ? <ShieldAlert size={18} /> : <ShieldQuestion size={18} />}
             <span>{a.title}</span>
           </div>
+          {a.plan && <PlanSteps plan={a.plan} />}
           {a.changes ? <ChangeList changes={a.changes} api={api} /> : a.detail && (foldDetail(a.detail)
             ? <details className="detail"><summary>{/'s plan for /.test(a.title || '') ? 'Show the full plan' : a.source === 'claude' ? 'Show the command' : a.source === 'orchestrator' ? 'Show the full brief' : 'Show details'}</summary><pre>{a.detail}</pre></details>
             : <p className="detail">{a.detail}</p>)}
