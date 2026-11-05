@@ -53,12 +53,12 @@ export function createDriveUploader({ google, stateFile }) {
       write({ lastUpload: { id: file.id, name, at: new Date().toISOString() }, lastError: null });
       return file;
     },
-    async prune(keep = 7) {
+    async prune(keep = 7, prefix = 'novi-data-') {
       const acc = account();
       const parent = await folder(acc);
-      const q = `'${parent}' in parents and trashed=false and name contains 'novi-data-'`;
+      const q = `'${parent}' in parents and trashed=false and name contains '${prefix}'`;
       const { files = [] } = await google.call(acc, `${FILES}?q=${encodeURIComponent(q)}&orderBy=createdTime&fields=files(id,name,createdTime)&pageSize=100`);
-      const ours = files.filter((f) => /^novi-data-.*\.zip$/.test(f.name)).sort((a, b) => String(a.createdTime).localeCompare(String(b.createdTime)));
+      const ours = files.filter((f) => f.name.startsWith(prefix) && f.name.endsWith('.zip')).sort((a, b) => String(a.createdTime).localeCompare(String(b.createdTime)));
       for (const old of ours.slice(0, Math.max(0, ours.length - keep))) await google.call(acc, `${FILES}/${old.id}`, { method: 'DELETE' });
     },
     fail(err) {

@@ -27,7 +27,7 @@ function tailLines(file, bytes = 400_000) {
 }
 
 // The user's own words in a "user" line (not tool results, reminders or commands).
-function askedText(entry) {
+export function askedText(entry) {
   const c = entry?.message?.content;
   let text = '';
   if (typeof c === 'string') text = c;

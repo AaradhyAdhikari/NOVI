@@ -8,7 +8,7 @@ import path from 'node:path';
 export const TEST_PORT = 3002;
 export const TEST_DIST = 'dist-test';
 // Plugin services the test copy never starts.
-export const TEST_SKIP_SERVICES = ['reminders', 'backup', 'briefing', 'sheets-log', 'claude-link', 'projects', 'orb', 'brain', 'chatgpt-plan', 'permission-watch'];
+export const TEST_SKIP_SERVICES = ['reminders', 'backup', 'briefing', 'sheets-log', 'claude-link', 'projects', 'orb', 'brain', 'chatgpt-plan', 'permission-watch', 'vault-sync'];
 // Big or only-useful-to-the-real-Novi folders left out of the copy.
 const SKIP_DATA = new Set(['brain', 'logs', 'voice-samples', 'voice-log', 'task-logs', 'backup']);
 

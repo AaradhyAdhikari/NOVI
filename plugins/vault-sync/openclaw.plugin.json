@@ -1,0 +1,9 @@
+{
+  "id": "vault-sync",
+  "name": "Two brains",
+  "description": "Keeps Claude Brain filled with sessions and projects, and copies it into Novi Brain.",
+  "categories": ["other"],
+  "contracts": { "tools": [] },
+  "activation": { "onStartup": true },
+  "configSchema": { "type": "object", "additionalProperties": true }
+}

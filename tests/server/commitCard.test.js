@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -8,6 +8,8 @@ import { PluginHost } from '../../server/plugins/host.js';
 import { createCommitPlugin } from '../../plugins/commit/index.js';
 import { commitCommand } from '../../server/brain/commitCommand.js';
 import { isPrivateFile, fileWithKey } from '../../plugins/commit/work.js';
+
+vi.setConfig({ testTimeout: 60_000 }); // real git, slow when the whole suite runs at once
 
 // One card with the changes and a suggested message; a yes commits under the user's name and pushes
 // (user, 2026-11-04). These run real git on throwaway folders.

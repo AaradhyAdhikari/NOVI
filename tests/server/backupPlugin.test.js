@@ -17,12 +17,12 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
 
-function setup({ now = () => new Date('2026-10-07T03:15:00'), existing = [], drive = null } = {}) {
+function setup({ now = () => new Date('2026-10-07T03:15:00'), existing = [], drive = null, vaultDir = null, archiveFails = null, brainVault = null } = {}) {
   fs.mkdirSync(backupsDir, { recursive: true });
   for (const f of existing) fs.writeFileSync(path.join(backupsDir, f), 'old');
   const archived = [];
-  const archive = async ({ from, to, exclude }) => { archived.push({ from, to, exclude }); fs.writeFileSync(to, 'zip'); };
-  const host = new PluginHost({ runtime: { dataDir }, env: { NOVI_PLUGIN_BACKUP_DIR: backupsDir }, logger: { warn() {} } });
+  const archive = async ({ from, to, exclude }) => { archived.push({ from, to, exclude }); fs.writeFileSync(to, 'zip'); if (archiveFails && from === archiveFails) throw new Error('that file is in use'); };
+  const host = new PluginHost({ runtime: { dataDir, vaultDir }, env: { NOVI_PLUGIN_BACKUP_DIR: backupsDir, ...(brainVault ? { NOVI_PLUGIN_BACKUP_BRAIN_VAULT: brainVault } : {}) }, logger: { warn() {} } });
   expect(host.register(createBackupPlugin({ archive, now, intervalMs: 3_600_000, ...(drive ? { driveUploader: () => drive } : {}) }))).toBe(true);
   return { host, archived };
 }
@@ -35,7 +35,7 @@ describe('backup plugin', () => {
   it('backs up data/ (without logs) on request', async () => {
     const { host, archived } = setup();
     const out = await host.get('backup_now').run({});
-    expect(archived).toEqual([{ from: dataDir, to: path.join(backupsDir, 'novi-data-2026-10-07-0315.zip'), exclude: ['logs'] }]);
+    expect(archived).toEqual([{ from: dataDir, to: path.join(backupsDir, 'novi-data-2026-10-07-0315.zip'), exclude: ['logs', 'brain'] }]);
     expect(out.file).toBe('novi-data-2026-10-07-0315.zip');
     expect(out.text).toMatch(/Backed up/);
   });
@@ -125,3 +125,76 @@ describe.skipIf(process.platform !== 'win32')('real zip on Windows', () => {
   });
 });
 
+// Live 2026-11-05: a 919 MB search index broke two zips and cut a third to 27 files, and each still counted
+// as today's backup. The user's Obsidian vault wasn't backed up at all.
+describe('what gets backed up', () => {
+  it('the search index stays out: it can be rebuilt, and it is what broke the zips', async () => {
+    const { host, archived } = setup();
+    await host.get('backup_now').run({});
+    expect(archived[0].exclude).toContain('brain');
+  });
+  it('the Obsidian vault gets its own zip beside the data', async () => {
+    const vaultDir = path.join(root, 'Brain');
+    fs.mkdirSync(vaultDir);
+    const { host, archived } = setup({ vaultDir });
+    const out = await host.get('backup_now').run({});
+    expect(archived.map((a) => a.from)).toEqual([dataDir, vaultDir]);
+    expect(archived[1].to).toBe(path.join(backupsDir, 'novi-vault-2026-10-07-0315.zip'));
+    expect(out.text).toMatch(/Obsidian vault/);
+  });
+  it('the vault keeps its newest 14 too, apart from the data zips', async () => {
+    const vaultDir = path.join(root, 'Brain');
+    fs.mkdirSync(vaultDir);
+    const existing = Array.from({ length: 15 }, (_, i) => `novi-vault-2026-09-${String(i + 1).padStart(2, '0')}-0300.zip`);
+    const { host } = setup({ vaultDir, existing });
+    await host.get('backup_now').run({});
+    expect(fs.readdirSync(backupsDir).filter((f) => f.startsWith('novi-vault-')).length).toBe(14);
+  });
+  it('a zip that fails is removed, so it can never count as today\'s backup', async () => {
+    const { host } = setup({ archiveFails: dataDir });
+    await expect(host.get('backup_now').run({})).rejects.toThrow();
+    expect(fs.readdirSync(backupsDir)).toEqual([]);
+  });
+  it('a vault zip that fails leaves the data zip safe and says so', async () => {
+    const vaultDir = path.join(root, 'Brain');
+    fs.mkdirSync(vaultDir);
+    const { host } = setup({ vaultDir, archiveFails: vaultDir });
+    const out = await host.get('backup_now').run({});
+    expect(out.text).toMatch(/vault backup failed/i);
+    expect(fs.readdirSync(backupsDir)).toEqual(['novi-data-2026-10-07-0315.zip']);
+  });
+  it('Drive gets both', async () => {
+    const vaultDir = path.join(root, 'Brain');
+    fs.mkdirSync(vaultDir);
+    const uploaded = [];
+    const pruned = [];
+    const drive = { state: () => ({}), upload: async (f) => uploaded.push(path.basename(f)), prune: async (n, prefix) => pruned.push(prefix), fail() {} };
+    const { host } = setup({ vaultDir, drive });
+    await host.get('backup_now').run({ drive: true });
+    expect(uploaded).toEqual(['novi-data-2026-10-07-0315.zip', 'novi-vault-2026-10-07-0315.zip']);
+    expect(pruned).toEqual(['novi-data-', 'novi-vault-']);
+  });
+});
+
+// User, 2026-11-05: two separate vaults, Novi's and Claude's Brain. Both are kept safe, each in its own zip.
+describe('two vaults', () => {
+  it('each gets its own zip and goes to Drive', async () => {
+    const vaultDir = path.join(root, 'Novi Brain');
+    const brainVault = path.join(root, 'Brain');
+    fs.mkdirSync(vaultDir);
+    fs.mkdirSync(brainVault);
+    const uploaded = [];
+    const pruned = [];
+    const drive = { state: () => ({}), upload: async (f) => uploaded.push(path.basename(f)), prune: async (n, prefix) => pruned.push(prefix), fail() {} };
+    const { host, archived } = setup({ vaultDir, brainVault, drive });
+    await host.get('backup_now').run({ drive: true });
+    expect(archived.map((a) => a.from)).toEqual([dataDir, vaultDir, brainVault]);
+    expect(uploaded).toEqual(['novi-data-2026-10-07-0315.zip', 'novi-vault-2026-10-07-0315.zip', 'novi-brain-2026-10-07-0315.zip']);
+    expect(pruned).toEqual(['novi-data-', 'novi-vault-', 'novi-brain-']);
+  });
+  it('a Brain folder that is gone is skipped', async () => {
+    const { host, archived } = setup({ brainVault: path.join(root, 'nope') });
+    await host.get('backup_now').run({});
+    expect(archived.length).toBe(1);
+  });
+});

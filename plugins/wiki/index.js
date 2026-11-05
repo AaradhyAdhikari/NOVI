@@ -4,6 +4,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { definePluginEntry } from '#plugin-sdk';
 import { memoryDir, createVault, looksSecret } from './vault.js';
+import { createYourNotes } from './yourNotes.js';
 import { createActionLog } from './actions.js';
 import { createNotes, words } from './notes.js';
 import { createSameThings } from './sameService.js';
@@ -32,7 +33,10 @@ export function createWikiPlugin({ now = () => new Date(), env = process.env, ho
     register(api) {
       const vault = createVault(memoryDir({ env, home }));
       const actions = createActionLog({ vault, now, logger: api.logger });
-      const notes = createNotes({ vault, now });
+      // The copy of Claude Brain inside Novi Brain (plugins/vault-sync): Novi answers from it too.
+      const yours = createYourNotes({ root: path.join(vault.dir, 'Claude Brain') });
+      if (api.runtime) api.runtime.vaultDir = vault.dir;
+      const notes = createNotes({ vault, now, yours });
       // Other plugins save into Novi Memory without the note_write card (the orchestrator's briefs).
       if (api.runtime) {
         api.runtime.wikiWrite = ({ title, text }) => ((looksSecret(text) || looksSecret(title)) ? { refused: true } : notes.write({ title, text }));
@@ -40,7 +44,7 @@ export function createWikiPlugin({ now = () => new Date(), env = process.env, ho
         api.runtime.wikiRecase = (title) => notes.recase(title);
         api.runtime.wikiRead = (title) => { const t = notes.find(title); return t ? notes.body(t).trim() : null; };
         // Every note's title and text (the second brain searches them).
-        api.runtime.wikiNotes = () => notes.titles().map((t) => ({ title: t, text: notes.body(t) }));
+        api.runtime.wikiNotes = () => [...notes.titles().map((t) => ({ title: t, text: notes.body(t) })), ...yours.list().map(({ title, text }) => ({ title, text }))];
       }
       // Same thing = one dot (user, 2026-10-20): the "Same things" note, kept up to date every 30 minutes.
       const same = createSameThings({ notes, rt: api.runtime || {}, log: (m) => api.logger?.info?.(m) });

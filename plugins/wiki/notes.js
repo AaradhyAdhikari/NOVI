@@ -8,7 +8,8 @@ const pad = (n) => String(n).padStart(2, '0');
 const day = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-export function createNotes({ vault, now = () => new Date() }) {
+// yours: the user's own Obsidian notes (yourNotes.js), searched too but never written.
+export function createNotes({ vault, now = () => new Date(), yours = null }) {
   const titles = () => vault.list('Notes').map((n) => n.title);
   const find = (title) => titles().find((t) => t.toLowerCase() === String(title).toLowerCase()) || null;
   const body = (title) => (vault.read(path.join('Notes', `${title}.md`)) || '').replace(/^---[\s\S]*?---\n/, '');
@@ -49,11 +50,12 @@ export function createNotes({ vault, now = () => new Date() }) {
     },
     search(question, k = 6) {
       const q = words(question);
-      return titles().map((t) => {
-        const tw = new Set(words(t));
-        const bw = words(body(t));
+      const all = [...titles().map((t) => ({ title: t, text: body(t) })), ...(yours?.list() || [])];
+      return all.map(({ title, text }) => {
+        const tw = new Set(words(title));
+        const bw = words(text);
         const score = q.reduce((s, w) => s + (tw.has(w) ? 3 : 0) + (bw.includes(w) ? 1 : 0), 0);
-        return { title: t, text: body(t), score };
+        return { title, text, score };
       }).filter((n) => n.score > 0).sort((a, b) => b.score - a.score).slice(0, k);
     },
   };
