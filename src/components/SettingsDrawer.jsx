@@ -116,7 +116,7 @@ export default function SettingsDrawer({ open, onClose, projects, devices, accou
 
         <section>
           <h3>Memory</h3>
-          <p className="muted">Your notes and what Novi did, in Documents\Novi Memory (open it in Obsidian to edit).</p>
+          <p className="muted">Your notes and what Novi did, in Documents\Novi Brain (open it in Obsidian to edit).</p>
           <button onClick={() => setGalaxy(true)}>Show my notes</button>
           {galaxy && <MemoryGalaxy api={api} onClose={() => setGalaxy(false)} />}
         </section>
