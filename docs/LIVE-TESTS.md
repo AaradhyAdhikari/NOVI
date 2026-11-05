@@ -299,3 +299,11 @@ Enable the Calendar, Tasks, Drive and Sheets APIs in Google Cloud Console, then 
 - [ ] Screen on: the small white card at the top, over any app.
 - [ ] A chat reply from Claude makes no card; a job that changes files does.
 - Not built: tasks Novi starts itself still say "Claude finished" in the chat.
+
+## Any app's Allow box on the phone (2026-11-05)
+
+- [ ] In the Claude app chat, ask for something that needs a folder. The Allow once / Decline box should reach the phone as a card in about 2 s.
+- [ ] Yes on the phone presses Allow once in the app; no presses Decline.
+- [ ] Answer the box on the laptop instead: the card closes by itself about 5 s later.
+- [ ] A box asking to run a command or control the screen asks for the PIN.
+- To-do: fingerprint or face unlock instead of the PIN on computer-access cards.

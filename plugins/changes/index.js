@@ -23,7 +23,12 @@ export function runShell(command, cwd, { timeoutMs = 5 * 60_000 } = {}) {
     const keep = (d) => { output = (output + d).slice(-200_000); };
     child.stdout.on('data', keep);
     child.stderr.on('data', keep);
-    const timer = setTimeout(() => { keep('\n(stopped after 5 minutes)'); child.kill(); }, timeoutMs);
+    const timer = setTimeout(() => {
+      keep('\n(stopped after 5 minutes)');
+      // On Windows kill() stops only the shell, and the test run under it would go on for ever.
+      if (process.platform === 'win32') execFile('taskkill', ['/T', '/F', '/PID', String(child.pid)], { windowsHide: true }, () => {});
+      else child.kill();
+    }, timeoutMs);
     child.on('error', (err) => { clearTimeout(timer); resolve({ code: 1, output: `${output}\n${err.message}` }); });
     child.on('close', (code) => { clearTimeout(timer); resolve({ code: code ?? 1, output }); });
   });

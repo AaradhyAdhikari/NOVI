@@ -174,6 +174,8 @@ export function createNovi(config, overrides = {}) {
       // The commit card: new words for a waiting card, and its file opened for editing.
       updateCard: (viewId, patch) => { const card = approvals.pending().find((a) => a.changes?.id === viewId); return card ? approvals.update(card.id, patch) : false; },
       offerCodeEdit: (card) => codeEdits.offer(card),
+      // Closes a waiting card that was asked with a `tag` (plugins/permission-watch).
+      cancelCard: (tag) => approvals.cancel(tag),
       // A message straight to one paired device (plugins/live-screen).
       sendToDevice: (deviceId, msg) => sendTo({ deviceId }, msg),
       // A tap-to-open link in the chat of whoever asked (the preview plugin's live link).

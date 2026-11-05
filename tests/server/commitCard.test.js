@@ -13,7 +13,7 @@ import { isPrivateFile, fileWithKey } from '../../plugins/commit/work.js';
 // (user, 2026-11-04). These run real git on throwaway folders.
 const dirs = [];
 const temp = () => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'novi-commit-')); dirs.push(d); return d; };
-afterEach(() => { for (const d of dirs.splice(0)) fs.rmSync(d, { recursive: true, force: true }); });
+afterEach(() => { for (const d of dirs.splice(0)) { try { fs.rmSync(d, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); } catch { /* Windows may hold a temp folder a moment */ } } });
 const git = (dir, ...args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 const write = (dir, file, text = 'hello\n') => { fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true }); fs.writeFileSync(path.join(dir, file), text); };
 
@@ -36,10 +36,11 @@ function repo({ remote = true } = {}) {
   return { dir, bare };
 }
 
-function setup(dir, { decisions = [{ allow: true }], message = 'Add the login page', run, hold = false } = {}) {
+function setup(dir, { decisions = [{ allow: true }], message = 'Add the login page', run, hold = false, home } = {}) {
   const asked = [];
   const said = [];
   const updates = [];
+  const notices = [];
   const offered = [];
   let release = null;
   const tasks = new EventEmitter();
@@ -49,6 +50,7 @@ function setup(dir, { decisions = [{ allow: true }], message = 'Add the login pa
   const runtime = {
     ask: async (card) => { asked.push(card); if (hold) return new Promise((resolve) => { release = resolve; }); return left.shift() || { allow: false }; },
     updateCard: (id, patch) => updates.push({ id, ...patch }),
+    notice: (n) => notices.push(n),
     offerCodeEdit: (card) => { offered.push(card); return 'edit-1'; },
     say: (text) => { said.push(text); },
     privateComplete: async () => { if (message instanceof Error) throw message; return message; },
@@ -56,10 +58,10 @@ function setup(dir, { decisions = [{ allow: true }], message = 'Add the login pa
     tasks,
   };
   const host = new PluginHost({ runtime, env: {}, logger: { warn() {}, info() {} } });
-  expect(host.register(createCommitPlugin({ run: run || (async () => ({ code: 0, output: '' })), onDone: finished }))).toBe(true);
+  expect(host.register(createCommitPlugin({ run: run || (async () => ({ code: 0, output: '' })), onDone: finished, ...(home ? { home } : {}) }))).toBe(true);
   const tool = (name, params = {}) => host.get(name).run(params);
   // The work after the card runs in the background.
-  return { asked, said, tasks, tool, updates, offered, settled: () => done, answer: (d) => release(d), view: (...a) => host.runtime.commitView(...a), edited: (...a) => host.runtime.commitEdited(...a), canEdit: (...a) => host.runtime.commitCanEdit(...a), commitOffer: (...a) => host.runtime.commitOffer(...a) };
+  return { asked, said, tasks, tool, updates, offered, notices, settled: () => done, answer: (d) => release(d), view: (...a) => host.runtime.commitView(...a), edited: (...a) => host.runtime.commitEdited(...a), canEdit: (...a) => host.runtime.commitCanEdit(...a), commitOffer: (...a) => host.runtime.commitOffer(...a) };
 }
 
 describe('the commit card', () => {
@@ -572,5 +574,95 @@ describe('the card comes by itself when Claude finishes work', () => {
     await offer(s, dir);
     await offer(s, dir);
     expect(s.asked.length).toBe(1);
+  });
+});
+
+// User, 2026-11-05: one card, not two, and tests first where a project has them.
+describe('the card after work', () => {
+  const tested = (dir) => { write(dir, 'package.json', '{"scripts":{"test":"vitest"}}'); write(dir, 'a.js'); };
+  const small = () => { const calls = []; return { calls, fallback: (line) => calls.push(line ?? null) }; };
+
+  it('tests pass: the commit card comes, and no small card', async () => {
+    const { dir } = repo();
+    tested(dir);
+    const s = setup(dir);
+    const f = small();
+    await s.commitOffer(dir, f);
+    await s.settled();
+    expect(s.asked[0].detail).toContain('Tests passed');
+    expect(f.calls).toEqual([]);
+  });
+  it('tests fail: no commit card; the small card says why', async () => {
+    const { dir } = repo();
+    tested(dir);
+    const s = setup(dir, { run: async () => ({ code: 1, output: '' }) });
+    const f = small();
+    await s.commitOffer(dir, f);
+    expect(s.asked).toEqual([]);
+    expect(f.calls).toEqual(['The tests failed, so there is no commit card yet.']);
+  });
+  it('no tests in the project: the commit card comes and says so', async () => {
+    const { dir } = repo();
+    write(dir, 'a.js');
+    const s = setup(dir);
+    await s.commitOffer(dir, small());
+    await s.settled();
+    expect(s.asked[0].detail).toContain('No tests to run here');
+  });
+  it('nothing to commit, no git, or a card already waiting: just the small card', async () => {
+    const f = small();
+    const clean = repo().dir;
+    await setup(clean).commitOffer(clean, f);
+    const plain = temp();
+    await setup(plain).commitOffer(plain, f);
+    const { dir } = repo();
+    write(dir, 'a.js');
+    const s = setup(dir, { hold: true });
+    await s.commitOffer(dir, small());
+    await s.commitOffer(dir, f);
+    expect(f.calls).toEqual([null, null, null]);
+    expect(s.asked.length).toBe(1);
+  });
+  it('tests already running for that project are not started twice', async () => {
+    const { dir } = repo();
+    tested(dir);
+    let runs = 0;
+    let finish;
+    const s = setup(dir, { run: () => { runs += 1; return new Promise((r) => { finish = r; }); } });
+    const first = s.commitOffer(dir, small());
+    while (!finish) await new Promise((r) => { setTimeout(r, 20); }); // the tests have started
+    const f = small();
+    await s.commitOffer(dir, f);
+    finish({ code: 0, output: '' });
+    await first;
+    await s.settled();
+    expect(runs).toBe(1);
+    expect(f.calls).toEqual([null]);
+  });
+  it("a task Novi started with nothing to commit still gets the small card", async () => {
+    const { dir } = repo();
+    const s = setup(dir);
+    s.tasks.emit('task', { id: 't9', status: 'done', project: 'Shop', path: dir });
+    await new Promise((r) => { setTimeout(r, 400); });
+    expect(s.notices).toEqual([{ key: 'claude', title: 'Claude finished in Shop' }]);
+  });
+});
+
+describe('folders it stays out of', () => {
+  it('a git repo in the home folder: no tests, no card', async () => {
+    const { dir } = repo();
+    write(dir, 'package.json', '{"scripts":{"test":"vitest"}}');
+    let ran = 0;
+    const s = setup(dir, { home: dir, run: async () => { ran += 1; return { code: 0, output: '' }; } });
+    const calls = [];
+    await s.commitOffer(dir, { fallback: (l) => calls.push(l ?? null) });
+    expect(ran).toBe(0);
+    expect(s.asked).toEqual([]);
+    expect(calls).toEqual([null]);
+  });
+  it('a small card that fails never brings Novi down', async () => {
+    const { dir } = repo();
+    const s = setup(dir);
+    await expect(s.commitOffer(dir, { fallback: () => { throw new Error('no'); } })).resolves.toBeUndefined();
   });
 });

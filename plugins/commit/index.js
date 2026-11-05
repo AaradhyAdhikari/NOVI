@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { definePluginEntry } from '#plugin-sdk';
 import { runShell } from '../changes/index.js';
@@ -25,7 +26,9 @@ const printOf = (dir, file) => {
 };
 const printsOf = (dir, files) => Object.fromEntries(files.map((f) => [f, printOf(dir, f)]));
 const sameWork = (work) => JSON.stringify([work.head, work.prints]);
-const samePlace = (a, b) => path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
+// Windows has two spellings of one folder (AARADH~1 and the full name): compare the real one.
+const realPath = (p) => { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } };
+const samePlace = (a, b) => realPath(a).toLowerCase() === realPath(b).toLowerCase();
 
 function gitRun(args, cwd, { input, literal = false } = {}) {
   return new Promise((resolve, reject) => {
@@ -39,7 +42,7 @@ function gitRun(args, cwd, { input, literal = false } = {}) {
   });
 }
 
-export function createCommitPlugin({ git = gitRun, run = runShell, onDone = () => {} } = {}) {
+export function createCommitPlugin({ git = gitRun, run = runShell, onDone = () => {}, home = os.homedir() } = {}) {
   return definePluginEntry({
     id: 'commit',
     name: 'Commit and push',
@@ -49,6 +52,7 @@ export function createCommitPlugin({ git = gitRun, run = runShell, onDone = () =
       const offering = new Set();
       const live = new Map(); // card view id → { id, p, work, message, note }
       const seen = new Set();
+      const testing = new Set(); // project folders whose tests are running
       const declined = new Map(); // project folder → the changes the user said no to
       const say = (text) => rt.say?.(text, { kind: null });
 
@@ -184,15 +188,31 @@ export function createCommitPlugin({ git = gitRun, run = runShell, onDone = () =
       // Claude finished work in this folder: the card comes by itself (user, 2026-11-05: "dont ask … just send
       // it for every session every convo"). Quiet when there's nothing to send, and the same changes the user
       // said no to aren't offered again.
-      if (api.runtime) api.runtime.commitOffer = async (folder) => {
+      // fallback: no commit card this time, so the caller shows its small card (a line says why, if any).
+      if (api.runtime) api.runtime.commitOffer = async (folder, { fallback = () => {} } = {}) => {
+        let top = null;
+        let line = null;
+        let card = false;
         try {
-          const top = path.normalize((await git(['rev-parse', '--show-toplevel'], folder)).trim());
+          top = path.normalize((await git(['rev-parse', '--show-toplevel'], folder)).trim());
           const p = { name: path.basename(top), path: top };
-          if (offering.has(top)) return;
-          const work = await workIn(p);
-          if (work.note || declined.get(top) === sameWork(work)) return;
-          await offer(p);
-        } catch { /* not a git folder */ }
+          // A repo around the whole home folder or a drive isn't a project: nothing is run or offered there.
+          const notProject = samePlace(top, home) || path.parse(top).root === top;
+          if (!notProject && !offering.has(top) && !testing.has(top)) {
+            testing.add(top); // before anything slow: two finishes close together must not both go on
+            const work = await workIn(p);
+            if (!work.note && declined.get(top) !== sameWork(work)) {
+              // Tests first where the project has them: a yes shouldn't push broken work.
+              const command = work.files.length ? testCommand(top) : null;
+              if (command && (await run(command, top)).code !== 0) line = 'The tests failed, so there is no commit card yet.';
+              else card = !(await offer(p, command ? 'Tests passed.' : work.files.length ? 'No tests to run here.' : undefined)).note;
+            }
+          }
+        } catch { /* not a git folder */ } finally {
+          testing.delete(top);
+        }
+        if (card) return;
+        try { fallback(line ?? undefined); } catch (err) { api.logger?.warn?.(`[commit] small card failed: ${firstLine(err)}`); }
       };
 
       // A file on a waiting card: its changed lines, or the whole code ready to edit. Only files on that card.
@@ -297,7 +317,7 @@ export function createCommitPlugin({ git = gitRun, run = runShell, onDone = () =
         const p = { name: task.project || task.path, path: task.path };
         try {
           const work = await workIn(p);
-          if (work.note || !work.files?.length) return;
+          if (work.note || !work.files?.length) { rt.notice?.({ key: 'claude', title: `Claude finished in ${p.name}` }); return; }
           const command = testCommand(p.path);
           if (command && (await run(command, p.path)).code !== 0) { say(`${p.name}'s tests failed, so I'm not offering a commit.`); return; }
           await offer(p, command ? 'Tests passed.' : 'No tests to run here.');

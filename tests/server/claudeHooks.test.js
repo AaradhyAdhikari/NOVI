@@ -13,7 +13,7 @@ function mk({ answer = { allow: true } } = {}) {
   const notices = [];
   const worked = [];
   const ask = async (card) => { asked.push(card); return typeof answer === 'function' ? answer(card) : answer; };
-  const handle = createHookHandler({ ask, say: (text) => said.push(text), notice: (n) => notices.push(n), worked: (cwd) => worked.push(cwd), now: () => 1000 });
+  const handle = createHookHandler({ ask, say: (text) => said.push(text), notice: (n) => notices.push(n), worked: (cwd, card) => { worked.push(cwd); notices.push(card); }, now: () => 1000 });
   return { asked, said, notices, worked, handle };
 }
 const base = { session_id: 's1', cwd: 'C:\\dev\\NOVI', transcript_path: '' };
@@ -146,5 +146,28 @@ describe('only real work makes a finished card', () => {
     const h = mk();
     await h.handle({ ...base, transcript_path: 'C:/nope/missing.jsonl', hook_event_name: 'Stop' });
     expect(h.notices).toEqual([{ key: 'claude', title: 'Claude finished in NOVI', body: '' }]);
+  });
+});
+
+describe('one card, not two', () => {
+  it('the finished card goes to whoever decides, not straight to the screen', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'novi-hooks-'));
+    const transcript_path = path.join(dir, 't.jsonl');
+    fs.writeFileSync(transcript_path, [
+      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', name: 'Edit', input: {} }] } }),
+      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'Done it all.' }] } }),
+    ].join('\n'));
+    const notices = [];
+    const decided = [];
+    const handle = createHookHandler({ ask: async () => ({}), say: () => {}, notice: (n) => notices.push(n), worked: (cwd, card) => decided.push(card) });
+    await handle({ ...base, transcript_path, hook_event_name: 'Stop' });
+    expect(notices).toEqual([]);
+    expect(decided).toEqual([{ key: 'claude', title: 'Claude finished in NOVI', body: 'Done it all.' }]);
+  });
+  it('with nobody to decide, the small card shows', async () => {
+    const notices = [];
+    const handle = createHookHandler({ ask: async () => ({}), say: () => {}, notice: (n) => notices.push(n) });
+    await handle({ ...base, transcript_path: 'C:/nope/x.jsonl', hook_event_name: 'Stop' });
+    expect(notices.length).toBe(1);
   });
 });

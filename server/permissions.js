@@ -73,7 +73,7 @@ export class ApprovalQueue extends EventEmitter {
   // timeoutMs: null = wait as long as it takes.
   // pin: a dangerous laptop command — allowed only with the voice PIN, on every device (remoteTrust).
   // changeable: "change X" is an answer too (the orchestrator's brief card) → { allow: false, change }.
-  decide({ title, detail = '', tier, source, prompt, choices, category, grantable = false, kind, addable = false, changeable = false, changes, question, pin = false, timeoutMs, speaksOnDeny = false }) {
+  decide({ title, detail = '', tier, source, prompt, choices, category, grantable = false, kind, addable = false, changeable = false, changes, tag, question, pin = false, timeoutMs, speaksOnDeny = false }) {
     const canGrant = Boolean(this.grants && grantable && category && tier === 'medium' && !kind && !question && !pin);
     if (canGrant && this.grants.has(category)) {
       this.grants.record({ category, title });
@@ -85,6 +85,7 @@ export class ApprovalQueue extends EventEmitter {
       ...(prompt ? { prompt } : {}), ...(choices?.length ? { choices } : {}), ...(addable ? { addable: true } : {}),
       ...(question ? { question } : {}), ...(pin ? { pin: true } : {}), ...(changeable ? { changeable: true } : {}),
       ...(changes ? { changes } : {}), // files on a commit card (plugins/commit)
+      ...(tag ? { tag } : {}), // lets its asker close it (plugins/permission-watch)
       ...(speaksOnDeny ? { speaksOnDeny: true } : {}), // its asker says the "no" line itself: a spoken no adds nothing
       ...(canGrant ? { grant: { category, label: labelFor(category) } } : {}),
     };
@@ -119,7 +120,7 @@ export class ApprovalQueue extends EventEmitter {
     this.items.delete(id);
     if (allow && always && item.approval.grant && this.grants) this.grants.grant(item.approval.grant.category, by);
     const picked = choice && item.approval.choices?.some((c) => c.id === choice) ? choice : null;
-    item.resolve({ allow: Boolean(allow), choice: picked, ...(by === 'timeout' ? { timedOut: true } : {}),...(allow && addition && item.approval.addable ? { addition: String(addition) } : {}), ...(allow && answer !== null && item.approval.question ? { answer: String(answer) } : {}), ...(!allow && change && item.approval.changeable ? { change: String(change) } : {}) });
+    item.resolve({ allow: Boolean(allow), choice: picked, ...(by === 'timeout' ? { timedOut: true } : {}), ...(by === 'gone' || by === 'shutdown' ? { closed: true } : {}),...(allow && addition && item.approval.addable ? { addition: String(addition) } : {}), ...(allow && answer !== null && item.approval.question ? { answer: String(answer) } : {}), ...(!allow && change && item.approval.changeable ? { change: String(change) } : {}) });
     // What went along with the answer, for the card's short status ("Approved, with your note", "Change sent").
     const noted = Boolean(allow && addition && item.approval.addable);
     const answered = Boolean(allow && answer !== null && item.approval.question);
@@ -136,6 +137,12 @@ export class ApprovalQueue extends EventEmitter {
     Object.assign(item.approval, { ...(title ? { title } : {}), ...(detail !== undefined ? { detail } : {}), ...(prompt ? { prompt } : {}), ...(changes ? { changes } : {}) });
     this.emit('updated', item.approval);
     return true;
+  }
+
+  // The thing the card asked about went away (a box answered on the laptop): the card closes.
+  cancel(tag) {
+    const card = this.pending().find((a) => a.tag === tag);
+    return card ? this.resolve(card.id, false, 'gone') : false;
   }
 
   pending() {

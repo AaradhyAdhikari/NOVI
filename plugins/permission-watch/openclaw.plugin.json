@@ -1,0 +1,9 @@
+{
+  "id": "permission-watch",
+  "name": "Allow boxes on the phone",
+  "description": "Any app's Allow or Yes/No box on the laptop as a card on the phone; the answer presses the button.",
+  "categories": ["other"],
+  "contracts": { "tools": [] },
+  "activation": { "onStartup": true },
+  "configSchema": { "type": "object", "additionalProperties": false }
+}

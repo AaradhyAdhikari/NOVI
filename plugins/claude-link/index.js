@@ -39,7 +39,11 @@ export function createClaudeLinkPlugin({ driver = null, listCode = () => listCla
         return token;
       };
       const secret = Buffer.from(hookToken());
-      const claudeHook = createHookHandler({ ask: (card) => rt.ask(card), say: (text) => rt.say?.(text, { kind: 'claude' }), notice: (n) => rt.notice?.({ ...n, spoken: n.body ? `${n.title}: ${n.body}` : `${n.title}.` }), worked: (cwd) => rt.commitOffer?.(cwd) });
+      const small = (n) => rt.notice?.({ ...n, spoken: n.body ? `${n.title}: ${n.body}` : `${n.title}.` });
+      const claudeHook = createHookHandler({ ask: (card) => rt.ask(card), say: (text) => rt.say?.(text, { kind: 'claude' }), notice: small, worked: (cwd, card) => {
+        if (!rt.commitOffer) return small(card);
+        return rt.commitOffer(cwd, { fallback: (line) => small(line ? { ...card, body: line } : card) });
+      } });
       api.registerHttpRoute({
         path: 'claude-hook',
         handler: (body, { headers = {} } = {}) => {
