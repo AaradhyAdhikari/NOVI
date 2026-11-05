@@ -1,3 +1,4 @@
+import { isReadOnlyTool } from './claude/toolNames.js';
 import { EventEmitter } from 'node:events';
 import crypto from 'node:crypto';
 import path from 'node:path';
@@ -40,7 +41,7 @@ export function isInside(projectPath, target) {
 }
 
 export function classifyClaudeTool(toolName, input = {}, projectPath) {
-  if (LOW_TOOLS.has(toolName)) return 'low';
+  if (LOW_TOOLS.has(toolName) || isReadOnlyTool(toolName)) return 'low';
   if (EDIT_TOOLS.has(toolName)) {
     const target = input.file_path || input.notebook_path || input.path;
     return target && !isInside(projectPath, target) ? 'high' : 'medium';

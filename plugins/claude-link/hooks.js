@@ -1,4 +1,5 @@
 import { planSummary, planLine } from '../../server/claude/planSummary.js';
+import { isReadOnlyTool } from '../../server/claude/toolNames.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { classifyClaudeTool } from '../../server/permissions.js';
@@ -76,6 +77,8 @@ export function createHookHandler({ ask, say, notice, worked = (cwd, card) => no
     const project = projectOf(h.cwd);
     const tool = h.tool_name;
     if (tool === 'AskUserQuestion') return {}; // its PreToolUse card already asks
+    // Tools that only look need no card (user, 2026-11-05: three cards for Claude searching its memory).
+    if (isReadOnlyTool(tool)) return { hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior: 'allow' } } };
     const input = h.tool_input || {};
     const card = tool === 'ExitPlanMode'
       ? planCard(project, String(input.plan || ''))

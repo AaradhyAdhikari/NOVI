@@ -39,6 +39,13 @@ describe('Claude Code hooks → Novi', () => {
     expect(h.asked[0].tier).toBe('high');
   });
 
+  it('a tool that only looks gets no card, in any session', async () => {
+    const h = mk();
+    const out = await h.handle({ ...base, hook_event_name: 'PermissionRequest', tool_name: 'mcp__plugin_claude-mem_mcp-search__search', tool_input: { query: 'x' } });
+    expect(h.asked).toHaveLength(0);
+    expect(out.hookSpecificOutput.decision.behavior).toBe('allow');
+  });
+
   it('Claude\'s plan is a plan card', async () => {
     const h = mk();
     await h.handle({ ...base, hook_event_name: 'PermissionRequest', tool_name: 'ExitPlanMode', tool_input: { plan: '1. Add the hook\n2. Test it' } });

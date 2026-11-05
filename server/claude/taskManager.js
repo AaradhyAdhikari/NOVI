@@ -1,4 +1,5 @@
 import { planSummary, planLine } from './planSummary.js';
+import { plainTool, plainBuiltin } from './toolNames.js';
 import crypto from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { classifyClaudeTool, EDIT_TOOLS } from '../permissions.js';
@@ -28,6 +29,13 @@ export function claudeAsk(toolName, input = {}, description = '', agentName = 'C
   if (target && (toolName === 'Write' || EDIT_TOOLS.has(toolName))) {
     const verb = toolName === 'Write' ? 'write' : 'edit';
     return { title: `${agentName} wants to ${verb} ${fileName(target)}`, prompt: `${agentName} wants to ${verb} ${fileName(target)}.`, detail: String(target) };
+  }
+  const plain = plainTool(toolName) || plainBuiltin(toolName, input);
+  if (plain) {
+    // The exact tool and what it was given stay one tap away: the words are only a summary of it.
+    const given = JSON.stringify(input) || '{}';
+    const detail = [description, toolName, given === '{}' ? '' : given.slice(0, 300)].filter(Boolean).join('\n');
+    return { title: `${agentName} wants to ${plain}`, prompt: `${agentName} wants to ${plain}.`, detail };
   }
   return { title: permissionTitle(toolName, input, agentName), prompt: '', detail: description || '' };
 }
