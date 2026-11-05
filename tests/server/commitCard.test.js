@@ -59,7 +59,7 @@ function setup(dir, { decisions = [{ allow: true }], message = 'Add the login pa
   expect(host.register(createCommitPlugin({ run: run || (async () => ({ code: 0, output: '' })), onDone: finished }))).toBe(true);
   const tool = (name, params = {}) => host.get(name).run(params);
   // The work after the card runs in the background.
-  return { asked, said, tasks, tool, updates, offered, settled: () => done, answer: (d) => release(d), view: (...a) => host.runtime.commitView(...a), edited: (...a) => host.runtime.commitEdited(...a), canEdit: (...a) => host.runtime.commitCanEdit(...a) };
+  return { asked, said, tasks, tool, updates, offered, settled: () => done, answer: (d) => release(d), view: (...a) => host.runtime.commitView(...a), edited: (...a) => host.runtime.commitEdited(...a), canEdit: (...a) => host.runtime.commitCanEdit(...a), commitOffer: (...a) => host.runtime.commitOffer(...a) };
 }
 
 describe('the commit card', () => {
@@ -527,5 +527,50 @@ describe('looking at the changes from the card', () => {
     const { s } = await waiting(dir);
     await s.edited(dir, 'README.md');
     expect(s.updates).toEqual([]);
+  });
+});
+
+// User, 2026-11-05: "dont ask ... just send it for every session every convo".
+describe('the card comes by itself when Claude finishes work', () => {
+  const offer = (s, dir) => s.commitOffer(dir);
+
+  it('offers the project of that folder, even from a folder inside it', async () => {
+    const { dir } = repo();
+    write(dir, 'src/a.js');
+    const s = setup(dir);
+    await offer(s, path.join(dir, 'src'));
+    await s.settled();
+    expect(s.asked[0].title).toBe(`Commit and push 1 file in ${path.basename(dir)}?`);
+    expect(git(dir, 'log', '-1', '--format=%s')).toBe('Add the login page');
+  });
+  it('a folder with no git, or nothing new, stays quiet', async () => {
+    const s = setup(temp());
+    await offer(s, temp());
+    const { dir } = repo();
+    await offer(s, dir);
+    expect(s.asked).toEqual([]);
+    expect(s.said).toEqual([]);
+  });
+  it('no: the same changes are not offered again; new changes are', async () => {
+    const { dir } = repo();
+    write(dir, 'a.js', 'one\n');
+    const s = setup(dir, { decisions: [{ allow: false }, { allow: false }] });
+    await offer(s, dir);
+    await new Promise((r) => { setTimeout(r, 100); });
+    await offer(s, dir);
+    await new Promise((r) => { setTimeout(r, 100); });
+    expect(s.asked.length).toBe(1);
+    write(dir, 'a.js', 'two\n');
+    await offer(s, dir);
+    await new Promise((r) => { setTimeout(r, 100); });
+    expect(s.asked.length).toBe(2);
+  });
+  it('one card at a time: a waiting card is left alone', async () => {
+    const { dir } = repo();
+    write(dir, 'a.js');
+    const s = setup(dir, { hold: true });
+    await offer(s, dir);
+    await offer(s, dir);
+    expect(s.asked.length).toBe(1);
   });
 });

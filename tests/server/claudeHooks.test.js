@@ -11,9 +11,10 @@ function mk({ answer = { allow: true } } = {}) {
   const asked = [];
   const said = [];
   const notices = [];
+  const worked = [];
   const ask = async (card) => { asked.push(card); return typeof answer === 'function' ? answer(card) : answer; };
-  const handle = createHookHandler({ ask, say: (text) => said.push(text), notice: (n) => notices.push(n), now: () => 1000 });
-  return { asked, said, notices, handle };
+  const handle = createHookHandler({ ask, say: (text) => said.push(text), notice: (n) => notices.push(n), worked: (cwd) => worked.push(cwd), now: () => 1000 });
+  return { asked, said, notices, worked, handle };
 }
 const base = { session_id: 's1', cwd: 'C:\\dev\\NOVI', transcript_path: '' };
 
@@ -123,6 +124,7 @@ describe('only real work makes a finished card', () => {
   it('a plain answer makes no card, but still counts for "what is the update"', async () => {
     const h = await finished([asked('what is next?'), replied('Fix the freezes next.')]);
     expect(h.notices).toEqual([]);
+    expect(h.worked).toEqual([]);
     expect(h.handle.updates()).toBe('NOVI: finished — Fix the freezes next.');
   });
   it('only reading files makes no card', async () => {
@@ -133,6 +135,7 @@ describe('only real work makes a finished card', () => {
     for (const tool of ['Edit', 'Write', 'Bash', 'PowerShell']) {
       const h = await finished([asked('fix it'), used(tool), result, replied('Fixed it.')]);
       expect(h.notices.length, tool).toBe(1);
+      expect(h.worked, tool).toEqual(['C:\\dev\\NOVI']); // the commit card comes by itself
     }
   });
   it('work from an earlier request does not count for this one', async () => {

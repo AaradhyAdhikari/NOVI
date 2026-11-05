@@ -24,6 +24,7 @@ const printOf = (dir, file) => {
   try { return crypto.createHash('sha1').update(fs.readFileSync(path.join(dir, file))).digest('hex'); } catch { return 'gone'; }
 };
 const printsOf = (dir, files) => Object.fromEntries(files.map((f) => [f, printOf(dir, f)]));
+const sameWork = (work) => JSON.stringify([work.head, work.prints]);
 const samePlace = (a, b) => path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
 
 function gitRun(args, cwd, { input, literal = false } = {}) {
@@ -48,6 +49,7 @@ export function createCommitPlugin({ git = gitRun, run = runShell, onDone = () =
       const offering = new Set();
       const live = new Map(); // card view id → { id, p, work, message, note }
       const seen = new Set();
+      const declined = new Map(); // project folder → the changes the user said no to
       const say = (text) => rt.say?.(text, { kind: null });
 
       // What there is to send, or { note } when there is nothing to ask about.
@@ -162,7 +164,11 @@ export function createCommitPlugin({ git = gitRun, run = runShell, onDone = () =
             const d = await rt.ask({ ...cardWords(view), detailLabel: 'Show the changes', changeable: Boolean(view.message), source: 'commit', category: 'github', speaksOnDeny: true });
             if (d?.allow) { view.sending = true; await send(p, work, view.message); return; }
             const next = d?.change ? changedMessage(d.change) : null;
-            if (!next) { if (!d?.timedOut) say('Okay, not committed.'); return; }
+            if (!next) {
+              declined.set(p.path, sameWork(work));
+              if (!d?.timedOut) say('Okay, not committed.');
+              return;
+            }
             view.message = next;
           }
           say('Okay, not committed.');
@@ -174,6 +180,20 @@ export function createCommitPlugin({ git = gitRun, run = runShell, onDone = () =
           onDone();
         }
       }
+
+      // Claude finished work in this folder: the card comes by itself (user, 2026-11-05: "dont ask … just send
+      // it for every session every convo"). Quiet when there's nothing to send, and the same changes the user
+      // said no to aren't offered again.
+      if (api.runtime) api.runtime.commitOffer = async (folder) => {
+        try {
+          const top = path.normalize((await git(['rev-parse', '--show-toplevel'], folder)).trim());
+          const p = { name: path.basename(top), path: top };
+          if (offering.has(top)) return;
+          const work = await workIn(p);
+          if (work.note || declined.get(top) === sameWork(work)) return;
+          await offer(p);
+        } catch { /* not a git folder */ }
+      };
 
       // A file on a waiting card: its changed lines, or the whole code ready to edit. Only files on that card.
       if (api.runtime) api.runtime.commitView = async (id, file, { whole = false } = {}) => {
