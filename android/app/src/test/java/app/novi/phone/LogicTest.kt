@@ -122,6 +122,12 @@ class LogicTest {
         assertNull(parseCard(JSONObject("""{"alert":{"id":"a","title":"Start?","actions":[]}}"""))!!.question)
     }
 
+    @Test fun submitOnlyWhenPickingSeveralOrTyping() {
+        assertEquals(false, showSubmit(multiSelect = false, typingOwn = false))
+        assertEquals(true, showSubmit(multiSelect = true, typingOwn = false))
+        assertEquals(true, showSubmit(multiSelect = false, typingOwn = true))
+    }
+
     @Test fun questionAnswerIsTheOptionOrYourOwnWords() {
         val opts = listOf(QuestionOption("Light"), QuestionOption("Dark"), QuestionOption("Auto"))
         assertEquals("Dark", questionAnswer(opts, setOf(1), ""))

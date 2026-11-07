@@ -14,7 +14,8 @@ import android.widget.TextView
 
 /**
  * Claude's question as Claude Code shows it (user, 2026-10-28, with a screenshot): the question, every
- * option with its description, "Other" for your own words, then Skip / Submit. No mic button (user, 2026-10-28):
+ * option with its description, "Other" for your own words, then Skip. One tap on an option sends it; Submit shows
+ * only when several can be picked or you are typing (user, 2026-11-07). No mic button (user, 2026-10-28):
  * the card listens by itself — "option 2", "skip", or "in other, I want …" — and the box is for typing.
  * Used by the pop-up card and the lock-screen card alike.
  */
@@ -32,6 +33,8 @@ class QuestionForm(
     private lateinit var otherRow: View
     private lateinit var otherBox: LinearLayout
     private lateinit var edit: EditText
+    private lateinit var submit: Button
+    private var sent = false
 
     private val accent = Color.parseColor("#FF4F46E5")
     private val text = if (dark) Color.WHITE else Color.BLACK
@@ -68,6 +71,14 @@ class QuestionForm(
         rows.forEachIndexed { i, r -> r.background = box(i in picked) }
         otherRow.background = box(otherOn)
         otherBox.visibility = if (otherOn) View.VISIBLE else View.GONE
+        submit.visibility = if (showSubmit(q.multiSelect, otherOn)) View.VISIBLE else View.GONE
+    }
+
+    private fun send(answer: String) {
+        if (sent) return // a second quick tap
+        sent = true
+        onTyping(false)
+        onSubmit(answer)
     }
 
     val view: View = LinearLayout(ctx).apply {
@@ -87,14 +98,15 @@ class QuestionForm(
         })
         q.options.forEachIndexed { i, o ->
             val r = row("${i + 1}. ${o.label}", o.description) {
+                otherOn = false
                 if (q.multiSelect) {
                     if (!picked.remove(i)) picked.add(i)
                 } else {
                     picked.clear()
                     picked.add(i)
                 }
-                otherOn = false
                 refresh()
+                if (!q.multiSelect) send(o.label)
             }
             rows.add(r)
             addView(r)
@@ -126,24 +138,23 @@ class QuestionForm(
         buttons.addView(Button(ctx).apply {
             this.text = "Skip"
             isAllCaps = false
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(8) }
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             setOnClickListener {
                 onTyping(false)
                 onSkip()
             }
         })
-        buttons.addView(Button(ctx).apply {
+        submit = Button(ctx).apply {
             this.text = "Submit"
             isAllCaps = false
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(8) }
             setOnClickListener {
                 val answer = questionAnswer(q.options, picked, if (otherOn) edit.text.toString() else "")
-                if (answer != null) {
-                    onTyping(false)
-                    onSubmit(answer)
-                }
+                if (answer != null) send(answer)
             }
-        })
+            visibility = if (showSubmit(q.multiSelect, false)) View.VISIBLE else View.GONE
+        }
+        buttons.addView(submit)
         addView(buttons)
     }
 }

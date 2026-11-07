@@ -54,6 +54,7 @@ export function createAiCardsPlugin({ now = Date.now } = {}) {
           for (const [key, at] of seen) if (now() - at > SEEN_MS) seen.delete(key);
           if (seen.has(hash)) return { done: true };
           seen.set(hash, now());
+          api.logger?.info?.(`[ai-cards] ${site} finished`); // never the words
           newest = { site, text: answer };
           lastBySite.set(site.toLowerCase(), newest);
           const card = { key: `ai-${site.toLowerCase()}`, title: `${site} finished`, spoken: `${site} finished.` };

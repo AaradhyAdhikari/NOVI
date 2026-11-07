@@ -98,6 +98,9 @@ data class Card(
     val plan: Plan? = null,
 )
 
+/** Submit is only for picking several, or your own typed words; otherwise one tap on an option sends it. */
+fun showSubmit(multiSelect: Boolean, typingOwn: Boolean): Boolean = multiSelect || typingOwn
+
 /** The answer sent for Claude's question: your own words win, else the picked labels (", " like the laptop). */
 fun questionAnswer(options: List<QuestionOption>, picked: Set<Int>, other: String): String? {
     if (other.isNotBlank()) return other.trim()

@@ -11,3 +11,10 @@ export function resolvedText(r = {}) {
   if (r.choice) return 'Option sent';
   return r.noted ? 'Approved, with your note' : 'Approved';
 }
+
+// A question where several options can be picked: a tap adds or removes one, Submit sends them.
+export const togglePick = (picked, label) => (picked.includes(label) ? picked.filter((l) => l !== label) : [...picked, label]);
+export const pickedAnswer = (options, picked) => options.map((o) => o.label).filter((l) => picked.includes(l)).join(', ');
+
+// The card a link opened ("Read the whole plan" on the phone): its detail starts unfolded.
+export const openedCard = (search, id) => new URLSearchParams(search || '').get('card') === id;

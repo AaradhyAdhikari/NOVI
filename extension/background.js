@@ -13,6 +13,13 @@ const CLOSED = {
   'already connected': 'another Chrome window is already connected to Novi',
 };
 
+// connect() returns before the socket is open and Novi has checked the code, and an event sent then is lost:
+// a worker just woken, or Novi just restarted, would drop an AI's answer without a word.
+async function paired() {
+  await connect();
+  for (let i = 0; i < 50 && status !== 'connected'; i++) await new Promise((r) => setTimeout(r, 100));
+}
+
 async function connect() {
   const { code, port = 3003 } = await chrome.storage.local.get(['code', 'port']);
   if (!code) { status = 'no code — paste it from Novi Settings → Browser'; return; }
@@ -59,7 +66,7 @@ chrome.storage.onChanged.addListener((changes = {}, area) => {
 });
 chrome.runtime.onMessage.addListener((m, _s, send) => {
   if (m === 'status') send({ status, version: VERSION });
-  if (m?.type === 'ai_answer') connect().then(() => tellNovi({ event: 'ai_answer', site: m.site, text: m.text, asked: m.asked })).catch(() => {});
+  if (m?.type === 'ai_answer') paired().then(() => tellNovi({ event: 'ai_answer', site: m.site, text: m.text, asked: m.asked })).catch(() => {});
 });
 connect();
 

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { foldDetail } from '../lib/approvalText.js';
+import { foldDetail, togglePick, pickedAnswer, openedCard } from '../lib/approvalText.js';
 import { MessageCircleQuestion, ShieldAlert, ShieldQuestion } from 'lucide-react';
 import PinCapture from './PinCapture.jsx';
 import ChangeList from './ChangeList.jsx';
@@ -25,9 +25,13 @@ const NEED_TEXT = {
   laptop: 'This one needs you at the laptop.',
 };
 
-// One of Claude's own questions: tap an option, type an own answer, or skip (voice works too).
+// One of Claude's own questions: one tap sends the option, or, when several can be picked, tap them and Submit.
+// An own answer or skip works too, and so does voice.
 function QuestionCard({ a, onAnswer }) {
   const [own, setOwn] = useState('');
+  const [picked, setPicked] = useState([]);
+  const options = a.question.options || [];
+  const several = Boolean(a.question.multiSelect);
   return (
     <div className="approval question">
       <div className="approval-title">
@@ -35,13 +39,15 @@ function QuestionCard({ a, onAnswer }) {
         <span>{a.title}</span>
       </div>
       <div className="question-options">
-        {(a.question.options || []).map((o, i) => (
-          <button key={o.label} className="btn" onClick={() => onAnswer(a.id, true, null, { answer: o.label })}>
+        {options.map((o, i) => (
+          <button key={o.label} className={`btn${picked.includes(o.label) ? ' primary' : ''}`} aria-pressed={several ? picked.includes(o.label) : undefined}
+            onClick={() => (several ? setPicked(togglePick(picked, o.label)) : onAnswer(a.id, true, null, { answer: o.label }))}>
             <strong>{i + 1}. {o.label}</strong>
             {o.description && <small className="muted"> {o.description}</small>}
           </button>
         ))}
       </div>
+      {several && <button className="btn primary" disabled={!picked.length} onClick={() => onAnswer(a.id, true, null, { answer: pickedAnswer(options, picked) })}>Submit</button>}
       <form className="question-own" onSubmit={(e) => { e.preventDefault(); if (own.trim()) onAnswer(a.id, true, null, { answer: own.trim() }); }}>
         <input value={own} onChange={(e) => setOwn(e.target.value)} placeholder="Or type your own answer" aria-label="Your own answer" />
         <button className="btn primary" type="submit" disabled={!own.trim()}>Send</button>
@@ -76,7 +82,7 @@ function ApprovalCard({ a, onAnswer, api }) {
           </div>
           {a.plan && <PlanSteps plan={a.plan} />}
           {a.changes ? <ChangeList changes={a.changes} api={api} /> : a.detail && (foldDetail(a.detail)
-            ? <details className="detail"><summary>{/'s plan for /.test(a.title || '') ? 'Show the full plan' : a.source === 'claude' ? 'Show the command' : a.source === 'orchestrator' ? 'Show the full brief' : 'Show details'}</summary><pre>{a.detail}</pre></details>
+            ? <details className="detail" open={openedCard(window.location.search, a.id)}><summary>{/'s plan for /.test(a.title || '') ? 'Show the full plan' : a.source === 'claude' ? 'Show the command' : a.source === 'orchestrator' ? 'Show the full brief' : 'Show details'}</summary><pre>{a.detail}</pre></details>
             : <p className="detail">{a.detail}</p>)}
           {a.tier === 'high' && <p className="warn">High risk — this needs your explicit confirmation.</p>}
           {need && <p className="warn">{NEED_TEXT[need]}</p>}
