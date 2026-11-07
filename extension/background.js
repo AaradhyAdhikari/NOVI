@@ -66,6 +66,7 @@ chrome.storage.onChanged.addListener((changes = {}, area) => {
 });
 chrome.runtime.onMessage.addListener((m, _s, send) => {
   if (m === 'status') send({ status, version: VERSION });
+  if (m?.type === 'ai_watch') paired().then(() => tellNovi({ event: 'ai_watch', site: m.site, counts: m.counts })).catch(() => {});
   if (m?.type === 'ai_answer') paired().then(() => tellNovi({ event: 'ai_answer', site: m.site, text: m.text, asked: m.asked })).catch(() => {});
 });
 connect();

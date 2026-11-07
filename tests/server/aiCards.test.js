@@ -128,6 +128,22 @@ describe('saying it', () => {
 
 describe('watching an answer arrive', () => {
   const step = globalThis.noviWatchStep;
+  // Live 2026-11-07: a short answer landed in one jump with no stop button seen, so it looked like an old chat.
+  it('a short answer right after your prompt counts, even in one jump', () => {
+    const state = {};
+    step(state, { text: '', busy: false, sent: 0 });
+    step(state, { text: '', busy: false, sent: 1 });
+    const seen = [];
+    for (let i = 0; i < 5; i++) seen.push(step(state, { text: 'Paris.', busy: false, sent: 1 }));
+    expect(seen.filter(Boolean)).toEqual(['Paris.']);
+  });
+  it('your prompt counts once: the old answer resting is not reported again', () => {
+    const state = {};
+    step(state, { text: 'Old', busy: false, sent: 1 });
+    const seen = [];
+    for (let i = 0; i < 6; i++) seen.push(step(state, { text: 'Old', busy: false, sent: 1 }));
+    expect(seen.filter(Boolean)).toEqual([]);
+  });
   const run = (samples) => {
     const state = {};
     return samples.map((s) => step(state, s)).filter(Boolean);

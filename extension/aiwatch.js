@@ -12,9 +12,12 @@ const AI_SITES = {
 };
 
 // One check of the page. Reports the text once when an answer that really arrived (the stop button was up,
-// or it grew over several checks) has come to rest. A chat opened from history appears in one jump: no report.
-function noviWatchStep(state, { text, busy }) {
-  if (state.last === undefined) { state.last = text; state.reported = text; state.grew = 0; state.rest = 0; state.wasBusy = false; state.first = true; return null; }
+// it grew over several checks, or you had just sent a prompt) has come to rest. A chat opened from history appears in one jump: no report.
+function noviWatchStep(state, { text, busy, sent = 0 }) {
+  if (state.last === undefined) { state.last = text; state.reported = text; state.grew = 0; state.rest = 0; state.wasBusy = false; state.sent = sent; state.first = true; return null; }
+  // A prompt you just sent: whatever comes next is an answer, however fast (a short one lands in one jump).
+  if (sent > state.sent) state.wasBusy = true;
+  state.sent = sent;
   if (busy) { state.wasBusy = true; state.rest = 0; state.last = text; return null; }
   if (text !== state.last) {
     state.grew += 1;
@@ -37,6 +40,7 @@ if (typeof document !== 'undefined' && typeof chrome !== 'undefined') {
   const isWorkTab = () => { try { return Boolean(sessionStorage.getItem('__noviWork')); } catch { return false; } };
   if (site) {
     const state = {};
+    let lastCounts = '';
     const newest = () => {
       const all = document.querySelectorAll(site.answer);
       return all.length ? String(all[all.length - 1].innerText || '').trim().slice(0, MAX_TEXT) : '';
@@ -48,7 +52,16 @@ if (typeof document !== 'undefined' && typeof chrome !== 'undefined') {
     };
     setInterval(() => {
       if (isWorkTab()) return;
-      const text = noviWatchStep(state, { text: newest(), busy: Boolean(document.querySelector(site.busy)) });
+      const sent = site.mine ? document.querySelectorAll(site.mine).length : 0;
+      const seen = newest();
+      const busy = Boolean(document.querySelector(site.busy));
+      // Counts only, never the words: lets Novi's log show why an answer wasn't reported.
+      const counts = `${document.querySelectorAll(site.answer).length}/${sent}/${busy}/${seen.length > 0}`;
+      if (counts !== lastCounts) {
+        lastCounts = counts;
+        chrome.runtime.sendMessage({ type: 'ai_watch', site: site.name, counts }).catch(() => {});
+      }
+      const text = noviWatchStep(state, { text: seen, busy, sent });
       if (text) chrome.runtime.sendMessage({ type: 'ai_answer', site: site.name, text, asked: asked() }).catch(() => {});
     }, CHECK_MS);
   }

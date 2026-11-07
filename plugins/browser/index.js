@@ -43,6 +43,7 @@ export function createBrowserPlugin({ bridge = null, showImage = null, webDriver
         // A tap on a card's Windows notification (the extension shows it) answers the card (app.js answerCard).
         const onEvent = (e) => {
           if (e.event === 'card') return api.runtime?.answerCard?.(String(e.id || ''), String(e.action || ''));
+          if (e.event === 'ai_watch') { api.logger?.info?.(`[ai-watch] ${String(e.site).slice(0, 20)} answers/prompts/busy/text: ${String(e.counts).slice(0, 40)}`); return null; }
           if (e.event === 'ai_answer') return api.runtime?.aiAnswer?.({ site: e.site, text: e.text, asked: e.asked });
           return null;
         };
