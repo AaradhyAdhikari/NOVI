@@ -30,6 +30,13 @@ describe('loadConfig', () => {
     expect(c.providers.find((p) => p.name === 'cerebras').models.fast).toEqual(['llama-x']);
   });
 
+  it('loads the extra free providers (nvidia, huggingface, cohere) once they have a key, in the default order', () => {
+    const c = loadConfig({ ...base, COHERE_API_KEYS: 'c', NVIDIA_API_KEYS: 'n', HUGGINGFACE_API_KEYS: 'h' });
+    expect(c.providers.map((p) => p.name)).toEqual(['groq', 'gemini', 'nvidia', 'huggingface', 'cohere']);
+    expect(c.order.fast).toEqual(['groq', 'gemini', 'nvidia', 'huggingface', 'cohere']);
+    expect(c.privateProviders).toEqual(['groq']);
+  });
+
   it('orders providers: groq first for both (measured latency), env overrides', () => {
     expect(loadConfig(base).order).toEqual({ fast: ['groq', 'gemini'], long: ['groq', 'gemini'], quick: ['groq', 'gemini'] });
     expect(loadConfig({ ...base, NOVI_FAST_ORDER: 'gemini' }).order.fast).toEqual(['gemini', 'groq']);

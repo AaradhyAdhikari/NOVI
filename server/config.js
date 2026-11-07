@@ -35,11 +35,18 @@ const PROVIDERS = {
   mistral: { baseURL: 'https://api.mistral.ai/v1', fast: ['mistral-small-latest', 'mistral-medium-latest'], long: ['mistral-medium-latest', 'mistral-small-latest'] },
   // GitHub Models: free with a GitHub token (fine-grained, "Models: read"); low daily limits per model.
   githubmodels: { baseURL: 'https://models.github.ai/inference', fast: ['openai/gpt-4.1-mini', 'openai/gpt-4o-mini'], long: ['openai/gpt-4.1-mini', 'openai/gpt-4o-mini'] },
+  // More free backups (listed in public-apis/public-apis → Machine Learning), each used as soon as its key is in .env.
+  // NVIDIA NIM: free developer key (build.nvidia.com, phone check, no card), ~40 requests a minute.
+  nvidia: { baseURL: 'https://integrate.api.nvidia.com/v1', fast: ['openai/gpt-oss-120b', 'meta/llama-3.3-70b-instruct'], long: ['openai/gpt-oss-120b', 'meta/llama-3.3-70b-instruct'] },
+  // Hugging Face router (huggingface.co/settings/tokens, "Make calls to Inference Providers"): small monthly free credit.
+  huggingface: { baseURL: 'https://router.huggingface.co/v1', fast: ['openai/gpt-oss-120b', 'meta-llama/Llama-3.3-70B-Instruct'], long: ['openai/gpt-oss-120b', 'meta-llama/Llama-3.3-70B-Instruct'] },
+  // Cohere trial key (dashboard.cohere.com, no card, ~1,000 calls a month, personal use only), OpenAI-compatible endpoint.
+  cohere: { baseURL: 'https://api.cohere.ai/compatibility/v1', fast: ['command-a-03-2025', 'command-r-plus-08-2024'], long: ['command-a-03-2025', 'command-r-plus-08-2024'] },
 };
 
-const DEFAULT_FAST = ['groq', 'gemini', 'cerebras', 'mistral', 'githubmodels', 'sambanova', 'openrouter'];
+const DEFAULT_FAST = ['groq', 'gemini', 'cerebras', 'mistral', 'githubmodels', 'nvidia', 'huggingface', 'cohere', 'sambanova', 'openrouter'];
 // Groq first for both: measured ~0.5s vs Gemini 12-30s for tool-calling turns (2026-10-02).
-const DEFAULT_LONG = ['groq', 'gemini', 'cerebras', 'mistral', 'githubmodels', 'sambanova', 'openrouter'];
+const DEFAULT_LONG = ['groq', 'gemini', 'cerebras', 'mistral', 'githubmodels', 'nvidia', 'huggingface', 'cohere', 'sambanova', 'openrouter'];
 
 // Every AI provider Novi can use (Settings → System shows which have keys).
 export const PROVIDER_NAMES = Object.keys(PROVIDERS);

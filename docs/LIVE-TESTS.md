@@ -27,10 +27,17 @@ Last updated: 2026-10-22.
 - [ ] Leave it 15 minutes without touching: it closes and needs the PIN again.
 - [ ] "list the screen" answers "Found N things" with no list; "click 3" still works after it.
 
+## Per-app tone (2026-11-07, tests only so far)
+- [ ] Settings > "Hey Novi" > tick "Match the app". Hold Ctrl+Shift+Space in WhatsApp and say a sentence: it comes out casual and short.
+- [ ] The same in Gmail: polite full sentences. In VS Code: file names and code words stay exact, no final full stop.
+- [ ] In Notepad nothing is reworded unless Polish is on too. "type: ..." always stays exact.
+
 ## AI answer cards (2026-11-04, tests only so far)
 - [ ] Install the Novi extension in your everyday Chrome profile: chrome://extensions, Developer mode, Load unpacked, pick C:\dev\NOVI\extension, paste the code from Novi Settings → Browser. Its popup says connected.
-- [ ] Ask ChatGPT something: when it finishes, a card "ChatGPT answered: …. Send it to Claude?" comes with voice on the phone and laptop. Yes sends it to Claude; no does nothing.
+- [ ] Ask ChatGPT something: when it finishes, a small card "ChatGPT finished" with OK comes on the phone. No Approve, nothing goes to Claude.
 - [ ] The same in Gemini, Perplexity and Gamma. Opening an old chat gives no card.
+- [ ] Say "send that to Claude in tip calculator": Claude shows its plan card. With no project named, Novi asks which.
+- [ ] End a prompt on ChatGPT with "send this to Claude in tip calculator": the card says it was sent. Try Gemini and Perplexity too (their prompt selectors are guesses).
 
 ## Every Claude Code session through Novi (2026-11-04, hooks installed in ~/.claude/settings.json)
 - [ ] A Claude Code session asks for permission: a card on the laptop and phone, read out; yes, no or a tap answers it. No answer in 2 minutes: Claude asks in its own window.

@@ -18,6 +18,7 @@ import { dictationCommand, enterCommand, chainCommand, typeNextCommand, sentence
 import { claudeLinkCommand, linkFolderCommand, projectStatusCommand, projectAboutCommand, claudeActivityCommand, claudeUsageCommand } from './claudeLinkCommand.js';
 import { changesCommand } from './changesCommand.js';
 import { commitCommand } from './commitCommand.js';
+import { aiSendCommand } from './aiSendCommand.js';
 import { codemapCommand } from './codemapCommand.js';
 import { diagramCommand } from './diagramCommand.js';
 import { editCommand } from './editCommand.js';
@@ -490,8 +491,9 @@ export class Agent {
       const quickReply = await this._quick(quick, from);
       if (quickReply != null) return this._remember(text, quickReply); // '' = the card's asker already answered
     }
-    // "Commit my work" / "pull my code" (plugins/commit), no AI. A commit answers with its card ('').
-    const commit = commitCommand(text);
+    // "Commit my work" / "pull my code" (plugins/commit), "send that to Claude in X" (plugins/ai-cards), no AI.
+    // A commit answers with its card ('').
+    const commit = commitCommand(text) || aiSendCommand(text);
     if (commit && this.tools.get(commit.tool)) {
       const { output } = await this._runTool({ id: `git-${Date.now()}`, function: { name: commit.tool, arguments: JSON.stringify(commit.args) } }, { direct: true });
       return this._remember(text, output?.error ?? output?.note ?? 'Done.');
@@ -768,7 +770,7 @@ export class Agent {
     if (mem && this.tools.get(mem.tool)) return { quick: null, calls: [{ name: mem.tool, args: mem.args }], reply: null, provider: 'direct' };
     const activity = claudeActivityCommand(text);
     if (activity && this.tools.get('claude_activity')) return { quick: null, calls: [{ name: 'claude_activity', args: {} }], reply: null, provider: 'direct' };
-    const change = commitCommand(text) || changesCommand(text) || claudeUsageCommand(text);
+    const change = commitCommand(text) || aiSendCommand(text) || changesCommand(text) || claudeUsageCommand(text);
     if (change && this.tools.get(change.tool)) return { quick: null, calls: [{ name: change.tool, args: change.args }], reply: null, provider: 'direct' };
     const check = doneCheckCommand(text);
     if (check && this.tools.get(check.tool)) return { quick: null, calls: [{ name: check.tool, args: check.args }], reply: null, provider: 'direct' };

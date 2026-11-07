@@ -9,7 +9,9 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const TOKEN_FILE = path.join(HERE, '..', 'data', 'claude-hook.json');
-const WAITS_FOR_ANSWER = new Set(['PermissionRequest', 'PreToolUse']);
+// Stop too: Claude's next-step question waits there for an answer from the phone.
+const WAITS_FOR_ANSWER = new Set(['PermissionRequest', 'PreToolUse', 'Stop']);
+export const waitsForAnswer = (event) => WAITS_FOR_ANSWER.has(event);
 const CARD_WAIT_MS = 125_000; // Novi's card waits 2 minutes
 const NOTE_WAIT_MS = 3_000;
 const BIG_FIELDS = ['content', 'new_string', 'old_string', 'edits'];
@@ -48,7 +50,7 @@ async function main() {
   for await (const chunk of process.stdin) raw += chunk;
   const hook = JSON.parse(raw);
   const { token } = JSON.parse(fs.readFileSync(TOKEN_FILE, 'utf8'));
-  const answers = WAITS_FOR_ANSWER.has(hook.hook_event_name);
+  const answers = waitsForAnswer(hook.hook_event_name);
   const reply = await post(hookBody(hook), token, answers ? CARD_WAIT_MS : NOTE_WAIT_MS);
   if (answers && reply && reply !== '{}') process.stdout.write(reply);
 }

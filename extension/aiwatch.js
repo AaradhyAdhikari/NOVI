@@ -5,9 +5,9 @@ const REST_CHECKS = 3; // the text must stay the same this many checks
 const CHECK_MS = 1500;
 const MAX_TEXT = 6000;
 const AI_SITES = {
-  'chatgpt.com': { name: 'ChatGPT', busy: 'button[data-testid="stop-button"], button[aria-label*="Stop"]', answer: '[data-markdown-text-style="assistant-message"], [data-message-author-role="assistant"]' },
-  'gemini.google.com': { name: 'Gemini', busy: 'button[aria-label*="Stop response"]', answer: 'model-response' },
-  'www.perplexity.ai': { name: 'Perplexity', busy: 'button[aria-label*="Stop"]', answer: '[id^="markdown-content"], .prose' },
+  'chatgpt.com': { name: 'ChatGPT', mine: '[data-user-message-bubble="true"]', busy: 'button[data-testid="stop-button"], button[aria-label*="Stop"]', answer: '[data-markdown-text-style="assistant-message"], [data-message-author-role="assistant"]' },
+  'gemini.google.com': { name: 'Gemini', mine: 'user-query', busy: 'button[aria-label*="Stop response"]', answer: 'model-response' },
+  'www.perplexity.ai': { name: 'Perplexity', mine: 'h1, [class*="query"]', busy: 'button[aria-label*="Stop"]', answer: '[id^="markdown-content"], .prose' },
   'gamma.app': { name: 'Gamma', busy: '[aria-label*="Stop"], [data-testid*="generating"]', answer: '.ProseMirror' },
 };
 
@@ -41,10 +41,15 @@ if (typeof document !== 'undefined' && typeof chrome !== 'undefined') {
       const all = document.querySelectorAll(site.answer);
       return all.length ? String(all[all.length - 1].innerText || '').trim().slice(0, MAX_TEXT) : '';
     };
+    // The user's own last prompt: saying "send this to Claude in X" there is how a site's answer gets sent.
+    const asked = () => {
+      const all = site.mine ? document.querySelectorAll(site.mine) : [];
+      return all.length ? String(all[all.length - 1].innerText || '').trim().slice(0, 2000) : '';
+    };
     setInterval(() => {
       if (isWorkTab()) return;
       const text = noviWatchStep(state, { text: newest(), busy: Boolean(document.querySelector(site.busy)) });
-      if (text) chrome.runtime.sendMessage({ type: 'ai_answer', site: site.name, text }).catch(() => {});
+      if (text) chrome.runtime.sendMessage({ type: 'ai_answer', site: site.name, text, asked: asked() }).catch(() => {});
     }, CHECK_MS);
   }
 }

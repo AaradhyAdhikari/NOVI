@@ -61,12 +61,31 @@ function didWork(rows) {
   return false;
 }
 
+// The question in the Claude app's next-step box (user, 2026-11-07: "make every request of u come to me through
+// novi"). The box isn't a hook event, so Stop reads it from the transcript: only since the user's last request.
+function nextStepAsk(rows) {
+  for (const row of rows || []) {
+    if (isRequest(row)) return null;
+    if (row?.type !== 'assistant') continue;
+    const use = [].concat(row.message?.content || []).find((c) => c?.type === 'tool_use' && c.name === 'mcp__ccd_turn__wrap_up');
+    if (!use) continue;
+    const text = said(use.input?.ask);
+    if (!text) return null;
+    let actions = use.input?.actions;
+    if (typeof actions === 'string') { try { actions = JSON.parse(actions); } catch { actions = []; } }
+    const options = [].concat(actions || []).map((a) => ({ label: said(a?.label || a?.action) })).filter((o) => o.label);
+    return { id: use.id, text, options };
+  }
+  return null;
+}
+
 // claude-mem's observers run as Claude sessions too; nobody is waiting on them.
 const background = (h) => /claude-mem|observer-sessions/i.test(`${h.cwd || ''} ${h.transcript_path || ''}`);
 
 export function createHookHandler({ ask, say, notice, worked = (cwd, card) => notice(card), now = Date.now }) {
   const sessions = new Map(); // session_id → { project, state, line, at }
   const note = (h, state, line = '') => sessions.set(h.session_id || h.cwd, { project: projectOf(h.cwd), state, line, at: now() });
+  const askedSteps = new Set(); // next-step boxes already sent: Stop comes again after an answer
 
   function planCard(project, plan) {
     const short = planSummary(plan);
@@ -110,6 +129,20 @@ export function createHookHandler({ ask, say, notice, worked = (cwd, card) => no
     return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow', updatedInput: { ...input, answers } } };
   }
 
+  // Your answer goes back through the Stop hook, which is how a hook keeps Claude going.
+  async function nextStep(h, step) {
+    askedSteps.add(step.id);
+    if (askedSteps.size > 200) askedSteps.delete(askedSteps.values().next().value);
+    note(h, 'asking', step.text);
+    const d = await ask({
+      title: `Claude (${projectOf(h.cwd)}) asks: ${step.text}`, tier: 'medium', source: 'claude', timeoutMs: WAIT_MS,
+      question: { text: step.text, options: step.options, multiSelect: false },
+    });
+    if (!d?.allow || !d.answer) { note(h, 'waiting', step.text); return null; } // not answered: the app's box stays
+    note(h, 'working');
+    return { decision: 'block', reason: `The user answered your question on Novi: "${d.answer}". Carry on from that.` };
+  }
+
   async function handle(h = {}) {
     if (h.novi_task || background(h)) return {};
     switch (h.hook_event_name) {
@@ -125,6 +158,11 @@ export function createHookHandler({ ask, say, notice, worked = (cwd, card) => no
         const rows = lastRows(h.transcript_path);
         const line = firstSentence(lastReply(rows));
         note(h, 'finished', line);
+        const step = nextStepAsk(rows);
+        if (step && !askedSteps.has(step.id)) {
+          const answered = await nextStep(h, step);
+          if (answered) return answered;
+        }
         // One card for all of Claude: the newest finish takes the place of the last, whichever project.
         // The commit card comes by itself (user, 2026-11-05); `worked` shows this small card only if it doesn't.
         if (didWork(rows)) Promise.resolve(worked(h.cwd, { key: 'claude', title: `Claude finished in ${projectOf(h.cwd)}`, body: line })).catch(() => {});

@@ -258,8 +258,8 @@ describe('polish with the local AI (2026-11-04)', () => {
     await s.fire('hold_start');
     await s.fire('hold_end');
     expect(s.did.at(-1)).toEqual(['dictate_type', { text: 'Hello' }]);
-    expect(await s.host.route('dictation-cleanup')({ polish: false })).toEqual({ on: true, polish: false });
-    expect(await s.host.route('dictation-cleanup')({ on: false })).toEqual({ on: false, polish: false });
+    expect(await s.host.route('dictation-cleanup')({ polish: false })).toEqual({ on: true, polish: false, tone: false });
+    expect(await s.host.route('dictation-cleanup')({ on: false })).toEqual({ on: false, polish: false, tone: false });
   });
 });
 

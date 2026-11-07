@@ -10,8 +10,9 @@ const TIPS = ['normal', 'quietly', 'quickly', 'from a bit further away', 'with s
 function DictationCleanup({ api }) {
   const [on, setOn] = useState(null);
   const [polish, setPolish] = useState(false);
+  const [tone, setTone] = useState(false);
   const send = (body) => api('/api/plugin/dictation-cleanup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-    .then((r) => r.json()).then((d) => { setOn((old) => d.on ?? old); setPolish((old) => d.polish ?? old); }).catch(() => {});
+    .then((r) => r.json()).then((d) => { setOn((old) => d.on ?? old); setPolish((old) => d.polish ?? old); setTone((old) => d.tone ?? old); }).catch(() => {});
   useEffect(() => { send({}); }, [api]); // eslint-disable-line react-hooks/exhaustive-deps
   if (on === null) return null;
   return (
@@ -21,6 +22,9 @@ function DictationCleanup({ api }) {
       </label>
       <label className="row">
         <input type="checkbox" checked={polish} onChange={(e) => send({ polish: e.target.checked })} /> Polish with the offline AI (better sentences, about 2 s more; stays on this laptop)
+      </label>
+      <label className="row">
+        <input type="checkbox" checked={tone} onChange={(e) => send({ tone: e.target.checked })} /> Match the app (casual in chats, formal in email, careful with code; offline AI, about 2 s more)
       </label>
     </>
   );

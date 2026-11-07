@@ -1,9 +1,9 @@
 {
   "id": "ai-cards",
   "name": "AI answer cards",
-  "description": "Tells you when ChatGPT, Gemini, Perplexity or Gamma finish, and can send the answer to Claude.",
+  "description": "Tells you when ChatGPT, Gemini, Perplexity or Gamma finish, and sends an answer to Claude when you say so.",
   "categories": ["other"],
-  "contracts": { "tools": [] },
+  "contracts": { "tools": ["ai_answer_send"] },
   "activation": { "onStartup": true },
   "configSchema": { "type": "object", "additionalProperties": false }
 }

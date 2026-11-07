@@ -2,6 +2,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { definePluginEntry } from '#plugin-sdk';
 import { createLlama } from './llama.js';
+import { toneLine } from './tone.js';
 
 // Offline rewrite (checklist row "AI rewrite cleanup, offline"): a small model on the laptop polishes
 // dictated words. It may only make them better: a failure, a slow answer or anything that doesn't
@@ -55,8 +56,8 @@ export function createRewritePlugin({ llama = createLlama({ model: MODEL }) } = 
       api.registerTool({
         name: 'text_rewrite',
         description: 'Polish dictated text with the small AI model on the laptop (grammar, punctuation, fillers). Gives the same words back if it cannot.',
-        parameters: { type: 'object', properties: { text: { type: 'string', description: 'The words to polish' }, warm: { type: 'boolean', description: 'Only load the model' } } },
-        async execute(_id, { text, warm } = {}) {
+        parameters: { type: 'object', properties: { text: { type: 'string', description: 'The words to polish' }, tone: { type: 'string', description: 'chat, email or code: the kind of app the words are for' }, warm: { type: 'boolean', description: 'Only load the model' } } },
+        async execute(_id, { text, warm, tone } = {}) {
           if (warm) {
             await llama.warm().catch(() => {});
             return { content: [], details: {} };
@@ -64,7 +65,7 @@ export function createRewritePlugin({ llama = createLlama({ model: MODEL }) } = 
           const said = String(text || '');
           if (!said.trim() || notLatin(said)) return { content: [], details: { text: said } };
           try {
-            return { content: [], details: { text: safeRewrite(said, await llama.ask(POLISH, said)) } };
+            return { content: [], details: { text: safeRewrite(said, await llama.ask(`${POLISH}${toneLine(tone)}`, said)) } };
           } catch (err) {
             api.logger?.warn?.(`[rewrite] kept the words as said: ${err.message}`);
             return { content: [], details: { text: said } };

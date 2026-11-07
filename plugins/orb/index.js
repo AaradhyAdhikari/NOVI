@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { definePluginEntry } from '#plugin-sdk';
 import { createOrbProcess } from './orbProcess.js';
 import { cleanDictation } from '../../server/voice/dictationCleanup.js';
+import { toneFor } from '../rewrite/tone.js';
 
 // The desktop orb (user, 2026-10-18): a small Novi circle, always on top in a corner (draggable,
 // remembered), showing what Novi is doing on the laptop. A tap = "Hey Novi" without saying it;
@@ -32,14 +33,15 @@ export function createOrbPlugin({ platform = process.platform, env = process.env
       const saved = () => { try { return JSON.parse(fs.readFileSync(cleanupFile, 'utf8')); } catch { return {}; } }; // not set yet
       const cleanupOn = () => saved().cleanup ?? String(env.NOVI_DICTATION_CLEANUP || '').toLowerCase() !== 'off';
       const polishOn = () => saved().polish === true;
+      const toneOn = () => saved().tone === true;
       api.registerHttpRoute({
         path: 'dictation-cleanup',
-        handler: ({ on, polish } = {}) => {
-          if (typeof on === 'boolean' || typeof polish === 'boolean') {
+        handler: ({ on, polish, tone } = {}) => {
+          if (typeof on === 'boolean' || typeof polish === 'boolean' || typeof tone === 'boolean') {
             fs.mkdirSync(path.dirname(cleanupFile), { recursive: true });
-            fs.writeFileSync(cleanupFile, JSON.stringify({ ...saved(), ...(typeof on === 'boolean' ? { cleanup: on } : {}), ...(typeof polish === 'boolean' ? { polish } : {}) }));
+            fs.writeFileSync(cleanupFile, JSON.stringify({ ...saved(), ...(typeof on === 'boolean' ? { cleanup: on } : {}), ...(typeof polish === 'boolean' ? { polish } : {}), ...(typeof tone === 'boolean' ? { tone } : {}) }));
           }
-          return { on: cleanupOn(), polish: polishOn() };
+          return { on: cleanupOn(), polish: polishOn(), tone: toneOn() };
         },
       });
 
@@ -51,11 +53,15 @@ export function createOrbPlugin({ platform = process.platform, env = process.env
         const tidy = cleanupOn() ? cleanDictation(text) : text;
         if (!tidy) return; // nothing left but fillers ("um")
         // The local AI, when switched on (plugins/rewrite). It gives the same words back if it can't.
-        const polished = polishOn() ? await rt.callTool('text_rewrite', { text: tidy }).catch(() => null) : null;
+        // Per-app tone: the app that was in front when you started talking. An app with no tone isn't reworded
+        // unless polish is on too.
+        const tone = toneOn() ? toneFor(await heldApp) : null;
+        const polished = polishOn() || tone ? await rt.callTool('text_rewrite', { text: tidy, ...(tone ? { tone } : {}) }).catch(() => null) : null;
         const out = await rt.callTool('dictate_type', { text: polished?.text || tidy });
         if (out?.error) rt.say?.(`I couldn't type that: ${out.error}`, { kind: null, local: true });
       }
       let heldAt = 0;
+      let heldApp = null; // the window title, read when the keys go down
       let open = null; // the 5-minute timer while a tap keeps the mic open
       const finish = () => {
         if (open) clearTimer(open);
@@ -67,7 +73,8 @@ export function createOrbPlugin({ platform = process.platform, env = process.env
         if (e.event === 'hold_start') {
           if (open) return undefined; // the second tap: its key-up ends it
           heldAt = now();
-          if (polishOn()) rt.callTool('text_rewrite', { warm: true }).catch(() => {}); // loads while you talk
+          heldApp = toneOn() ? Promise.resolve().then(() => rt.activeWindowTitle?.()).catch(() => '') : null;
+          if (polishOn() || toneOn()) rt.callTool('text_rewrite', { warm: true }).catch(() => {}); // loads while you talk
           return rt.wake?.hold?.({ maxMs: LONG_MS });
         }
         if (e.event === 'hold_end') {
