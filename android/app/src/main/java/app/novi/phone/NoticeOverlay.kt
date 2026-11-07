@@ -87,6 +87,11 @@ class NoticeOverlay(private val svc: NoviService) {
             ellipsize = TextUtils.TruncateAt.END
         })
         row.addView(words)
+        if (n.link.isNotBlank()) row.addView(Button(ctx).apply {
+            text = "Update"
+            isAllCaps = false
+            setOnClickListener { svc.openLink(n.link) }
+        })
         row.addView(Button(ctx).apply {
             text = "OK"
             isAllCaps = false

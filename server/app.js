@@ -1,4 +1,6 @@
 import { createQuiet } from './quiet.js';
+import { createPhoneOnly } from './phoneOnly.js';
+import { latestApp, updateCard } from './appUpdate.js';
 import { createCodeEdits } from './codeEdits.js';
 import { createActivity } from './activity.js';
 import { createLearning } from './brain/learning.js';
@@ -75,6 +77,15 @@ export function createNovi(config, overrides = {}) {
   let working = 0;
   const lag = overrides.lag || createLagMeter({ logger: console });
   const notices = createNotices();
+  // The phone app's version, said when it connects: an older one gets "Update required", an updated one loses it.
+  const newestApp = overrides.latestApp || (() => latestApp(path.resolve('android/app/build/outputs/apk/debug/output-metadata.json')));
+  function checkAppVersion(reported) {
+    const waiting = notices.list().find((n) => n.key === 'app-update');
+    const newest = newestApp();
+    const card = updateCard(reported, newest);
+    if (card && !waiting) notices.add(card);
+    if (!card && waiting && Number.isFinite(reported)) notices.ok(waiting.id);
+  }
   const memory = overrides.memory || new Memory(path.join(config.dataDir, 'memory.json'), { projectsDir: config.projectsDir });
   const accounts = overrides.accounts || new AccountRegistry(path.join(config.dataDir, 'accounts.json'));
   const secrets = new SecretStore({ file: path.join(config.dataDir, 'secrets.json'), cipher: overrides.cipher || defaultCipher(config.dataDir) });
@@ -308,6 +319,7 @@ export function createNovi(config, overrides = {}) {
   const tools = plugins;
   // Quiet mode: nothing spoken anywhere, everything still on screen (the chip shows it).
   const quietStore = overrides.quiet || createQuiet({ file: path.join(config.dataDir, 'quiet.json') });
+  const laptopSilent = overrides.phoneOnly || createPhoneOnly({ file: path.join(config.dataDir, 'phone-only.json') });
   const quiet = {
     on: (minutes) => { quietStore.on(minutes); broadcast({ type: 'quiet', ...quietStore.state() }); },
     off: () => { quietStore.off(); broadcast({ type: 'quiet', ...quietStore.state() }); },
@@ -320,7 +332,7 @@ export function createNovi(config, overrides = {}) {
   const shortcuts = overrides.shortcuts || createShortcuts({ file: path.join(config.dataDir, 'shortcuts.json'), seeds: SEEDS });
   // The learning loop (server/brain/learning.js): misses noticed, the words that failed learned from the fix.
   const learning = overrides.learning || createLearning({ file: path.join(config.dataDir, 'learning', 'learning.json'), shortcuts });
-  const agent = overrides.agent || new Agent({ router, tools, approvals, memory, tasks, accounts, privateProviders: config.privateProviders || ['groq'], summarize: (text) => plugins.runtime.privateComplete(text), activity, quiet, shortcuts, learning });
+  const agent = overrides.agent || new Agent({ phoneOnly: laptopSilent, router, tools, approvals, memory, tasks, accounts, privateProviders: config.privateProviders || ['groq'], summarize: (text) => plugins.runtime.privateComplete(text), activity, quiet, shortcuts, learning });
   // Every Monday morning: last week's misses as a note in Novi Memory ("Novi's mistakes").
   const weeklyMistakes = everyDayAt({
     time: '09:10',
@@ -448,7 +460,8 @@ export function createNovi(config, overrides = {}) {
   const push = overrides.push || createPush({ dir: path.join(config.dataDir, 'push') });
   const missed = createMissedQueue();
   const transcript = [];
-  const send = (ws, msg) => !(msg.type === 'speak' && quiet.isOn()) && ws.readyState === 1 && ws.send(JSON.stringify(msg));
+  const hushed = (ws, msg) => msg.type === 'speak' && (quiet.isOn() || (laptopSilent.isOn() && viewerKey(ws) === 'local'));
+  const send = (ws, msg) => !hushed(ws, msg) && ws.readyState === 1 && ws.send(JSON.stringify(msg));
   // With no Novi page open, spoken lines go to the laptop speakers instead (Windows voice).
   const localSpeaker = overrides.localSpeaker || null;
   // The wake listener must know when the laptop is talking ("Hey Novi" then interrupts it).
@@ -459,7 +472,7 @@ export function createNovi(config, overrides = {}) {
   let wakeTools = null; // { capture, setThreshold, threshold, setSpeaking } from the wake-word service
   let talking = 0;
   const speakLocal = (text) => {
-    if (!localSpeaker) return;
+    if (!localSpeaker || laptopSilent.isOn()) return;
     if (++talking === 1) wakeTools?.setSpeaking?.(true);
     laptopState.speaking(true);
     Promise.resolve(localSpeaker(text)).catch(() => {}).finally(() => {
@@ -490,11 +503,11 @@ export function createNovi(config, overrides = {}) {
   const sendTo = (from, msg) => {
     noteSpoken(msg);
     // Quiet mode: nothing is spoken; lines that were only spoken (show: true) go into the chat.
-    if (msg.type === 'speak' && quiet.isOn()) {
+    const key = deviceKey(from);
+    if (msg.type === 'speak' && (quiet.isOn() || (laptopSilent.isOn() && key === 'local'))) {
       if (msg.show && msg.text) say('novi', msg.text, from);
       return;
     }
-    const key = deviceKey(from);
     if (key === 'local') laptopState.feed(msg);
     let reached = 0;
     if (msg.type === 'speak') {
@@ -597,7 +610,7 @@ export function createNovi(config, overrides = {}) {
     // notification from the Novi extension), with the short task and buttons that answer it.
     const alert = cardAlert(approval);
     for (const device of push.devices?.() || []) push.sendCard(device, alert).catch(() => {});
-    Promise.resolve(plugins.runtime.laptopNotify?.(alert)).catch(() => {});
+    if (!laptopSilent.isOn()) Promise.resolve(plugins.runtime.laptopNotify?.(alert)).catch(() => {});
     // A yes / no by voice is possible: the device that asked listens for it right after the question
     // (its page through `listen`, the laptop mic without "Hey Novi").
     // High-risk cards too: the answer can be the voice PIN (user's choice 2026-10-28).
@@ -606,7 +619,7 @@ export function createNovi(config, overrides = {}) {
     const readMs = readOuts.add([text, appCard(approval).spoken]);
     sendTo(active, { type: 'speak', text, ...(listen ? { listen: true } : {}) });
     // The answer counts even while she is still reading (user, 2026-11-04).
-    if (listen && deviceKey(active) === 'local') wakeTools?.listen?.({ overSpeech: true, waitMs: readMs + 10000, card: approval.id });
+    if (listen && deviceKey(active) === 'local' && !laptopSilent.isOn()) wakeTools?.listen?.({ overSpeech: true, waitMs: readMs + 10000, card: approval.id });
   });
   notices.on('added', (notice) => broadcast({ type: 'notice_added', notice }));
   notices.on('gone', ({ id }) => broadcast({ type: 'notice_gone', id }));
@@ -789,6 +802,12 @@ export function createNovi(config, overrides = {}) {
     res.json(graph);
   });
   // Settings → Shortcuts (laptop only): see and remove what Novi learned.
+  app.get('/api/phone-only', (req, res) => localOnly(req, res) && res.json({ on: laptopSilent.isOn() }));
+  app.post('/api/phone-only', (req, res) => {
+    if (!localOnly(req, res)) return;
+    if (typeof req.body?.on === 'boolean') laptopSilent.set(req.body.on);
+    res.json({ on: laptopSilent.isOn() });
+  });
   app.get('/api/shortcuts', (req, res) => localOnly(req, res) && res.json({ shortcuts: shortcuts.list() }));
   app.delete('/api/shortcuts', (req, res) => localOnly(req, res) && res.json({ removed: shortcuts.forget(String(req.query.key || '')) }));
   app.get('/api/wiki/note', (req, res) => tryJson(res, () => readNote(wikiVault, req.query.id)));
@@ -1091,6 +1110,13 @@ export function createNovi(config, overrides = {}) {
     res.sendFile(path.resolve(dir, req.params.file));
   });
 
+  // The newest phone app, from where it is built: a copy in dist/ was wiped by every screen rebuild.
+  app.get('/Novi.apk', (req, res, next) => {
+    const apk = path.resolve('android/Novi.apk');
+    if (!fs.existsSync(apk)) return next();
+    res.type('application/vnd.android.package-archive').sendFile(apk);
+  });
+
   const dist = config.distDir || path.resolve('dist');
   if (fs.existsSync(dist)) {
     app.use(express.static(dist));
@@ -1237,6 +1263,7 @@ export function createNovi(config, overrides = {}) {
     const wss = new WebSocketServer({ server, path: '/ws' });
     wss.on('connection', (ws, req) => {
       ws.host = String(req.headers.host || '');
+      ws.agent = /okhttp/i.test(String(req.headers['user-agent'] || '')) ? 'app service' : 'page';
       if (!originAllowed(req)) {
         ws.close(4003, 'Cross-site connection blocked');
         return;
@@ -1259,7 +1286,7 @@ export function createNovi(config, overrides = {}) {
         try { msg = JSON.parse(data); } catch { return; }
         if (!authed) {
           const paired = msg.type === 'hello' && pairing.verify(msg.token);
-          if (paired) { authed = true; token = msg.token; ws.deviceId = paired.id; admit(); } else ws.close(4001, 'Not paired');
+          if (paired) { authed = true; token = msg.token; ws.deviceId = paired.id; admit(); console.log(`[app] ${ws.agent} connected, build ${msg.appVersion ?? 'not reported'}`); checkAppVersion(msg.appVersion); } else ws.close(4001, 'Not paired');
           return;
         }
         if (msg.type === 'hello') return;
@@ -1319,5 +1346,5 @@ export function createNovi(config, overrides = {}) {
     broadcast({ type: 'stop_speaking' });
   };
 
-  return { app, activity, agent, transcriptFor: (from) => transcript.filter((e) => e.device === deviceKey(from)), shortcuts, stepsOn: () => Boolean(agent.stepsOn?.() || agent.screenModeOn?.()), codeEdits, setQuiet: (on, minutes) => (on ? quiet.on(minutes) : quiet.off()), attachWebSocket, remotePin, setWakeTools, setSpeakerVerifier, checkVoice, stopSpeaking, wakeThreshold, snapshot, runVoiceCommand, handleMessage, setWakeWord, memory, accounts, approvals, tasks, router, agent, tools, plugins, pairing, broadcast };
+  return { checkAppVersion, app, activity, agent, transcriptFor: (from) => transcript.filter((e) => e.device === deviceKey(from)), shortcuts, stepsOn: () => Boolean(agent.stepsOn?.() || agent.screenModeOn?.()), codeEdits, setQuiet: (on, minutes) => (on ? quiet.on(minutes) : quiet.off()), attachWebSocket, remotePin, setWakeTools, setSpeakerVerifier, checkVoice, stopSpeaking, wakeThreshold, snapshot, runVoiceCommand, handleMessage, setWakeWord, memory, accounts, approvals, tasks, router, agent, tools, plugins, pairing, broadcast };
 }

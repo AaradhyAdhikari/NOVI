@@ -12,6 +12,7 @@ export default function NoticeCards({ notices = [], onOk }) {
             <strong>{n.title}</strong>
             {n.body && <p>{n.body}</p>}
           </div>
+          {n.link && <a className="btn primary" href={n.link}>Update</a>}
           <button className="btn" onClick={() => onOk(n.id)}>OK</button>
         </div>
       ))}

@@ -122,6 +122,32 @@ class LogicTest {
         assertNull(parseCard(JSONObject("""{"alert":{"id":"a","title":"Start?","actions":[]}}"""))!!.question)
     }
 
+    @Test fun shortReadOuts() {
+        val question = Question("Which theme?", listOf(QuestionOption("Dark", ""), QuestionOption("Light", "")), false)
+        assertEquals("Claude has a question.", shortLine(Card("1", "Claude asks: Which theme?", spoken = "Which theme? One, Dark. Two, Light.", question = question)))
+        assertEquals("NOVI: run the tests.", shortLine(Card("2", "Claude (NOVI) wants to run a command", spoken = "NOVI: run the tests. Say yes or no.")))
+        assertEquals("Commit and push 4 files in NOVI?", shortLine(Card("3", "Commit and push 4 files in NOVI?")))
+        val long = "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen"
+        assertEquals("one two three four five six seven eight nine ten eleven twelve", shortLine(Card("4", "t", spoken = long)))
+    }
+
+    @Test fun earbudsAreHeadsetsOnly() {
+        for (type in listOf(3, 4, 7, 8, 22, 26)) assertEquals(true, isEarbuds(type))
+        for (type in listOf(1, 2, 15)) assertEquals(false, isEarbuds(type))
+    }
+
+    @Test fun cardLinksStayOnNovi() {
+        assertEquals("https://novi.ts.net:3001/Novi.apk", noviLink("https://novi.ts.net:3001/", "/Novi.apk"))
+        assertEquals(null, noviLink("https://novi.ts.net:3001", "https://evil.example/a.apk"))
+        assertEquals(null, noviLink("https://novi.ts.net:3001", "//evil.example/a.apk"))
+    }
+
+    @Test fun voiceLevelStaysAudible() {
+        assertEquals(0.5f, voiceLevel(50))
+        assertEquals(0.1f, voiceLevel(0))
+        assertEquals(1f, voiceLevel(150))
+    }
+
     @Test fun submitOnlyWhenPickingSeveralOrTyping() {
         assertEquals(false, showSubmit(multiSelect = false, typingOwn = false))
         assertEquals(true, showSubmit(multiSelect = true, typingOwn = false))

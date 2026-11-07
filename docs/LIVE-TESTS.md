@@ -34,7 +34,7 @@ Last updated: 2026-10-22.
 
 ## AI answer cards (2026-11-04, tests only so far)
 - [ ] Install the Novi extension in your everyday Chrome profile: chrome://extensions, Developer mode, Load unpacked, pick C:\dev\NOVI\extension, paste the code from Novi Settings → Browser. Its popup says connected.
-- [ ] Ask ChatGPT something: when it finishes, a small card "ChatGPT finished" with OK comes on the phone. No Approve, nothing goes to Claude.
+- [x] (2026-11-07) Ask ChatGPT something: when it finishes, a small card "ChatGPT finished" with OK comes on the phone. No Approve, nothing goes to Claude.
 - [ ] The same in Gemini, Perplexity and Gamma. Opening an old chat gives no card.
 - [ ] Say "send that to Claude in tip calculator": Claude shows its plan card. With no project named, Novi asks which.
 - [ ] End a prompt on ChatGPT with "send this to Claude in tip calculator": the card says it was sent. Try Gemini and Perplexity too (their prompt selectors are guesses).

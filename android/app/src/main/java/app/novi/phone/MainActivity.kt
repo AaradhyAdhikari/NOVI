@@ -49,6 +49,14 @@ class MainActivity : ComponentActivity() {
      * the speech back as a WAV. Ends on a pause, after 8 s of nothing, or on stop().
      */
     private inner class Bridge {
+        /** Earbuds-only: the page stays silent with none in. */
+        @JavascriptInterface
+        fun mayTalk(): Boolean = NoviService.instance?.mayTalk() ?: true
+
+        /** The page's voice follows the app's volume slider. */
+        @JavascriptInterface
+        fun voiceVolume(): Float = voiceLevel(store.voicePercent)
+
         @JavascriptInterface
         fun record(id: String) {
             if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
@@ -132,7 +140,8 @@ class MainActivity : ComponentActivity() {
             webViewClient = object : WebViewClient() {
                 // Novi's own pages stay here; any other link opens in the phone's browser.
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-                    if (request.url.toString().startsWith(base)) return false
+                    // Except the app file: a WebView can't download it, the browser can.
+                    if (request.url.toString().startsWith(base) && request.url.path?.endsWith(".apk") != true) return false
                     runCatching { startActivity(Intent(Intent.ACTION_VIEW, request.url)) }
                     return true
                 }

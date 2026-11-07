@@ -77,6 +77,35 @@ class SetupActivity : ComponentActivity() {
         perms = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         col.addView(perms)
 
+        col.addView(heading("Novi's voice volume"))
+        val level = TextView(this).apply { text = "${store.voicePercent}%" }
+        col.addView(level)
+        col.addView(android.widget.SeekBar(this).apply {
+            max = 90
+            progress = store.voicePercent - 10
+            setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(bar: android.widget.SeekBar, value: Int, fromUser: Boolean) {
+                    level.text = "${value + 10}%"
+                }
+                override fun onStartTrackingTouch(bar: android.widget.SeekBar) {}
+                override fun onStopTrackingTouch(bar: android.widget.SeekBar) {
+                    store.voicePercent = bar.progress + 10
+                    NoviService.instance?.say("This is how loud I'll be.", always = true)
+                }
+            })
+        })
+
+        col.addView(android.widget.Switch(this).apply {
+            text = "Short read-outs: she never lists the options"
+            isChecked = store.shortReadOuts
+            setOnCheckedChangeListener { _, on -> store.shortReadOuts = on }
+        })
+        col.addView(android.widget.Switch(this).apply {
+            text = "Speak only through earbuds: silent cards without them"
+            isChecked = store.earbudsOnly
+            setOnCheckedChangeListener { _, on -> store.earbudsOnly = on }
+        })
+
         col.addView(heading("3. Try it"))
         col.addView(row(
             button("Send a test card") {

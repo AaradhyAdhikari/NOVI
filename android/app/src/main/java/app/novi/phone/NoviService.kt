@@ -155,7 +155,7 @@ class NoviService : Service() {
         socket?.cancel()
         socket = n.socket(object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                webSocket.send(JSONObject().put("type", "hello").put("token", token).toString())
+                webSocket.send(JSONObject().put("type", "hello").put("token", token).put("appVersion", appVersion()).toString())
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -230,6 +230,7 @@ class NoviService : Service() {
             "approval_resolved" -> {
                 val id = msg.optString("id")
                 if (listeningFor == id) stopListening = true
+                hush()
                 cards.remove(id)
                 answered(id)
                 main.postDelayed({ showTop() }, 1500)
@@ -342,6 +343,15 @@ class NoviService : Service() {
         if (android.os.Build.VERSION.SDK_INT >= 34 && !nm.canUseFullScreenIntent()) runCatching { startActivity(open) }
     }
 
+    private fun appVersion(): Long =
+        androidx.core.content.pm.PackageInfoCompat.getLongVersionCode(packageManager.getPackageInfo(packageName, 0))
+
+    /** Update on the card: the phone's browser downloads the new app from the laptop, then Android installs it. */
+    fun openLink(link: String) {
+        val url = noviLink(store.base.orEmpty(), link) ?: return
+        runCatching { startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+    }
+
     /** OK on a small card: gone here at once, and everywhere else through Novi. */
     fun noticeOk(id: String) {
         notices.removeAll { it.id == id }
@@ -393,7 +403,12 @@ class NoviService : Service() {
      * stops. After the read-out it keeps listening a little (10 s for Claude's questions, else 5 s).
      */
     private fun speakAndListen(card: Card) {
-        val line = card.spoken.ifEmpty { card.title }
+        val line = if (store.shortReadOuts) shortLine(card) else card.spoken.ifEmpty { card.title }
+        // Earbuds-only with none in: the card and its buzz are enough, and the mic stays off.
+        if (!mayTalk()) {
+            status(card.id, "Tap a button to answer.")
+            return
+        }
         val allowed = cards.top()?.id == card.id &&
             checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
         // Android lets a background app record only as a microphone foreground service.
@@ -573,13 +588,23 @@ class NoviService : Service() {
         AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT).setAudioAttributes(speech).build()
     }
 
+    /** False when she may only use earbuds and none are in. */
+    fun mayTalk(): Boolean = !store.earbudsOnly ||
+        getSystemService(AudioManager::class.java).getDevices(AudioManager.GET_DEVICES_OUTPUTS).any { isEarbuds(it.type) }
+
+    /** Answered: she stops reading at once (user, 2026-11-07: the other options don't matter any more). */
+    private fun hush() {
+        tts?.stop()
+        speakingNow = false
+    }
+
     /**
      * Out loud, with the video or music turned down meanwhile — or paused (`pause`, a card: it stays
      * paused while the answer is listened for; `endListening` lets it play again). `then` runs after.
      */
-    fun say(text: String, pause: Boolean = false, call: Boolean = false, then: (() -> Unit)? = null) {
+    fun say(text: String, pause: Boolean = false, call: Boolean = false, always: Boolean = false, then: (() -> Unit)? = null) {
         val t = tts
-        if (t == null || text.isBlank()) {
+        if (t == null || text.isBlank() || (!always && !mayTalk())) {
             then?.invoke()
             return
         }
@@ -594,13 +619,21 @@ class NoviService : Service() {
                 main.post { then?.invoke() }
             }
 
+            // tts.stop() lands here, not in onDone: a video paused for the read-out must still play again.
+            override fun onStop(id: String?, interrupted: Boolean) {
+                if (!pause) audio.abandonAudioFocusRequest(focus)
+                main.post { then?.invoke() }
+            }
+
             @Deprecated("old API")
             override fun onError(id: String?) {
                 if (!pause) audio.abandonAudioFocusRequest(focus)
                 main.post { then?.invoke() }
             }
         })
-        t.speak(text, TextToSpeech.QUEUE_FLUSH, null, "novi")
+        // Novi's own level, separate from the phone's volume keys.
+        val level = android.os.Bundle().apply { putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, voiceLevel(store.voicePercent)) }
+        t.speak(text, TextToSpeech.QUEUE_FLUSH, level, "novi")
     }
 
     /** Without "Display over other apps": at least a loud notification that opens this app. */
@@ -619,6 +652,7 @@ class NoviService : Service() {
     /** A card button: approve / deny / opt:N / choice:ID, through the same route as the phone popups. */
     fun answer(card: Card, action: String) {
         stopListening = true
+        hush()
         val n = net ?: return
         status(card.id, "Sending…")
         work.execute {
@@ -644,6 +678,7 @@ class NoviService : Service() {
     /** Claude's question answered on the card: the picked option(s) or your own words. */
     fun answerQuestion(card: Card, answer: String) {
         stopListening = true
+        hush()
         val msg = JSONObject().put("type", "approval").put("id", card.id).put("allow", true).put("answer", answer)
         status(card.id, if (socket?.send(msg.toString()) == true) "Sent: $answer" else "Not connected to Novi.")
     }

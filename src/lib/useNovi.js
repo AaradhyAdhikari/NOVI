@@ -47,6 +47,8 @@ export function useNovi({ onSpeak }) {
         case 'approval_updated': setState((s) => ({ ...s, approvals: s.approvals.map((a) => (a.id === msg.approval.id ? { ...msg.approval, need: a.need } : a)) })); break;
         case 'approval_needs_proof': setState((s) => ({ ...s, approvals: s.approvals.map((a) => (a.id === msg.id ? { ...a, need: msg.need } : a)) })); break;
         case 'approval_resolved': {
+          // Answered: no point reading the rest of it out (user, 2026-11-07).
+          stopSpeaking();
           // The card goes; a short status ("Approved", "Change sent") shows for a moment (2026-10-28).
           const at = Date.now();
           setState((s) => ({ ...s, approvals: s.approvals.filter((a) => a.id !== msg.id), resolvedNote: { text: resolvedText(msg), at } }));

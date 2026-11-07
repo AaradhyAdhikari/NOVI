@@ -14,6 +14,20 @@ import CommandHistory from './CommandHistory.jsx';
 import ActivityLog from './ActivityLog.jsx';
 import BrowserSetup from './BrowserSetup.jsx';
 
+// The laptop says nothing and shows no Windows popups; the phone gets everything. Settings of the laptop only.
+function PhoneOnly({ api }) {
+  const [on, setOn] = useState(null);
+  const send = (body) => api('/api/phone-only', body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : undefined)
+    .then((r) => (r.ok ? r.json() : null)).then((d) => d && setOn(d.on)).catch(() => {});
+  useEffect(() => { send(); }, [api]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (on === null) return <p className="muted">Open Settings on the laptop to change this, or say "phone only" or "laptop voice on".</p>;
+  return (
+    <label className="row">
+      <input type="checkbox" checked={on} onChange={(e) => send({ on: e.target.checked })} /> Phone only: the laptop stays silent and shows no popups
+    </label>
+  );
+}
+
 export default function SettingsDrawer({ open, onClose, projects, devices, accounts = [], googleConfigured, api, isLocal }) {
   const [pairing, setPairing] = useState(null);
   const [accountMsg, setAccountMsg] = useState(null);
@@ -112,6 +126,11 @@ export default function SettingsDrawer({ open, onClose, projects, devices, accou
               </li>
             ))}
           </ul>
+        </section>
+
+        <section>
+          <h3>Phone only</h3>
+          <PhoneOnly api={api} />
         </section>
 
         <section>

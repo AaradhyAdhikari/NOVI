@@ -15,11 +15,15 @@ data class QuestionOption(val label: String, val description: String = "")
 data class Question(val text: String, val options: List<QuestionOption>, val multiSelect: Boolean = false)
 
 /** A small card that only says something happened: one OK. */
-data class Notice(val id: String, val title: String, val body: String = "", val repeat: Boolean = false)
+data class Notice(val id: String, val title: String, val body: String = "", val repeat: Boolean = false, val link: String = "")
+
+/** A card's link stays on Novi: only a path on the laptop this phone is paired with. */
+fun noviLink(base: String, link: String): String? =
+    if (link.startsWith("/") && !link.startsWith("//")) base.trimEnd('/') + link else null
 
 private fun noticeFrom(n: JSONObject?): Notice? {
     val id = n?.optString("id").orEmpty()
-    return if (id.isEmpty()) null else Notice(id, n!!.optString("title"), n.optString("body"), n.optBoolean("repeat"))
+    return if (id.isEmpty()) null else Notice(id, n!!.optString("title"), n.optString("body"), n.optBoolean("repeat"), n.optString("link"))
 }
 
 fun parseNotice(msg: JSONObject): Notice? = noticeFrom(msg.optJSONObject("notice"))
@@ -97,6 +101,21 @@ data class Card(
     val changes: Changes? = null,
     val plan: Plan? = null,
 )
+
+/** The read-out when short read-outs are on: the card shows the rest, so she never lists the options. */
+fun shortLine(c: Card): String {
+    if (c.question != null) return "Claude has a question."
+    val all = c.spoken.ifEmpty { c.title }.trim()
+    val first = Regex("^.+?[.?!](?=\\s|$)").find(all)?.value ?: all
+    val words = first.split(Regex("\\s+"))
+    return if (words.size > 12) words.take(12).joinToString(" ") else first
+}
+
+/** Earbuds and headphones, by Android's AudioDeviceInfo type: wired, Bluetooth, USB and BLE. */
+fun isEarbuds(type: Int): Boolean = type in setOf(3, 4, 7, 8, 22, 26)
+
+/** Novi's voice level from the app's slider: never fully silent by mistake, so a card can't go unheard. */
+fun voiceLevel(percent: Int): Float = percent.coerceIn(10, 100) / 100f
 
 /** Submit is only for picking several, or your own typed words; otherwise one tap on an option sends it. */
 fun showSubmit(multiSelect: Boolean, typingOwn: Boolean): Boolean = multiSelect || typingOwn

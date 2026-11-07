@@ -43,3 +43,22 @@ export function startAppRecording({ app, onAutoDone = () => {} }) {
 }
 
 if (typeof window !== 'undefined') window.__noviAppAudio = deliverAppAudio;
+
+// The voice level set in the phone app (0.1 to 1); full in a plain browser.
+export function appVolume(bridge = globalThis.window?.NoviApp) {
+  try {
+    const v = Number(bridge?.voiceVolume?.());
+    return Number.isFinite(v) && v > 0 ? Math.min(1, Math.max(0.1, v)) : (v < 0 ? 0.1 : 1);
+  } catch {
+    return 1;
+  }
+}
+
+// Earbuds-only in the phone app: no earbuds in means no voice from the page either.
+export function appMayTalk(bridge = globalThis.window?.NoviApp) {
+  try {
+    return bridge?.mayTalk ? bridge.mayTalk() !== false : true;
+  } catch {
+    return true;
+  }
+}

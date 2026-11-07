@@ -1,3 +1,5 @@
+import { appVolume, appMayTalk } from './appRecorder.js';
+
 // 'start' / 'end' while Novi talks (hands-free pauses listening), 'spoken' once a message has been delivered.
 export const speechEvents = new EventTarget();
 const emit = (type, text) => speechEvents.dispatchEvent(new CustomEvent(type, { detail: { text } }));
@@ -10,7 +12,7 @@ let current = null;
 
 export function speak(text, { muted, api } = {}) {
   if (!text) return;
-  if (muted) {
+  if (muted || !appMayTalk()) {
     emit('spoken', text);
     return;
   }
@@ -38,6 +40,7 @@ async function playNatural(text, api, gen) {
   try {
     if (gen !== generation) return;
     const audio = new Audio(url);
+    audio.volume = appVolume();
     current = audio;
     await new Promise((resolve, reject) => {
       audio.onended = resolve;
@@ -56,6 +59,7 @@ function speakWithBrowser(text) {
   return new Promise((resolve) => {
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.rate = 1.05;
+    utterance.volume = appVolume();
     utterance.onend = resolve;
     utterance.onerror = resolve;
     window.speechSynthesis.speak(utterance);

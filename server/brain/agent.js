@@ -29,6 +29,7 @@ import { parseApproval } from './approvalIntent.js';
 import { describeTurn } from '../activity.js';
 import { learningCommand } from './learning.js';
 import { quietCommand } from '../quiet.js';
+import { phoneOnlyCommand } from '../phoneOnly.js';
 import path from 'node:path';
 import fs from 'node:fs';
 
@@ -325,9 +326,10 @@ export function describeStatus(s) {
 }
 
 export class Agent {
-  constructor({ router, tools, approvals, memory, tasks, accounts = null, privateProviders = ['groq'], summarize = null, activity = null, quiet = null, shortcuts = null, learning = null, logger = console, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
+  constructor({ phoneOnly = null, router, tools, approvals, memory, tasks, accounts = null, privateProviders = ['groq'], summarize = null, activity = null, quiet = null, shortcuts = null, learning = null, logger = console, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
     this.activity = activity; // "what happened" log (server/activity.js)
     this.quiet = quiet; // quiet mode (server/quiet.js): no speech, everything on screen
+    this.phoneOnly = phoneOnly; // phone-only (server/phoneOnly.js): nothing spoken or popped up on the laptop
     this.shortcuts = shortcuts; // learned shortcuts (server/brain/shortcuts.js): words → one quiet tool
     this.learning = learning; // the learning loop (server/brain/learning.js): misses noticed, corrections learned
     this.sleep = sleep;
@@ -374,6 +376,12 @@ export class Agent {
   async _handle(text, { from = 'local', phoneApp = null } = {}) {
     this._from = from; // who asked, for plugin approvals (phone warnings)
     this._turnYes = new Set(); // kinds of step the user said yes to in this request
+    // "Phone only" / "laptop voice on".
+    const phoneWord = this.phoneOnly ? phoneOnlyCommand(text) : null;
+    if (phoneWord !== null) {
+      this.phoneOnly.set(phoneWord);
+      return this._remember(text, phoneWord ? "Okay, phone only. The laptop stays silent." : 'Okay, the laptop can talk again.');
+    }
     // "Novi, quiet" / "quiet for 30 minutes" / "talk again".
     const hush = this.quiet && quietCommand(text);
     if (hush) {

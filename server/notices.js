@@ -19,11 +19,11 @@ export function createNotices({ limit = 10, now = Date.now } = {}) {
   };
   return {
     on: (name, fn) => events.on(name, fn),
-    add({ key, title, body = '' }) {
+    add({ key, title, body = '', link = null }) {
       for (const n of items.filter((x) => key && x.key === key)) drop(n.id);
       const repeat = Boolean(key) && now() - (lastSound.get(key) ?? -Infinity) < QUIET_MS;
       if (!repeat) lastSound.set(key, now());
-      const notice = { id: crypto.randomUUID(), key, title: String(title).slice(0, 120), body: String(body).slice(0, 200), at: now(), repeat };
+      const notice = { id: crypto.randomUUID(), key, title: String(title).slice(0, 120), body: String(body).slice(0, 200), ...(link ? { link } : {}), at: now(), repeat };
       items.push(notice);
       while (items.length > limit) drop(items[0].id);
       events.emit('added', notice);
