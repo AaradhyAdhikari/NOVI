@@ -103,7 +103,7 @@ describe('apps', () => {
   it('resolves exact and unique names, otherwise returns candidates', () => {
     expect(resolveApp(APPS, 'calculator').app.appId).toBe('Microsoft.WindowsCalculator_8wekyb3d8bbwe!App');
     expect(resolveApp(APPS, 'spotify').app.name).toBe('Spotify');
-    expect(resolveApp(APPS, 'vs code')).toBeNull();
+    expect(resolveApp(APPS, 'vs code').app.name).toBe('Visual Studio Code');
     expect(resolveApp(APPS, 'visual studio').app.name).toBe('Visual Studio Code');
     expect(resolveApp(APPS, 'code').candidates.map((a) => a.name)).toEqual(['CodeBlocks', 'CodeBlocks (Launcher)', 'Visual Studio Code']);
     expect(resolveApp(APPS, 'photoshop')).toBeNull();
@@ -213,6 +213,6 @@ describe('laptop tools', () => {
     expect(out.opened).toBeUndefined();
     expect(out.candidates).toEqual(['CodeBlocks', 'CodeBlocks (Launcher)', 'Visual Studio Code']);
     expect(launched).toHaveLength(1);
-    await expect(tools.get('open_app').run({ name: 'photoshop' })).rejects.toThrow(/couldn't find/);
+    expect((await tools.get('open_app').run({ name: 'photoshop' })).error).toMatch(/couldn't find/);
   });
 });

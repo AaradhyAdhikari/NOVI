@@ -19,6 +19,7 @@ import { claudeLinkCommand, linkFolderCommand, projectStatusCommand, projectAbou
 import { changesCommand } from './changesCommand.js';
 import { commitCommand } from './commitCommand.js';
 import { aiSendCommand } from './aiSendCommand.js';
+import { appCommand } from './appCommand.js';
 import { codemapCommand } from './codemapCommand.js';
 import { diagramCommand } from './diagramCommand.js';
 import { editCommand } from './editCommand.js';
@@ -639,6 +640,13 @@ export class Agent {
       const n = output?.contributions;
       return this._remember(text, output?.error || `You made ${n} contribution${n === 1 ? '' : 's'} ${gh.when}.`);
     }
+    // "Open Spotify" / "Spotify chalu karo": the app, no AI. "X kholo" with no such app goes on to the browser.
+    const wanted = this.tools.get('open_app') ? appCommand(text) : null;
+    if (wanted) {
+      const { output = {} } = await this._runTool({ id: `app-${Date.now()}`, function: { name: 'open_app', arguments: JSON.stringify({ name: wanted.name }) } }, { direct: true });
+      if (output.suggest) this._openOffer = { name: output.suggest, until: Date.now() + 60_000 };
+      if (!output.notFound || output.suggest || !wanted.orSite) return this._remember(text, output.error || output.note || `Opened ${output.opened}.`);
+    }
     // "Browse X" / "open X website": straight to open_website, no AI (it took 21–25 s through the AI).
     const browsed = await this._browse(text);
     if (browsed) return this._remember(text, browsed);
@@ -796,6 +804,8 @@ export class Agent {
     if (ab && this.tools.get(ab.tool)) return { quick: null, calls: [{ name: ab.tool, args: ab.args }], reply: null, provider: 'direct' };
     const pv = this._previewKnown(previewCommand(text));
     if (pv) return { quick: null, calls: [{ name: pv.tool, args: pv.args }], reply: null, provider: 'direct' };
+    const appWanted = this.tools.get('open_app') ? appCommand(text) : null;
+    if (appWanted && !this._openKnown(text)) return { quick: null, calls: [{ name: 'open_app', args: { name: appWanted.name } }], reply: null, provider: 'direct' };
     const op = this._openKnown(text);
     if (op) return { quick: null, calls: [{ name: op.tool, args: op.args }], reply: null, provider: 'direct' };
     const br = browserCommand(text, { lastTo: this._waLastTo });

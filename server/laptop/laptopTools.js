@@ -98,7 +98,8 @@ export function addLaptopTools(registry, {
       describe: ({ name }) => `Open ${name}`,
       run: async ({ name }) => {
         const match = resolveApp(await catalog.all(), name);
-        if (!match) throw new UserFacingError(`I couldn't find an app called "${name}" on this laptop.`);
+        if (!match) return { notFound: true, error: `I couldn't find an app called "${name}" on this laptop.` };
+        if (match.suggest) return { notFound: true, suggest: match.suggest.name, error: `I couldn't find "${name}". Did you mean ${match.suggest.name}?` };
         if (match.candidates) return { candidates: match.candidates.map((a) => a.name), note: `Which one did you mean: ${match.candidates.map((a) => a.name).join(', ')}?` };
         // Browsers only: a second start shows Chrome's profile picker. Other apps match by title words,
         // so a tab called "Spotify" must not stand in for opening Spotify.

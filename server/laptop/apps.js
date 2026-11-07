@@ -56,14 +56,51 @@ export function matchApps(apps, query) {
     .map((x) => x.app);
 }
 
-// { app } when the name clearly means one app, { candidates } when it is ambiguous, null when nothing matches.
+// What people call apps, for names that share no words with the real one.
+const ALIASES = {
+  vscode: 'Visual Studio Code', 'vs code': 'Visual Studio Code', code: null, calc: 'Calculator', explorer: 'File Explorer', files: 'File Explorer',
+  ppt: 'PowerPoint', powerpoint: 'PowerPoint', cmd: 'Command Prompt', 'command line': 'Command Prompt', 'paint app': 'Paint', browser: 'Google Chrome',
+};
+const squash = (s) => norm(s).replace(/ /g, '');
+
+function distance(a, b) {
+  let row = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const next = [i];
+    for (let j = 1; j <= b.length; j++) next[j] = Math.min(row[j] + 1, next[j - 1] + 1, row[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    row = next;
+  }
+  return row[b.length];
+}
+
+// The nearest app by spelling, for what speech-to-text gets slightly wrong. Whole names and their long words.
+function nearest(apps, q) {
+  const word = squash(q);
+  if (word.length < 5) return null;
+  const scored = apps.map((app) => {
+    const parts = [squash(app.name), ...norm(app.name).split(' ').filter((w) => w.length >= 5)];
+    // Three letters off is a slip only between words of about the same length: "photoshop" is not "Photos".
+    const off = (p) => { const d = distance(word, p); return d >= 3 && Math.abs(word.length - p.length) > 1 ? Infinity : d; };
+    return { app, d: Math.min(...parts.map(off)) };
+  }).sort((a, b) => a.d - b.d);
+  const [best, next] = scored;
+  if (!best || best.d > (word.length >= 7 ? 3 : 2)) return null;
+  if (best.d === 1 && next?.d !== 1) return { app: best.app };
+  return { suggest: best.app };
+}
+
+// { app } when the name clearly means one app, { candidates } when it is ambiguous, { suggest } when it only
+// looks like one (asked, never opened by itself), null when nothing is near it.
 export function resolveApp(apps, query) {
-  const q = norm(query);
+  const q = norm(query).replace(/ (?:app|application)$/, '');
   if (!q) return null;
-  const exact = apps.find((a) => norm(a.name) === q);
+  const exact = apps.find((a) => norm(a.name) === q) || apps.find((a) => squash(a.name) === squash(q));
   if (exact) return { app: exact };
+  const alias = ALIASES[q] && apps.find((a) => a.name === ALIASES[q]);
+  if (alias) return { app: alias };
+  if (q.length < 3) return null;
   const ranked = matchApps(apps, q);
-  if (!ranked.length) return null;
+  if (!ranked.length) return nearest(apps, q);
   if (ranked.length === 1) return { app: ranked[0] };
   const prefix = ranked.filter((a) => norm(a.name).startsWith(q));
   if (prefix.length === 1) return { app: prefix[0] };
@@ -72,7 +109,9 @@ export function resolveApp(apps, query) {
 
 // Launches by Start-menu AppID, so only installed apps can be started (never arbitrary commands).
 export async function launchApp(appId, { spawnImpl = spawn } = {}) {
-  const child = spawnImpl('explorer.exe', [`shell:AppsFolder\\${appId}`], { detached: true, stdio: 'ignore', windowsHide: false });
+  // Steam games and the like are listed as a link, not a Start-menu id.
+  const target = /^[a-z][a-z0-9+.-]*:\/\//i.test(appId) ? appId : `shell:AppsFolder\\${appId}`;
+  const child = spawnImpl('explorer.exe', [target], { detached: true, stdio: 'ignore', windowsHide: false });
   child.on?.('error', () => {});
   child.unref?.();
 }

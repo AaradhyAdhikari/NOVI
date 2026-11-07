@@ -127,7 +127,7 @@ describe('agent and voice', () => {
     for (const t of ['yes always', 'Yes, always.', 'always allow', 'allow always', 'yes, always allow it']) expect(quickCommand(t), t).toBe('approve-always');
     const grants = new PermissionGrants(file);
     const { agent, approvals } = setup('open_app', grants);
-    const pending = agent.handle('open spotify');
+    const pending = agent.handle('put on spotify');
     await new Promise((r) => setTimeout(r, 0));
     expect(await agent.handle('yes always')).toMatch(/always/i);
     await pending;
