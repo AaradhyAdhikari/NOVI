@@ -12,6 +12,7 @@ import http from 'node:http';
 import crypto from 'node:crypto';
 import { spawn, execFile } from 'node:child_process';
 import { connect as cdpConnect } from '../screen/cdpShot.js';
+import { normalPriority } from '../../server/priority.js';
 
 const EDGE = path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'Microsoft', 'Edge', 'Application', 'msedge.exe');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -83,6 +84,7 @@ async function launch({ url, screen = 1, edge = EDGE }) {
   const profile = path.join(dir, 'profile');
   const child = spawn(edge, edgeArgs({ profile, url, screen }), { windowsHide: true, stdio: 'ignore' });
   child.on('error', () => {});
+  if (child.pid) normalPriority(child.pid); // never below normal, even if Novi was started that way
   const close = () => {
     if (process.platform === 'win32' && child.pid) execFile('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true }, () => {});
     else child.kill();

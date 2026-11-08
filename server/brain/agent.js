@@ -376,6 +376,13 @@ export class Agent {
 
   async _handle(text, { from = 'local', phoneApp = null } = {}) {
     this._from = from; // who asked, for plugin approvals (phone warnings)
+    // Watching the laptop live (remote control): a misheard "Novi" in front ("Novii,", "Nui,") is dropped so
+    // the step still runs; "Novi, …" with no step after it still reaches the AI (`_namedTurn`).
+    this._namedTurn = false;
+    if (from !== 'local' && this.liveViewing?.(from)) {
+      const named = /^\s*(?:hey\s+)?(?:no+v+[iy]+|nui|nov[ae]e?|nobi|navi)\s*[,.!:]\s*(.+)$/i.exec(text);
+      if (named) { this._namedTurn = true; text = named[1]; }
+    }
     this._turnYes = new Set(); // kinds of step the user said yes to in this request
     // "Phone only" / "laptop voice on".
     const phoneWord = this.phoneOnly ? phoneOnlyCommand(text) : null;
@@ -656,7 +663,9 @@ export class Agent {
     // Watching the laptop live (remote control): a phrase that is no step is asked back on the view
     // (user's choice, 2026-11-08; misheard bits like "Nt.js, Tx." went to the AI). "Novi, …" / "ask …"
     // still reach the AI.
-    if (from !== 'local' && this.liveViewing?.(from) && !/^(?:hey\s+)?(?:novi|ask)\b/i.test(text.trim())) {
+    if (from !== 'local' && this.liveViewing?.(from) && !this._namedTurn && !/^(?:hey\s+)?(?:novi|ask)\b/i.test(text.trim())) {
+      // What speech-to-text hears in silence (the mic is always on there): ignored without a word.
+      if (/^(?:thank you|thanks|you|bye|okay|ok|hmm+|uh+)[.!]?$/i.test(text.trim())) return this._remember(text, '');
       return this._remember(text, "I didn't get that as a step. Say it like: click Submit, open Chrome, switch to WhatsApp, type hello, scroll down, go back. To ask me something, start with \"Novi\".");
     }
     // A learned shortcut: words the AI already solved with one quiet tool → that tool at once.
@@ -1206,7 +1215,8 @@ export class Agent {
     if (!id || !this.tools.get('screen_type_into') || !this.liveViewing?.(from)) return null;
     const on = this._liveTyping && this._liveTyping.id === id && Date.now() - this._liveTyping.at < 5 * 60_000 ? this._liveTyping : null;
     if (!on) {
-      if (!typeNextCommand(text)) return null;
+      // \"Pipe.\" / \"Tape.\": what speech-to-text made of \"type\" live (2026-11-08).
+      if (!typeNextCommand(text) && !/^(?:pipe|tape|tight|tie|taipe?)[.!]?$/i.test(text.trim())) return null;
       this._liveTyping = { id, at: Date.now(), typed: false };
       this.liveTyping?.(from, true);
       return 'Typing. Say enter to send, or stop typing.';

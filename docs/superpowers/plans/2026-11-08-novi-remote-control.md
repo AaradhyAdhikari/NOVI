@@ -47,3 +47,22 @@ profile showed Edge's "signed in on this device" pop-up.
 
 ## Not in v1
 Laptop sound on the phone, file transfer, clipboard sync, other computers.
+
+## Next session (user's phone test, 2026-11-08 midday; "fix all that in the next session")
+Done before this list: video works on the phone (offer took 16 s inside Novi: Novi ran below-normal
+priority, now raised to normal at start + Edge too; recheck the time), click and scroll anywhere work,
+"switch back to X", misheard "Novii,/Nui," dropped, "Pipe." = type, "Thank you." ignored, ask-back.
+1. **Say what it did** in the yellow line on the view ("Opened Spotify", "Clicked Submit", "Typed it"), not
+   only the ask-back; steps that worked are silent today, so the view shows nothing.
+2. **Typing by voice didn't work.** Whisper mishears short words ("type" -> "Pipe") and each phrase waits
+   for a pause + ~1.5 s of speech-to-text. Plan: (a) a Type button in the view: tap = typing on, no
+   need to say "type"; (b) in the app, Android's own speech recognizer with live partial results for
+   typing (words land as you speak, on the phone, no upload); (c) works today: tap the "Type on the
+   laptop" box and use the keyboard's mic, then send.
+3. **Hide the remote view's commands from the chat**: phrases and replies said in the remote view are not
+   written in Novi's chat (only shown on the view); everything works in the background by voice.
+4. **Latency**: a tap takes a few seconds. Send touches over the WebRTC data channel instead of the socket,
+   keep one input helper ready (no PowerShell start per tap), measure tap -> click in ms.
+5. **Quality**: the laptop screen is 1920x1200, so that is the most it can send (2K/4K would need a bigger
+   screen); make it sharp: prefer H.264 hardware encoding, raise the bitrate, keep full resolution
+   (`maintain-resolution`), check what the phone actually receives (getStats: size, fps, bitrate).

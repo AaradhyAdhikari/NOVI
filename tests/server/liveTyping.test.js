@@ -88,3 +88,32 @@ describe('in the remote view, a phrase that is no step', () => {
     expect(await s.agent.handle('Nt.js, Tx.', { from: { deviceId: 'p2' } })).toBe('AI');
   });
 });
+
+import { controlCommand } from '../../server/brain/controlCommand.js';
+
+// Live 2026-11-08 in the remote view: "Pipe." (= type), "Switch back to Claude.", "Novii, open ChatGPT.",
+// "Nui, …" and a stray "Thank you." all got the ask-back.
+describe('remote view phrases as actually heard', () => {
+  it('"switch back to X" / "go back to X" bring that window forward', () => {
+    expect(controlCommand('Switch back to Claude.')).toMatchObject({ tool: 'laptop_window', args: { app: 'Claude', do: 'focus' } });
+    expect(controlCommand('go back to chrome')).toMatchObject({ tool: 'laptop_window', args: { do: 'focus' } });
+  });
+  function mk2() {
+    const s = mk();
+    const tool = (name, run) => ({ name, description: name, parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => name, run: async (a) => { s.ran.push([name, a]); return run(a); } });
+    s.agent.tools.add(tool('open_app', (a) => ({ opened: a.name })));
+    return s;
+  }
+  it('a misheard "Novi" in front is dropped before the step runs', async () => {
+    const s = mk2();
+    expect(await s.agent.handle('Novii, open Spotify.', P1)).toMatch(/Opened/);
+    expect(await s.agent.handle('Nui, open Spotify', P1)).toMatch(/Opened/);
+    expect(s.ran.filter(([n]) => n === 'open_app')).toHaveLength(2);
+  });
+  it('"Pipe." turns typing on; "Thank you." is ignored without a word', async () => {
+    const s = mk();
+    expect(await s.agent.handle('Pipe.', P1)).toMatch(/typing/i);
+    await s.agent.handle('stop typing', P1);
+    expect(await s.agent.handle('Thank you.', P1)).toBe('');
+  });
+});

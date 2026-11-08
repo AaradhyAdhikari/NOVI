@@ -17,6 +17,11 @@ import { rememberOwnProject } from './ownProject.js';
 import { createEdgeTts, DEFAULT_VOICES } from './voice/edgeTts.js';
 import { createLogBuffer } from './logBuffer.js';
 import { isTestCopy, TEST_SKIP_SERVICES } from './testCopy.js';
+import { normalPriority } from './priority.js';
+
+// The logon task starts Novi below normal: up to normal, so voice and the remote view never wait behind
+// everything else (and what Novi starts, like Edge, inherits it).
+if (normalPriority() === 'raised') console.log('[start] raised Novi to normal priority');
 
 const logBuffer = createLogBuffer();
 logBuffer.capture(console);

@@ -53,7 +53,7 @@ const RULES = [
   [re('paste(?: it| this| that)?'), () => T('laptop_clipboard', { do: 'paste' })],
   [re('paste(?: it| this| that)? (?:in|into|to|on) (?:the )?(.+?)(?: window| app| chat)?'), (m) => app(m[1], (a) => T('laptop_clipboard', { do: 'paste', app: a }))],
   // windows
-  [re('(?:switch|jump) to (?:the )?(.+?)(?: window| app)?|go to (?:the )?(.+?)(?: window| app)?'), (m) => app(m[1] || m[2], (a) => T('laptop_window', { app: a, do: 'focus' }))],
+  [re('(?:switch|jump)(?: back)? to (?:the )?(.+?)(?: window| app)?|go (?:back )?to (?:the )?(.+?)(?: window| app)?'),(m) => app(m[1] || m[2], (a) => T('laptop_window', { app: a, do: 'focus' }))],
   [re('(minimi[sz]e|maximi[sz]e|restore)(?: (?:this|it|that|this window|the window))?'), (m) => T('laptop_window', { app: 'this', do: /^min/i.test(m[1]) ? 'minimize' : /^max/i.test(m[1]) ? 'maximize' : 'restore' })],
   [re('(.+?) (?:pe|par) (?:jao|chalo)'), (m) => app(m[1], (a) => T('laptop_window', { app: a, do: 'focus' }))],
   [re('(minimi[sz]e|maximi[sz]e) (?:the )?(.+?)(?: window)?'), (m) => app(m[2], (a) => T('laptop_window', { app: a, do: m[1].toLowerCase().startsWith('mini') ? 'minimize' : 'maximize' }))],
