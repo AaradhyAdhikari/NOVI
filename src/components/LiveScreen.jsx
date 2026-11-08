@@ -1,11 +1,10 @@
 import { cloneElement, isValidElement, useEffect, useRef, useState } from 'react';
-import { X, CornerDownLeft, Delete, ArrowLeft, Send } from 'lucide-react';
+import { X, CornerDownLeft, Delete, ArrowLeft, Send, Mic, MicOff, RotateCw } from 'lucide-react';
 import { onLive, tapPoint, scrollNotches } from '../lib/liveInput.js';
 import { answerOffer } from '../lib/liveVideo.js';
 
 const MOVED_PX = 12; // less than this is a tap
 const MAX_ZOOM = 4;
-const VIDEO_WAIT_MS = 25_000; // no video by then: the pictures
 const bar = { display: 'flex', gap: 8, padding: '8px 12px', background: '#0b1016', alignItems: 'center' };
 const button = { background: '#1b2733', color: '#e6ecf2', border: 0, borderRadius: 8, padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 6, fontSize: 14 };
 
@@ -14,7 +13,7 @@ const button = { background: '#1b2733', color: '#e6ecf2', border: 0, borderRadiu
 // Two fingers: pinch to zoom and move around. The bar below types and presses keys.
 export default function LiveScreen({ send, reply = '', children = null }) {
   const [src, setSrc] = useState('');
-  const [mode, setMode] = useState('connecting'); // connecting | video | pictures
+  const [mode, setMode] = useState('pictures'); // pictures at once (fast), video once it connects
   const video = useRef(null);
   const [text, setText] = useState('');
   const [note, setNote] = useState('');
@@ -22,6 +21,28 @@ export default function LiveScreen({ send, reply = '', children = null }) {
   const [typing, setTyping] = useState(false); // typing by voice: the mic re-opens after each phrase
   const [answerAt, setAnswerAt] = useState(0);
   const landscape = useLandscape();
+  // The Novi app can turn the view sideways (app 2.4.9+); back upright when the view closes.
+  const canRotate = typeof window !== 'undefined' && typeof window.NoviApp?.rotate === 'function';
+  const [sideways, setSideways] = useState(false);
+  useEffect(() => () => { if (canRotate) window.NoviApp.rotate(false); }, [canRotate]);
+  const rotate = () => { const next = !sideways; setSideways(next); window.NoviApp.rotate(next); };
+  // Always listening while the view is open (user, 2026-11-08): the mic opens again after each phrase.
+  // Three listens in a row that end at once (no mic, permission refused) turn it off instead of looping.
+  const [listening, setListening] = useState(true);
+  // The talk button opens the mic only when it is idle (not while it sends the last phrase), so it is
+  // nudged every 0.7 s while listening is on.
+  const listen = useRef({ startedAt: 0, quick: 0 });
+  useEffect(() => {
+    if (!listening) return undefined;
+    const timer = setInterval(() => setAnswerAt(Date.now()), 700);
+    return () => clearInterval(timer);
+  }, [listening]);
+  const onRecording = (on) => {
+    const l = listen.current;
+    if (on) { l.startedAt = Date.now(); return; }
+    l.quick = Date.now() - l.startedAt < 800 ? l.quick + 1 : 0;
+    if (l.quick >= 3) { l.quick = 0; setListening(false); setNote("The mic wouldn't stay on. Tap the mic to try again."); }
+  };
   // A reply that arrives while the view is open (a voice step's answer) shows for a few seconds.
   useEffect(() => {
     if (!reply || reply === firstReply.current) return undefined;
@@ -36,13 +57,13 @@ export default function LiveScreen({ send, reply = '', children = null }) {
   const gesture = useRef(null);
 
   useEffect(() => {
-    let pictures = false;
+    // Pictures from the first moment (user, 2026-11-08: "fast as we click"); the video takes over when it
+    // connects, and the pictures come back if it drops.
+    let pictures = true;
     let pc = null;
-    let gaveUp = null;
     const usePictures = () => {
       if (pictures) return;
       pictures = true;
-      clearTimeout(gaveUp);
       setMode('pictures');
       send({ type: 'live_ack' });
     };
@@ -60,8 +81,8 @@ export default function LiveScreen({ send, reply = '', children = null }) {
               v.play().catch(() => {});
             },
             onState: (state) => {
-              if (state === 'connected' && !pictures) { clearTimeout(gaveUp); setMode('video'); }
-              if (state === 'failed') usePictures();
+              if (state === 'connected') { pictures = false; setMode('video'); }
+              if (state === 'failed' || state === 'disconnected') usePictures();
             },
           });
           pc = r.pc;
@@ -73,11 +94,9 @@ export default function LiveScreen({ send, reply = '', children = null }) {
       if (msg.type === 'live_frame') setSrc(`data:image/png;base64,${msg.png}`);
       send({ type: 'live_ack' }); // the next picture only after this one arrived: no pile-up on a slow link
     });
-    if (typeof RTCPeerConnection === 'function') {
-      send({ type: 'live_stream' });
-      gaveUp = setTimeout(usePictures, VIDEO_WAIT_MS);
-    } else usePictures();
-    return () => { clearTimeout(gaveUp); try { pc?.close(); } catch { /* gone */ } stop(); send({ type: 'live_stop' }); };
+    send({ type: 'live_ack' });
+    if (typeof RTCPeerConnection === 'function') send({ type: 'live_stream' });
+    return () => { try { pc?.close(); } catch { /* gone */ } stop(); send({ type: 'live_stop' }); };
   }, [send]);
 
   const input = (m) => send({ type: 'live_input', ...m });
@@ -162,7 +181,11 @@ export default function LiveScreen({ send, reply = '', children = null }) {
           style={{ flex: 1, minWidth: 0, background: '#1b2733', color: '#e6ecf2', border: 0, borderRadius: 8, padding: '10px 12px', fontSize: 16 }}
         />
         <button style={button} onClick={typeIt} aria-label="Type it"><Send size={18} /></button>
-        {children && <div className="live-talk">{isValidElement(children) ? cloneElement(children, { answerAt }) : children}</div>}
+        {canRotate && <button style={button} onClick={rotate} aria-label={sideways ? 'Turn upright' : 'Turn sideways'}><RotateCw size={18} /></button>}
+        <button style={{ ...button, background: listening ? '#123a2a' : '#1b2733' }} onClick={() => { listen.current.quick = 0; setListening((v) => !v); }} aria-label={listening ? 'Stop listening' : 'Listen'}>
+          {listening ? <Mic size={18} /> : <MicOff size={18} />}
+        </button>
+        {children && <div className="live-talk">{isValidElement(children) ? cloneElement(children, { answerAt, onRecording }) : children}</div>}
       </div>
       <div style={{ ...bar, paddingTop: 0, paddingBottom: 'max(8px, env(safe-area-inset-bottom))', flexWrap: 'wrap' }}>
         <button style={button} onClick={() => input({ kind: 'key', key: 'enter' })}><CornerDownLeft size={18} />Enter</button>

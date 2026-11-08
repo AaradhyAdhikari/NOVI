@@ -653,6 +653,12 @@ export class Agent {
     const browsed = await this._browse(text);
     if (browsed) return this._remember(text, browsed);
 
+    // Watching the laptop live (remote control): a phrase that is no step is asked back on the view
+    // (user's choice, 2026-11-08; misheard bits like "Nt.js, Tx." went to the AI). "Novi, …" / "ask …"
+    // still reach the AI.
+    if (from !== 'local' && this.liveViewing?.(from) && !/^(?:hey\s+)?(?:novi|ask)\b/i.test(text.trim())) {
+      return this._remember(text, "I didn't get that as a step. Say it like: click Submit, open Chrome, switch to WhatsApp, type hello, scroll down, go back. To ask me something, start with \"Novi\".");
+    }
     // A learned shortcut: words the AI already solved with one quiet tool → that tool at once.
     const learned = this.shortcuts?.find(text);
     if (learned && this.tools.get(learned.tool)) {

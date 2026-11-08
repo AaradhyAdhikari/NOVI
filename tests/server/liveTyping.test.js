@@ -72,3 +72,19 @@ describe('typing by voice in the remote view', () => {
     expect(s.typing).toEqual([]);
   });
 });
+
+// User's choice (2026-11-08): in the remote view a phrase that isn't a step is asked back on the view, not
+// sent to the AI ("Nt.js, Tx." went to the AI live). "Novi, …" / "ask …" still reach the AI.
+describe('in the remote view, a phrase that is no step', () => {
+  it('is asked back with examples', async () => {
+    const s = mk();
+    const reply = await s.agent.handle('Nt.js, Tx.', P1);
+    expect(reply).toMatch(/didn't get that/i);
+    expect(reply).toMatch(/click/);
+  });
+  it('"Novi, …" or "ask …" still goes to the AI; other phones are untouched', async () => {
+    const s = mk();
+    expect(await s.agent.handle('Novi, what time is it in London', P1)).toBe('AI');
+    expect(await s.agent.handle('Nt.js, Tx.', { from: { deviceId: 'p2' } })).toBe('AI');
+  });
+});

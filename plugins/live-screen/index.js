@@ -14,7 +14,7 @@ const KEYS = new Set(['enter', 'esc', 'tab', 'backspace', 'up', 'down', 'left', 
 const unit = (n) => typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= 1;
 
 // `stream`: the smooth video (stream.js); the pictures below stay as the backup when it can't start.
-export function createLiveScreenPlugin({ driver = windowsDriver, now = Date.now, gapMs = GAP_MS, idleMs = IDLE_MS, stream = createStream } = {}) {
+export function createLiveScreenPlugin({ driver = windowsDriver, now = Date.now, gapMs = GAP_MS, idleMs = IDLE_MS, stream = createStream, prewarmMs = 60_000 } = {}) {
   return definePluginEntry({
     id: 'live-screen',
     name: 'Live screen',
@@ -23,10 +23,23 @@ export function createLiveScreenPlugin({ driver = windowsDriver, now = Date.now,
       let session = null; // { deviceId, touched, width, height, hash, sentAt, sending, inputs }
       let queue = Promise.resolve(); // one input at a time, in order
       let asked = null; // the phone the PIN card was for; `active` in app.js moves on with whoever speaks next
+      // Edge warms up while the PIN card waits (user, 2026-11-08: "the fastest we can as we click"), so the
+      // video is nearly ready when the PIN is given. Nobody approves it within prewarmMs: stopped.
+      let warm = null; // { deviceId, video, result: Promise<{ offer } | { err }>, timer }
+      const dropWarm = () => { if (warm) { clearTimeout(warm.timer); warm.video.stop(); warm = null; } };
+      const warmUp = (deviceId) => {
+        dropWarm();
+        const video = stream({ logger: api.logger });
+        const started = Date.now();
+        const result = video.start().then((offer) => ({ offer, ms: Date.now() - started }), (err) => ({ err }));
+        warm = { deviceId, video, result, timer: setTimeout(dropWarm, prewarmMs) };
+        warm.timer.unref?.();
+      };
 
       const end = (why) => {
         if (session) api.logger?.info?.(`[live] closed after ${session.inputs} input(s): ${why}`);
         session?.video?.stop();
+        session?.warm?.video.stop();
         session = null;
       };
 
@@ -34,12 +47,16 @@ export function createLiveScreenPlugin({ driver = windowsDriver, now = Date.now,
       // failed start gets one more try with a fresh Edge before the pictures take over.
       async function startVideo(s, reply, tries = 2) {
         s.video?.stop();
-        const video = stream({ logger: api.logger });
+        const ready = s.warm;
+        s.warm = null;
+        const video = ready ? ready.video : stream({ logger: api.logger });
         s.video = video;
         try {
           const started = Date.now();
-          const { sdp, width, height } = await video.start();
-          api.logger?.info?.(`[live] video offer in ${Date.now() - started} ms`);
+          const got = ready ? await ready.result : null;
+          if (got?.err) throw got.err;
+          const { sdp, width, height } = got ? got.offer : await video.start();
+          api.logger?.info?.(`[live] video offer in ${Date.now() - started} ms${got ? ` (warmed up during the PIN card: ${got.ms} ms)` : ''}`);
           if (session !== s || s.video !== video) { video.stop(); return reply({ type: 'live_closed' }); }
           if (width && height) { s.width = width; s.height = height; }
           api.logger?.info?.(`[live] video stream ready (${width}x${height})`);
@@ -123,7 +140,9 @@ export function createLiveScreenPlugin({ driver = windowsDriver, now = Date.now,
           asked = null;
           if (!deviceId) return { content: [], details: { error: 'The live screen is for your phone. Ask from the phone.' } };
           session?.video?.stop();
-          session = { deviceId, touched: now(), width: 0, height: 0, hash: null, sentAt: 0, sending: false, inputs: 0, video: null };
+          const ready = warm && warm.deviceId === deviceId ? warm : null;
+          if (ready) { clearTimeout(ready.timer); warm = null; } else dropWarm();
+          session = { deviceId, touched: now(), width: 0, height: 0, hash: null, sentAt: 0, sending: false, inputs: 0, video: null, warm: ready };
           api.logger?.info?.('[live] opened on a phone');
           api.runtime.sendToDevice(deviceId, { type: 'live_open' });
           return { content: [], details: { note: 'Opening your laptop screen.' } };
@@ -133,9 +152,10 @@ export function createLiveScreenPlugin({ driver = windowsDriver, now = Date.now,
         if (toolName !== 'live_screen_open') return undefined;
         asked = from?.deviceId || null;
         if (!asked) return undefined; // the tool then says it is for the phone
+        warmUp(asked);
         return { requireApproval: { title: 'Control the laptop from this phone', description: 'Taps, scrolling and typing on your phone will act on the laptop.', prompt: 'Control the laptop from this phone? Say your PIN.', severity: 'warning', category: 'screen', grantable: false, pin: true } };
       });
-      api.registerService({ id: 'live-screen', start() {}, stop() { end('Novi stopped'); } });
+      api.registerService({ id: 'live-screen', start() {}, stop() { dropWarm(); end('Novi stopped'); } });
     },
   });
 }

@@ -16,6 +16,9 @@ describe('the Edge that captures', () => {
     expect(args).toContain('--auto-select-desktop-capture-source=Screen 1');
     expect(args).toContain('--use-fake-ui-for-media-stream');
     expect(args).toContain('--user-data-dir=C:\\p');
+    // Novi may run as admin: Edge would restart itself unelevated and lose these switches (live 2026-11-08:
+    // the stream worked from a plain script, never inside Novi).
+    expect(args).toContain('--do-not-de-elevate');
   });
   it('keeps going while unseen, never signs in, and shows its real address to the phone', () => {
     for (const a of ['--disable-backgrounding-occluded-windows', '--disable-renderer-backgrounding', '--disable-background-timer-throttling', '--disable-sync']) expect(args).toContain(a);
@@ -81,6 +84,10 @@ describe('one stream', () => {
     expect(e.log).toContainEqual(['edge closed']);
     expect(e.log).toContainEqual(['server closed']);
   });
+  it('a stream that never gets its offer says how far the page got', async () => {
+    const e = fakeEdge({ reply: (expr, cdp) => { if (expr === 'start()') cdp.fire({ type: 'stage', stage: 'asking for the screen' }); } });
+    await expect(createStream({ ...e.deps, timeoutMs: 30 }).start()).rejects.toThrow(/asking for the screen/);
+  });
   it('no offer in time fails and closes', async () => {
     const e = fakeEdge({ reply: () => {} });
     await expect(createStream({ ...e.deps, timeoutMs: 20 }).start()).rejects.toThrow(/didn't start/);
@@ -133,7 +140,7 @@ describe('Live screen with the video stream', () => {
     expect((await s.say({ type: 'live_stream' }))[0].type).toBe('live_closed');
     await s.open();
     expect((await s.say({ type: 'live_stream' }, { deviceId: 'phone-2' }))[0].type).toBe('live_closed');
-    expect(s.made).toHaveLength(0);
+    expect(s.made).toHaveLength(1); // only the one warmed up by the PIN card; the other phone started nothing
   });
   it('taps on the video land on the real screen size before any picture was sent', async () => {
     const s = setup();
@@ -223,5 +230,45 @@ describe('voice from the phone watching the remote view', () => {
     expect(trustedByPin([{ tier: 'high' }], true)).toBe(false);
     expect(trustedByPin([{ pin: true }], true)).toBe(false);
     expect(trustedByPin([{ kind: 'delete' }], true)).toBe(false);
+  });
+});
+
+// User, 2026-11-08: "why is it taking so long to open the live screen … the fastest we can as we click".
+// Edge starts warming up while the PIN card waits, so the video is (nearly) ready when the PIN is given.
+describe('the video warms up during the PIN card', () => {
+  function warm({ prewarmMs = 60_000 } = {}) {
+    const made = [];
+    const stream = () => {
+      const s = { starts: 0, stopped: 0 };
+      made.push(s);
+      return { start: async () => { s.starts += 1; return { sdp: 'OFFER', width: 1920, height: 1200 }; }, answer: async () => {}, stop: () => { s.stopped += 1; } };
+    };
+    const host = new PluginHost({ runtime: { sendToDevice() {} }, env: {}, logger: { warn() {}, info() {} } });
+    host.register(createLiveScreenPlugin({ driver: { screenshot: async () => ({ png: Buffer.from('A'), width: 1, height: 1 }) }, stream, gapMs: 0, prewarmMs }));
+    const say = async (msg) => { const out = []; await host.runtime.liveMessage(msg, PHONE, (m) => out.push(m)); return out; };
+    return { host, made, say };
+  }
+  it('the PIN card starts Edge; the view then uses that same start', async () => {
+    const w = warm();
+    await w.host.get('live_screen_open').gate({}, { from: PHONE });
+    expect(w.made).toHaveLength(1);
+    expect(w.made[0].starts).toBe(1);
+    await w.host.get('live_screen_open').run({});
+    expect(await w.say({ type: 'live_stream' })).toEqual([{ type: 'live_offer', sdp: 'OFFER', width: 1920, height: 1200 }]);
+    expect(w.made).toHaveLength(1);
+    expect(w.made[0].starts).toBe(1);
+  });
+  it('a card nobody approves stops the warm Edge', async () => {
+    const w = warm({ prewarmMs: 20 });
+    await w.host.get('live_screen_open').gate({}, { from: PHONE });
+    await new Promise((r) => setTimeout(r, 60));
+    expect(w.made[0].stopped).toBe(1);
+  });
+  it('asked again, the old warm Edge goes first', async () => {
+    const w = warm();
+    await w.host.get('live_screen_open').gate({}, { from: PHONE });
+    await w.host.get('live_screen_open').gate({}, { from: PHONE });
+    expect(w.made[0].stopped).toBe(1);
+    expect(w.made).toHaveLength(2);
   });
 });

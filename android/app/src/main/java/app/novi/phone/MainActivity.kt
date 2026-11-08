@@ -71,6 +71,16 @@ class MainActivity : ComponentActivity() {
             }.start()
         }
 
+        /** The remote view's rotate button (user, 2026-11-08: the view didn't turn sideways): true = lie the
+         *  app on its side (either way round), false = back to the phone's own setting. */
+        @JavascriptInterface
+        fun rotate(landscape: Boolean) {
+            runOnUiThread {
+                requestedOrientation = if (landscape) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            }
+        }
+
         @JavascriptInterface
         fun stop(id: String) {
             stops.add(id)

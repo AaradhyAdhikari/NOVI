@@ -19,6 +19,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 export function edgeArgs({ profile, url, screen = 1 }) {
   return [
     '--window-position=-32000,-32000', '--window-size=320,240', `--app=${url}`,
+    '--do-not-de-elevate', // Novi may run as admin: a de-elevated restart of Edge would lose these switches
     '--no-first-run', '--no-default-browser-check', '--disable-sync', '--disable-extensions', `--user-data-dir=${profile}`,
     '--remote-debugging-port=0', '--remote-allow-origins=*',
     `--auto-select-desktop-capture-source=Screen ${screen}`, '--use-fake-ui-for-media-stream',
@@ -37,15 +38,18 @@ let pc = null;
 const say = (m) => window.noviSignal(JSON.stringify(m));
 window.start = async () => {
   try {
+    say({ type: 'stage', stage: 'asking for the screen' });
     const media = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 30, max: 30 } }, audio: false });
     const track = media.getVideoTracks()[0];
     track.contentHint = 'detail'; // text stays sharp: this is for real work
     const { width = 0, height = 0 } = track.getSettings();
+    say({ type: 'stage', stage: 'got the screen, setting up the video' });
     pc = new RTCPeerConnection({ iceServers: [] });
     const sender = pc.addTransceiver(track, { direction: 'sendonly' }).sender;
     pc.onconnectionstatechange = () => say({ type: 'state', state: pc.connectionState });
     track.onended = () => say({ type: 'state', state: 'ended' });
     await pc.setLocalDescription(await pc.createOffer());
+    say({ type: 'stage', stage: 'finding the network addresses' });
     await new Promise((r) => { if (pc.iceGatheringState === 'complete') return r(); pc.onicegatheringstatechange = () => pc.iceGatheringState === 'complete' && r(); setTimeout(r, 3000); });
     const p = sender.getParameters();
     if (p.encodings && p.encodings[0]) { p.encodings[0].maxBitrate = 8000000; p.encodings[0].maxFramerate = 30; }
@@ -124,7 +128,8 @@ export function createStream({ serve: serveImpl = serve, launch: launchImpl = la
         edge = await launchImpl({ url: server.url, screen });
         cdp = await connect(edge.wsUrl);
         const offer = new Promise((resolve, reject) => {
-          const timer = setTimeout(() => reject(new Error("The screen stream didn't start in time.")), timeoutMs);
+          let stage = 'starting Edge';
+          const timer = setTimeout(() => reject(new Error(`The screen stream didn't start in time (stopped at: ${stage}).`)), timeoutMs);
           cdp.on('Runtime.bindingCalled', ({ name, payload }) => {
             if (name !== 'noviSignal') return;
             let m;
@@ -132,6 +137,7 @@ export function createStream({ serve: serveImpl = serve, launch: launchImpl = la
             if (m.type === 'offer') { clearTimeout(timer); resolve({ sdp: String(m.sdp), width: Number(m.width) || 0, height: Number(m.height) || 0 }); }
             else if (m.type === 'error') { clearTimeout(timer); reject(new Error(`The screen capture failed: ${m.message}`)); }
             else if (m.type === 'state') logger?.info?.(`[live] stream ${m.state}`);
+            else if (m.type === 'stage') stage = String(m.stage).slice(0, 80);
           });
         });
         // Anything the page throws is logged, so a stream that never starts says why.
