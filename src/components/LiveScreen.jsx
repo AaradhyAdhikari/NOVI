@@ -45,10 +45,19 @@ export default function LiveScreen({ send, reply = '', children = null }) {
     let current = '';
     let failures = 0;
     let timer = null;
-    const next = () => { if (!alive) return; current = `s${++n}`; speechApp.recognize(current); };
+    let watchdog = null;
+    // A listen the app dropped (Novi went to the background and back) never reports: start a new one.
+    const next = () => {
+      if (!alive) return;
+      current = `s${++n}`;
+      clearTimeout(watchdog);
+      watchdog = setTimeout(next, 12_000);
+      speechApp.recognize(current);
+    };
     const stop = onHeard((r) => {
       if (!alive || r.id !== current) return;
-      if (!r.final) { setHearing(r.text); return; }
+      if (!r.final) { setHearing(r.text); clearTimeout(watchdog); watchdog = setTimeout(next, 12_000); return; }
+      clearTimeout(watchdog);
       setHearing('');
       if (r.text) { failures = 0; send({ type: 'user_message', text: r.text, voice: true }); }
       else if (r.error && r.error !== 'no speech' && r.error !== 'no match') {
@@ -58,7 +67,7 @@ export default function LiveScreen({ send, reply = '', children = null }) {
       timer = setTimeout(next, r.text ? 150 : 300);
     });
     next();
-    return () => { alive = false; clearTimeout(timer); stop(); setHearing(''); try { speechApp.stopRecognize?.(); } catch { /* gone */ } };
+    return () => { alive = false; clearTimeout(timer); clearTimeout(watchdog); stop(); setHearing(''); try { speechApp.stopRecognize?.(); } catch { /* gone */ } };
   }, [listening, speechApp, send]);
   useEffect(() => {
     if (!listening || speechApp) return undefined;
@@ -207,7 +216,7 @@ export default function LiveScreen({ send, reply = '', children = null }) {
       </div>
       <div style={landscape ? { width: 230, flexShrink: 0, overflowY: 'auto', background: '#0b1016', display: 'flex', flexDirection: 'column', paddingRight: 'env(safe-area-inset-right)' } : { display: 'contents' }}>
       {hearing && <div style={{ background: '#0f1a24', color: '#9fd4ff', padding: '6px 12px', fontSize: 14 }}>… {hearing}</div>}
-      {typing && <div style={{ background: '#123a2a', color: '#7ff0b8', padding: '6px 12px', fontSize: 14 }}>Typing by voice: say enter to send, or stop typing.</div>}
+      {typing && <div style={{ background: '#123a2a', color: '#7ff0b8', padding: '6px 12px', fontSize: 14 }}>Say it: your next words get typed. Say send to send.</div>}
       {note && <div style={{ background: '#3a2d12', color: '#f0c36a', padding: '8px 12px', fontSize: 14 }} onClick={() => setNote('')}>{note}</div>}
       <div style={landscape ? { ...bar, flexWrap: 'wrap' } : bar}>
         <input
@@ -216,8 +225,8 @@ export default function LiveScreen({ send, reply = '', children = null }) {
           style={{ flex: 1, minWidth: 0, background: '#1b2733', color: '#e6ecf2', border: 0, borderRadius: 8, padding: '10px 12px', fontSize: 16 }}
         />
         <button style={button} onClick={typeIt} aria-label="Type it"><Send size={18} /></button>
-        <button style={{ ...button, background: typing ? '#123a2a' : '#1b2733' }} onClick={() => send({ type: 'user_message', text: typing ? 'stop typing' : 'type', voice: true })} aria-label={typing ? 'Stop typing' : 'Type by voice'}>
-          <Keyboard size={18} />{typing ? 'Stop' : 'Type'}
+        <button style={{ ...button, background: typing ? '#123a2a' : '#1b2733' }} onClick={() => send({ type: 'user_message', text: 'type', voice: true })} aria-label="Type my next words">
+          <Keyboard size={18} />Type
         </button>
         {canRotate && <button style={button} onClick={rotate} aria-label={sideways ? 'Turn upright' : 'Turn sideways'}><RotateCw size={18} /></button>}
         <button style={{ ...button, background: listening ? '#123a2a' : '#1b2733' }} onClick={() => { listen.current.quick = 0; setListening((v) => !v); }} aria-label={listening ? 'Stop listening' : 'Listen'}>

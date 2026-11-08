@@ -41,39 +41,39 @@ function mk() {
 const P1 = { from: { deviceId: 'p1' } };
 
 describe('typing by voice in the remote view', () => {
-  it('"type" turns it on; phrases are typed with a space between; the mic is told to open again each time', async () => {
+  // User, 2026-11-08 (after typing stayed on and swallowed "Open YouTube", "Scroll down"): "as I say type it
+  // should get typed in the chatbox and when I say send it should get sent". Typing is once, never sticky.
+  it('"type hello there" types it once; the next phrase is a command again', async () => {
     const s = mk();
-    expect(await s.agent.handle('Type.', P1)).toMatch(/typing/i);
-    expect(s.typing.at(-1)).toEqual(['p1', true]);
+    await s.agent.handle('Type hello there.', P1);
+    expect(s.ran).toEqual([['screen_type_into', { text: 'hello there.' }]]);
+    await s.agent.handle('scroll down', P1);
+    expect(s.ran).toHaveLength(1); // not typed
+  });
+  it('"send" / "enter" press Enter', async () => {
+    const s = mk();
+    expect(await s.agent.handle('Send.', P1)).toMatch(/sent/i);
+    await s.agent.handle('enter', P1);
+    expect(s.ran).toEqual([['screen_enter', {}], ['screen_enter', {}]]);
+  });
+  it('"type X and send" types and sends', async () => {
+    const s = mk();
+    await s.agent.handle('type see you tomorrow and send', P1);
+    expect(s.ran).toEqual([['screen_type_into', { text: 'see you tomorrow' }], ['screen_enter', {}]]);
+  });
+  it('a bare "type" (or the Type button) types only the next phrase', async () => {
+    const s = mk();
+    expect(await s.agent.handle('Type.', P1)).toMatch(/say it/i);
     await s.agent.handle('hello there', P1);
-    await s.agent.handle('how are you', P1);
-    expect(s.ran).toEqual([['screen_type_into', { text: 'hello there' }], ['screen_type_into', { text: ' how are you' }]]);
-    expect(s.typing.filter(([, on]) => on)).toHaveLength(3);
-  });
-  it('"enter" types the rest, presses Enter and ends it', async () => {
-    const s = mk();
-    await s.agent.handle('type', P1);
-    await s.agent.handle('see you, enter', P1);
-    expect(s.ran).toEqual([['screen_type_into', { text: 'see you' }], ['screen_enter', {}]]);
-    expect(s.typing.at(-1)).toEqual(['p1', false]);
-    await s.agent.handle('hello', P1);
-    expect(s.ran).toHaveLength(2); // typing is off: "hello" went on as a normal request
-  });
-  it('"stop typing" ends it without Enter', async () => {
-    const s = mk();
-    await s.agent.handle('type', P1);
-    expect(await s.agent.handle('stop typing', P1)).toMatch(/stopped/i);
-    expect(s.ran).toEqual([]);
-    expect(s.typing.at(-1)).toEqual(['p1', false]);
+    await s.agent.handle('scroll down', P1);
+    expect(s.ran).toEqual([['screen_type_into', { text: 'hello there' }]]);
   });
   it('only for the phone watching the remote view', async () => {
     const s = mk();
-    await s.agent.handle('type', { from: { deviceId: 'p2' } });
+    expect(await s.agent.handle('Type.', { from: { deviceId: 'p2' } })).not.toMatch(/say it/i);
     expect(s.typing).toEqual([]);
   });
 });
-
-// User's choice (2026-11-08): in the remote view a phrase that isn't a step is asked back on the view, not
 // sent to the AI ("Nt.js, Tx." went to the AI live). "Novi, …" / "ask …" still reach the AI.
 describe('in the remote view, a phrase that is no step', () => {
   it('is asked back with examples', async () => {
@@ -110,10 +110,9 @@ describe('remote view phrases as actually heard', () => {
     expect(await s.agent.handle('Nui, open Spotify', P1)).toMatch(/Opened/);
     expect(s.ran.filter(([n]) => n === 'open_app')).toHaveLength(2);
   });
-  it('"Pipe." turns typing on; "Thank you." is ignored without a word', async () => {
+  it('"Pipe." means type; "Thank you." is ignored without a word', async () => {
     const s = mk();
-    expect(await s.agent.handle('Pipe.', P1)).toMatch(/typing/i);
-    await s.agent.handle('stop typing', P1);
+    expect(await s.agent.handle('Pipe.', P1)).toMatch(/say it/i);
     expect(await s.agent.handle('Thank you.', P1)).toBe('');
   });
 });

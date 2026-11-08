@@ -1207,42 +1207,40 @@ export class Agent {
   screenModeOn() { return Boolean(this._screenMode && this.tools.get('screen_command')); }
 
   // One step inside the phone app the user is in. The plugin reads the words; null = not a phone step.
-  // Typing by voice in the remote view (user, 2026-11-08): "type" turns it on for the phone watching the
-  // live laptop screen; each phrase after it is typed (a space between), the phone's mic opens again by
-  // itself (liveTyping), "… enter" sends and ends it, "stop typing" ends it. Off after 5 min of silence.
+  // Typing by voice in the remote view (user, 2026-11-08: "as I say type it should get typed in the chatbox and
+  // when I say send it should get sent"). Never sticky (a sticky mode typed "Open YouTube" and "Scroll down"
+  // live): "type X" types X once, "type X and send" also sends, a bare "type" / the Type button types only the
+  // next phrase (30 s), "send" / "enter" press Enter.
   async _liveTypingCommand(text, from) {
     const id = from && from !== 'local' ? from.deviceId : null;
     if (!id || !this.tools.get('screen_type_into') || !this.liveViewing?.(from)) return null;
-    const on = this._liveTyping && this._liveTyping.id === id && Date.now() - this._liveTyping.at < 5 * 60_000 ? this._liveTyping : null;
-    if (!on) {
-      // \"Pipe.\" / \"Tape.\": what speech-to-text made of \"type\" live (2026-11-08).
-      if (!typeNextCommand(text) && !/^(?:pipe|tape|tight|tie|taipe?)[.!]?$/i.test(text.trim())) return null;
-      this._liveTyping = { id, at: Date.now(), typed: false };
-      this.liveTyping?.(from, true);
-      return 'Typing. Say enter to send, or stop typing.';
-    }
-    const step = typingStep(text);
+    const t = String(text || '').trim();
+    if (/\b(?:phone|phone pe|phone par)\b/i.test(t)) return null; // "type hi on my phone" is for the phone
     const run = async (name, args) => (await this._runTool({ id: `ltype-${Date.now()}`, function: { name, arguments: JSON.stringify(args) } }, { direct: true })).output || {};
-    if (step.stop) {
-      this._liveTyping = null;
-      this.liveTyping?.(from, false);
-      return 'Stopped typing.';
+    const send = async () => { const out = await run('screen_enter', {}); return out.error || 'Sent.'; };
+    if (/^(?:send(?: it)?|enter|press enter|bhej do|bhejo)[.!]?$/i.test(t)) { this._liveTyping = null; return send(); }
+    // "Pipe." / "Tape.": what speech-to-text made of "type" live.
+    if (typeNextCommand(t) || /^(?:pipe|tape|tight|tie|taipe?)[.!]?$/i.test(t)) {
+      this._liveTyping = { id, at: Date.now() };
+      this.liveTyping?.(from, true);
+      return "Say it, I'll type it.";
     }
-    on.at = Date.now();
-    if (step.text) {
-      const out = await run('screen_type_into', { text: on.typed ? ` ${step.text}` : step.text });
-      if (out.error) { this._liveTyping = null; this.liveTyping?.(from, false); return out.error; }
-      on.typed = true;
+    const armed = this._liveTyping && this._liveTyping.id === id && Date.now() - this._liveTyping.at < 30_000;
+    const said = /^(?:type|tipe|taip|pipe|likho)\s*[:,]?\s+(.+)$/i.exec(t);
+    let words = said ? said[1] : armed ? t : null;
+    if (words == null) return null;
+    this._liveTyping = null;
+    this.liveTyping?.(from, false);
+    let enter = false;
+    const tail = /^(.*?)[,.]?\s+(?:and\s+)?(?:send(?: it)?|enter|bhej do)[.!]?$/i.exec(words);
+    if (tail) { words = tail[1]; enter = true; }
+    if (/^(?:thank you|thanks|you|bye)[.!]?$/i.test(words)) words = '';
+    if (words) {
+      const out = await run('screen_type_into', { text: words });
+      if (out.error) return out.error;
     }
-    if (step.enter) {
-      this._liveTyping = null;
-      const out = await run('screen_enter', {});
-      this.liveTyping?.(from, false);
-      return out.error || 'Sent.';
-    }
-    this.liveTyping?.(from, true);
-    this._quietReply = true;
-    return step.text ? 'Typed.' : '';
+    if (enter) return send();
+    return words ? `Typed: ${words}` : '';
   }
 
   async _phoneCommand(text, from, phoneApp) {

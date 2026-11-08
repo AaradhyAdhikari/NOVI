@@ -2,6 +2,7 @@ package app.novi.phone
 
 import android.content.Context
 import android.content.Intent
+import android.media.AudioManager
 import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
@@ -15,11 +16,31 @@ import android.speech.SpeechRecognizer
  */
 class PhoneSpeech(private val context: Context, private val emit: (String, String, Boolean, String) -> Unit) {
     private var rec: SpeechRecognizer? = null
+    private val audio = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    // The recognizer beeps each time it starts listening (every few seconds in the remote view; user: "it is
+    // making sound always, it's irritating"). Those sounds stay muted while the view listens; only the ones
+    // muted here are turned back on.
+    private val BEEPS = intArrayOf(AudioManager.STREAM_MUSIC, AudioManager.STREAM_NOTIFICATION, AudioManager.STREAM_SYSTEM)
+    private val mutedHere = mutableSetOf<Int>()
+
+    private fun hush() {
+        for (s in BEEPS) runCatching {
+            if (!audio.isStreamMute(s)) { audio.adjustStreamVolume(s, AudioManager.ADJUST_MUTE, 0); mutedHere.add(s) }
+        }
+    }
+
+    /** The view stopped listening (closed, or the mic turned off): the sounds come back. */
+    fun release() {
+        stop()
+        for (s in mutedHere) runCatching { audio.adjustStreamVolume(s, AudioManager.ADJUST_UNMUTE, 0) }
+        mutedHere.clear()
+    }
 
     fun available(): Boolean = SpeechRecognizer.isRecognitionAvailable(context)
 
     fun start(id: String) {
         stop()
+        hush()
         val r = SpeechRecognizer.createSpeechRecognizer(context)
         rec = r
         r.setRecognitionListener(object : RecognitionListener {

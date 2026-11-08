@@ -118,7 +118,7 @@ async function launch({ url, screen = 1, edge = EDGE }) {
 }
 
 // One stream: start() → { sdp, width, height } (the offer for the phone), answer(sdp), stop().
-export function createStream({ serve: serveImpl = serve, launch: launchImpl = launch, connect = cdpConnect, screen = 1, timeoutMs = 8_000, logger = null } = {}) {
+export function createStream({ serve: serveImpl = serve, launch: launchImpl = launch, connect = cdpConnect, screen = 1, timeoutMs = 8_000, readyEveryMs = 150, logger = null } = {}) {
   let server = null;
   let edge = null;
   let cdp = null;
@@ -153,6 +153,14 @@ export function createStream({ serve: serveImpl = serve, launch: launchImpl = la
         cdp.on('Runtime.exceptionThrown', ({ exceptionDetails: d }) => logger?.warn?.(`[live] page error: ${String(d?.exception?.description || d?.text || '').slice(0, 200)}`));
         await cdp.send('Runtime.enable');
         await cdp.send('Runtime.addBinding', { name: 'noviSignal' });
+        // The page must have loaded first: a start() sent too early did nothing (live: "stopped at:
+        // starting Edge" inside a busy Novi, never from a quick script).
+        for (let waited = 0; ; waited += readyEveryMs) {
+          const r = await cdp.send('Runtime.evaluate', { expression: "typeof window.start === 'function'", returnByValue: true });
+          if (r?.result?.value === true) break;
+          if (waited >= timeoutMs) throw new Error("The screen page didn't load in Edge.");
+          await sleep(readyEveryMs);
+        }
         await cdp.send('Runtime.evaluate', { expression: 'start()', userGesture: true });
         return await offer;
       } catch (err) {

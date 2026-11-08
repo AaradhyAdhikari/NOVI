@@ -2087,8 +2087,9 @@ describe('phone typing (plugins/phone-control, 2026-10-29)', () => {
   it('while that phone watches the live laptop screen, steps go to the laptop', async () => {
     const { agent, ran } = mk();
     agent.liveViewing = (from) => from?.deviceId === 'p1';
-    expect(await agent.handle('type hi and send', { from: { deviceId: 'p1' }, phoneApp: 'com.whatsapp' })).toBe('Typed it.');
-    expect(ran.at(-1)[0]).toBe('screen_type_into');
+    await agent.handle('type hi and send', { from: { deviceId: 'p1' }, phoneApp: 'com.whatsapp' });
+    expect(ran.find(([n]) => n === 'screen_type_into')).toEqual(['screen_type_into', { text: 'hi' }]);
+    expect(ran.some(([n]) => n === 'phone_action')).toBe(false);
     expect(await agent.handle('type hi on my phone', { from: { deviceId: 'p1' } })).toBe('Typed it on the phone.');
   });
 

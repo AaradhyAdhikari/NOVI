@@ -94,7 +94,7 @@ class MainActivity : ComponentActivity() {
 
         @JavascriptInterface
         fun stopRecognize() {
-            runOnUiThread { speech.stop() }
+            runOnUiThread { speech.release() }
         }
 
         private fun speechError(id: String, error: String) {
@@ -165,6 +165,7 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         visible = false
         NoviService.instance?.pageShown(false)
+        speech.release() // listening stops and the sounds it muted come back when Novi isn't on screen
         super.onPause()
     }
 

@@ -46,6 +46,7 @@ function fakeEdge({ reply = (expr, cdp) => { if (expr === 'start()') cdp.fire({ 
     fire: (msg) => setTimeout(() => handler?.({ name: 'noviSignal', payload: JSON.stringify(msg) }), 0),
     send: async (method, params = {}) => {
       log.push([method, params]);
+      if (method === 'Runtime.evaluate' && params.expression === "typeof window.start === 'function'") return { result: { value: true } };
       if (method === 'Runtime.evaluate') reply(params.expression, cdp);
       return {};
     },
@@ -77,6 +78,18 @@ describe('one stream', () => {
     const call = e.log.filter(([m]) => m === 'Runtime.evaluate').at(-1)[1].expression;
     expect(call.startsWith('fromPhone(')).toBe(true);
     expect(call).toBe(`fromPhone(${JSON.stringify({ type: 'answer', sdp: 'v=0\r\n"); alert(1); ("' })})`);
+  });
+  // Live 2026-11-08: "stopped at: starting Edge" — start() was sent before the page had loaded, so it did nothing.
+  it('waits until the page is ready before starting the capture', async () => {
+    let checks = 0;
+    const e = fakeEdge({ reply: (expr, cdp) => { if (expr === 'start()') cdp.fire({ type: 'offer', sdp: 'OFFER', width: 1, height: 1 }); } });
+    const send = e.cdp.send;
+    e.cdp.send = async (method, params = {}) => {
+      if (method === 'Runtime.evaluate' && params.expression === "typeof window.start === 'function'") { checks += 1; return { result: { value: checks >= 3 } }; }
+      return send(method, params);
+    };
+    await createStream({ ...e.deps, readyEveryMs: 1 }).start();
+    expect(checks).toBe(3);
   });
   it('a capture error from the page fails the start and closes everything', async () => {
     const e = fakeEdge({ reply: (expr, cdp) => { if (expr === 'start()') cdp.fire({ type: 'error', message: 'NotAllowedError' }); } });

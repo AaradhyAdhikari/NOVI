@@ -531,6 +531,9 @@ export function createNovi(config, overrides = {}) {
     const to = active;
     const key = deviceKey(to);
     if (key === 'local' || !isOpen(key)) return null;
+    // Watching the laptop live (remote control): everything said there is for the laptop (user, 2026-11-08:
+    // "open YouTube" sent a link into the phone's chat instead).
+    if (plugins.runtime.liveViewing?.(to)) return null;
     const post = (text, extra) => {
       const at = new Date().toISOString();
       transcript.push({ role: 'novi', text, at, device: key, ...extra });
