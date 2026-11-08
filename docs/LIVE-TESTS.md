@@ -314,3 +314,8 @@ Enable the Calendar, Tasks, Drive and Sheets APIs in Google Cloud Console, then 
 - [ ] Answer the box on the laptop instead: the card closes by itself about 5 s later.
 - [ ] A box asking to run a command or control the screen asks for the PIN.
 - To-do: fingerprint or face unlock instead of the PIN on computer-access cards.
+
+## Remote control: smooth video (2026-11-08, not tried on the phone yet)
+- In the Novi app tap the Monitor button (or say "control my laptop"), give the PIN.
+- Expect: the laptop screen as smooth video within a few seconds (not pictures that jump). Taps still click, swipes still scroll, typing still works.
+- If it stays on "Connecting" for 25 s it falls back to the old pictures: say so, and Novi's log has `[live] video stream failed` with the reason.

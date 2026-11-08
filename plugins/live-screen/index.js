@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { definePluginEntry } from '#plugin-sdk';
 import { windowsDriver } from '../screen/index.js';
+import { createStream } from './stream.js';
 
 // The laptop's screen, live on the phone: tap to click, swipe to scroll, type with the phone's keyboard
 // (user, 2026-11-04: "control my whole laptop from my phone"). Over Novi's own connection, paired phones
@@ -12,7 +13,8 @@ const MAX_TEXT = 2000;
 const KEYS = new Set(['enter', 'esc', 'tab', 'backspace', 'up', 'down', 'left', 'right', 'pageup', 'pagedown', 'alt+left', 'alt+right', 'f5']);
 const unit = (n) => typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= 1;
 
-export function createLiveScreenPlugin({ driver = windowsDriver, now = Date.now, gapMs = GAP_MS, idleMs = IDLE_MS } = {}) {
+// `stream`: the smooth video (stream.js); the pictures below stay as the backup when it can't start.
+export function createLiveScreenPlugin({ driver = windowsDriver, now = Date.now, gapMs = GAP_MS, idleMs = IDLE_MS, stream = createStream } = {}) {
   return definePluginEntry({
     id: 'live-screen',
     name: 'Live screen',
@@ -24,8 +26,26 @@ export function createLiveScreenPlugin({ driver = windowsDriver, now = Date.now,
 
       const end = (why) => {
         if (session) api.logger?.info?.(`[live] closed after ${session.inputs} input(s): ${why}`);
+        session?.video?.stop();
         session = null;
       };
+
+      async function startVideo(s, reply) {
+        s.video?.stop();
+        const video = stream({ logger: api.logger });
+        s.video = video;
+        try {
+          const { sdp, width, height } = await video.start();
+          if (session !== s || s.video !== video) { video.stop(); return reply({ type: 'live_closed' }); }
+          if (width && height) { s.width = width; s.height = height; }
+          api.logger?.info?.(`[live] video stream ready (${width}x${height})`);
+          return reply({ type: 'live_offer', sdp, width, height });
+        } catch (err) {
+          if (s.video === video) s.video = null;
+          api.logger?.warn?.(`[live] video stream failed, using pictures: ${err.message}`);
+          return reply({ type: 'live_stream_failed' });
+        }
+      }
       const open = (from) => {
         if (session && now() - session.touched >= idleMs) end('idle');
         return session && from?.deviceId === session.deviceId ? session : null;
@@ -55,7 +75,11 @@ export function createLiveScreenPlugin({ driver = windowsDriver, now = Date.now,
 
       async function act(s, m, reply) {
         if (m.kind === 'tap' && unit(m.x) && unit(m.y) && s.width) return driver.click(Math.round(m.x * s.width), Math.round(m.y * s.height));
-        if (m.kind === 'scroll' && Number.isInteger(m.notches) && Math.abs(m.notches) <= 10 && m.notches) return driver.scroll(m.notches);
+        if (m.kind === 'scroll' && Number.isInteger(m.notches) && Math.abs(m.notches) <= 10 && m.notches) {
+          // Under the finger, so a side panel scrolls, not the middle of the window (live 2026-11-08).
+          const at = unit(m.x) && unit(m.y) && s.width ? { x: Math.round(m.x * s.width), y: Math.round(m.y * s.height) } : undefined;
+          return driver.scroll(m.notches, at);
+        }
         if (m.kind === 'text' && typeof m.text === 'string' && m.text.trim() && m.text.length <= MAX_TEXT) {
           const box = await driver.focused?.().catch(() => null);
           if (box?.password) { reply({ type: 'live_note', text: "That's a password box. Please type it on the laptop." }); return null; }
@@ -71,6 +95,8 @@ export function createLiveScreenPlugin({ driver = windowsDriver, now = Date.now,
           if (msg.type === 'live_stop') { if (s) end('closed on the phone'); return reply({ type: 'live_closed' }); }
           if (!s) return reply({ type: 'live_closed', reason: 'The live screen closed because it was idle. Open it again with your PIN.' });
           if (msg.type === 'live_ack') return sendFrame(s, reply);
+          if (msg.type === 'live_stream') return startVideo(s, reply);
+          if (msg.type === 'live_answer') { if (typeof msg.sdp === 'string' && msg.sdp.length < 20_000) await s.video?.answer(msg.sdp).catch((err) => api.logger?.warn?.(`[live] answer failed: ${err.message}`)); return undefined; }
           if (msg.type !== 'live_input') return undefined;
           s.touched = now();
           s.hash = null; // whatever the touch changes shows at once
@@ -87,7 +113,8 @@ export function createLiveScreenPlugin({ driver = windowsDriver, now = Date.now,
           const deviceId = asked;
           asked = null;
           if (!deviceId) return { content: [], details: { error: 'The live screen is for your phone. Ask from the phone.' } };
-          session = { deviceId, touched: now(), width: 0, height: 0, hash: null, sentAt: 0, sending: false, inputs: 0 };
+          session?.video?.stop();
+          session = { deviceId, touched: now(), width: 0, height: 0, hash: null, sentAt: 0, sending: false, inputs: 0, video: null };
           api.logger?.info?.('[live] opened on a phone');
           api.runtime.sendToDevice(deviceId, { type: 'live_open' });
           return { content: [], details: { note: 'Opening your laptop screen.' } };

@@ -1,5 +1,6 @@
 import { createQuiet } from './quiet.js';
 import { createPhoneOnly } from './phoneOnly.js';
+import { uiBuildOf } from './uiBuild.js';
 import { latestApp, updateCard } from './appUpdate.js';
 import { createCodeEdits } from './codeEdits.js';
 import { createActivity } from './activity.js';
@@ -567,6 +568,7 @@ export function createNovi(config, overrides = {}) {
   });
   const snapshot = (viewer = 'local') => ({
     type: 'snapshot',
+    ui: uiBuildOf(config.distDir || path.resolve('dist')), // an old open page reloads itself (src/lib/pageBuild.js)
     quiet: quiet.state(),
     // The laptop-mic wake word only helps pages on the laptop; a phone listens for itself.
     wakeWord: viewer === 'local' ? wakeWord : 'browser',

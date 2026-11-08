@@ -1,5 +1,6 @@
 import { mergeTranscript, addChat, addPending } from './transcript.js';
 import { emitLive } from './liveInput.js';
+import { staleUi, myScript } from './pageBuild.js';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getItem, setItem } from './storage.js';
 import { pairCodeFromHash, deviceName, tryAutoPair } from './pairing.js';
@@ -30,6 +31,14 @@ export function useNovi({ onSpeak }) {
       switch (msg.type) {
         case 'snapshot': {
           const { type, ...rest } = msg;
+          // Novi has newer page code than this open page (the phone app keeps its page for days): reload once.
+          let reloadedFor = null;
+          try { reloadedFor = sessionStorage.getItem('novi.reloadedFor'); } catch { /* no storage */ }
+          if (staleUi(msg.ui, myScript(), reloadedFor)) {
+            try { sessionStorage.setItem('novi.reloadedFor', msg.ui); } catch { /* no storage */ }
+            window.location.reload();
+            return;
+          }
           setState((s) => ({ ...s, ...rest, transcript: mergeTranscript(s.transcript, rest.transcript) }));
           break;
         }
@@ -38,7 +47,7 @@ export function useNovi({ onSpeak }) {
         case 'task': setState((s) => ({ ...s, task: msg.task })); break;
         case 'live_open': setState((s) => ({ ...s, live: { open: true } })); break;
         case 'live_closed': setState((s) => ({ ...s, live: { open: false, reason: msg.reason } })); break;
-        case 'live_frame': case 'live_same': case 'live_note': emitLive(msg); break;
+        case 'live_frame': case 'live_same': case 'live_note': case 'live_offer': case 'live_stream_failed': emitLive(msg); break;
         case 'quiet': setState((s) => ({ ...s, quiet: { on: msg.on, until: msg.until } })); break;
         case 'code_saved': setState((s) => ({ ...s, codeSaved: { ...(s.codeSaved || {}), [msg.id]: { ok: msg.ok, changed: msg.changed, error: msg.error, at: Date.now() } } })); break;
         case 'notice_added': setState((s) => ({ ...s, notices: [...(s.notices || []).filter((n) => n.id !== msg.notice.id), msg.notice] })); break;

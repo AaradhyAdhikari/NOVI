@@ -1,16 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
 import { X, CornerDownLeft, Delete, ArrowLeft, Send } from 'lucide-react';
 import { onLive, tapPoint, scrollNotches } from '../lib/liveInput.js';
+import { answerOffer } from '../lib/liveVideo.js';
 
 const MOVED_PX = 12; // less than this is a tap
 const MAX_ZOOM = 4;
+const VIDEO_WAIT_MS = 25_000; // no video by then: the pictures
 const bar = { display: 'flex', gap: 8, padding: '8px 12px', background: '#0b1016', alignItems: 'center' };
 const button = { background: '#1b2733', color: '#e6ecf2', border: 0, borderRadius: 8, padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 6, fontSize: 14 };
 
-// The laptop's screen, full-screen on the phone. One finger: tap to click, drag to scroll.
+// The laptop's screen, full-screen on the phone: smooth video (plugins/live-screen/stream.js), else pictures.
+// One finger: tap to click, drag to scroll.
 // Two fingers: pinch to zoom and move around. The bar below types and presses keys.
 export default function LiveScreen({ send }) {
   const [src, setSrc] = useState('');
+  const [mode, setMode] = useState('connecting'); // connecting | video | pictures
+  const video = useRef(null);
   const [text, setText] = useState('');
   const [note, setNote] = useState('');
   const [view, setView] = useState({ zoom: 1, x: 0, y: 0 });
@@ -19,13 +24,47 @@ export default function LiveScreen({ send }) {
   const gesture = useRef(null);
 
   useEffect(() => {
-    const stop = onLive((msg) => {
+    let pictures = false;
+    let pc = null;
+    let gaveUp = null;
+    const usePictures = () => {
+      if (pictures) return;
+      pictures = true;
+      clearTimeout(gaveUp);
+      setMode('pictures');
+      send({ type: 'live_ack' });
+    };
+    const stop = onLive(async (msg) => {
       if (msg.type === 'live_note') { setNote(msg.text); return; }
+      if (msg.type === 'live_stream_failed') { usePictures(); return; }
+      if (msg.type === 'live_offer') {
+        try {
+          const r = await answerOffer(msg.sdp, {
+            onTrack: (e) => {
+              const v = video.current;
+              if (!v) return;
+              v.srcObject = e.streams?.[0] || new MediaStream([e.track]);
+              v.play().catch(() => {});
+            },
+            onState: (state) => {
+              if (state === 'connected' && !pictures) { clearTimeout(gaveUp); setMode('video'); }
+              if (state === 'failed') usePictures();
+            },
+          });
+          pc = r.pc;
+          send({ type: 'live_answer', sdp: r.sdp });
+        } catch { usePictures(); }
+        return;
+      }
+      if (!pictures) return;
       if (msg.type === 'live_frame') setSrc(`data:image/png;base64,${msg.png}`);
       send({ type: 'live_ack' }); // the next picture only after this one arrived: no pile-up on a slow link
     });
-    send({ type: 'live_ack' });
-    return () => { stop(); send({ type: 'live_stop' }); };
+    if (typeof RTCPeerConnection === 'function') {
+      send({ type: 'live_stream' });
+      gaveUp = setTimeout(usePictures, VIDEO_WAIT_MS);
+    } else usePictures();
+    return () => { clearTimeout(gaveUp); try { pc?.close(); } catch { /* gone */ } stop(); send({ type: 'live_stop' }); };
   }, [send]);
 
   const input = (m) => send({ type: 'live_input', ...m });
@@ -66,8 +105,9 @@ export default function LiveScreen({ send }) {
   const up = (e) => {
     fingers.current.delete(e.pointerId);
     const g = gesture.current;
-    if (g?.kind === 'one' && !g.moved && img.current) {
-      const point = tapPoint(img.current.getBoundingClientRect(), e.clientX, e.clientY);
+    const shown = mode === 'video' ? video.current : img.current;
+    if (g?.kind === 'one' && !g.moved && shown) {
+      const point = tapPoint(shown.getBoundingClientRect(), e.clientX, e.clientY);
       if (point) input({ kind: 'tap', ...point });
     }
     if (!fingers.current.size) gesture.current = null;
@@ -86,7 +126,11 @@ export default function LiveScreen({ send }) {
         style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', touchAction: 'none' }}
         onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}
       >
-        {src
+        <video
+          ref={video} muted playsInline autoPlay
+          style={{ display: mode === 'video' ? 'block' : 'none', maxWidth: '100%', maxHeight: '100%', transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`, userSelect: 'none' }}
+        />
+        {mode === 'video' ? null : src
           ? <img ref={img} src={src} alt="Laptop screen" draggable={false} style={{ maxWidth: '100%', maxHeight: '100%', transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`, userSelect: 'none' }} />
           : <span style={{ color: '#9aa8b6' }}>Connecting to the laptop…</span>}
       </div>

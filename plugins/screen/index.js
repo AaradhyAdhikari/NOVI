@@ -62,7 +62,8 @@ export const windowsDriver = {
   key: (name) => ps(['key', KEY_CODES[name]]),
   focus: async (app) => (await ps(['focus'], { NOVI_SCREEN_APP: String(app) })) === 'True',
   // Mouse wheel over the front app (not Novi): notches, negative = down.
-  scroll: (notches) => ps(['scroll', String(Math.trunc(notches))]),
+  // `at` { x, y } in physical pixels: the wheel turns there (the remote view's finger); else mid-window.
+  scroll: (notches, at) => ps(['scroll', String(Math.trunc(notches)), ...(at ? [`${Math.round(at.x)},${Math.round(at.y)}`] : [])]),
   // A picture of a web page from a hidden Edge (its own empty profile, so not signed in anywhere).
   pageShot: (url) => pageShot(url),
 };

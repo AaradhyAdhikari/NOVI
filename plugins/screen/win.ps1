@@ -3,7 +3,7 @@
 #   click <x> <y>     -> left click at physical pixel x,y
 #   type              -> types the text in $env:NOVI_SCREEN_TEXT (never passed on the command line)
 #   key <sendkeys>    -> presses one key combination (from the plugin's allow-list)
-#   scroll <notches>  -> mouse wheel over the front app (negative = down)
+#   scroll <notches> [x,y] -> mouse wheel at x,y (physical px), else over the front app's middle (negative = down)
 #   window            -> prints the title of the foreground window
 #   focus             -> brings the window titled like $env:NOVI_SCREEN_APP to the front (True/False)
 param([string]$cmd, [string]$a1, [string]$a2)
@@ -115,7 +115,8 @@ switch ($cmd) {
     if ($h -eq [IntPtr]::Zero) { $h = [NoviScreen]::GetForegroundWindow() }
     $r = New-Object NoviScreen+RECT
     [void][NoviScreen]::GetWindowRect($h, [ref]$r)
-    [void][NoviScreen]::SetCursorPos([int](($r.Left + $r.Right) / 2), [int](($r.Top + $r.Bottom) / 2))
+    if ($a2 -match '^(\d+),(\d+)$') { [void][NoviScreen]::SetCursorPos([int]$Matches[1], [int]$Matches[2]) }
+    else { [void][NoviScreen]::SetCursorPos([int](($r.Left + $r.Right) / 2), [int](($r.Top + $r.Bottom) / 2)) }
     $d = [BitConverter]::ToUInt32([BitConverter]::GetBytes([int]([int]$a1 * 120)), 0)
     [NoviScreen]::mouse_event(0x800, 0, 0, $d, [UIntPtr]::Zero)
   }
