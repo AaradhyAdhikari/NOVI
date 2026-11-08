@@ -30,18 +30,26 @@ export function createLiveScreenPlugin({ driver = windowsDriver, now = Date.now,
         session = null;
       };
 
-      async function startVideo(s, reply) {
+      // Live 2026-11-08: a start sometimes never got its offer while the next one worked in 2 s, so a
+      // failed start gets one more try with a fresh Edge before the pictures take over.
+      async function startVideo(s, reply, tries = 2) {
         s.video?.stop();
         const video = stream({ logger: api.logger });
         s.video = video;
         try {
+          const started = Date.now();
           const { sdp, width, height } = await video.start();
+          api.logger?.info?.(`[live] video offer in ${Date.now() - started} ms`);
           if (session !== s || s.video !== video) { video.stop(); return reply({ type: 'live_closed' }); }
           if (width && height) { s.width = width; s.height = height; }
           api.logger?.info?.(`[live] video stream ready (${width}x${height})`);
           return reply({ type: 'live_offer', sdp, width, height });
         } catch (err) {
           if (s.video === video) s.video = null;
+          if (tries > 1 && session === s) {
+            api.logger?.warn?.(`[live] video stream failed, trying again: ${err.message}`);
+            return startVideo(s, reply, tries - 1);
+          }
           api.logger?.warn?.(`[live] video stream failed, using pictures: ${err.message}`);
           return reply({ type: 'live_stream_failed' });
         }
@@ -90,12 +98,13 @@ export function createLiveScreenPlugin({ driver = windowsDriver, now = Date.now,
       }
 
       if (api.runtime) {
+        api.runtime.liveViewing = (from) => Boolean(open(from));
         api.runtime.liveMessage = async (msg, from, reply) => {
           const s = open(from);
           if (msg.type === 'live_stop') { if (s) end('closed on the phone'); return reply({ type: 'live_closed' }); }
           if (!s) return reply({ type: 'live_closed', reason: 'The live screen closed because it was idle. Open it again with your PIN.' });
           if (msg.type === 'live_ack') return sendFrame(s, reply);
-          if (msg.type === 'live_stream') return startVideo(s, reply);
+          if (msg.type === 'live_stream') { api.logger?.info?.('[live] video stream asked'); return startVideo(s, reply); }
           if (msg.type === 'live_answer') { if (typeof msg.sdp === 'string' && msg.sdp.length < 20_000) await s.video?.answer(msg.sdp).catch((err) => api.logger?.warn?.(`[live] answer failed: ${err.message}`)); return undefined; }
           if (msg.type !== 'live_input') return undefined;
           s.touched = now();

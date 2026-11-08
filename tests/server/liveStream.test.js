@@ -158,6 +158,20 @@ describe('Live screen with the video stream', () => {
     expect(await s.say({ type: 'live_stream' })).toEqual([{ type: 'live_stream_failed' }]);
     expect((await s.say({ type: 'live_ack' }))[0].type).toBe('live_frame');
   });
+  // Live 2026-11-08: two starts in a row timed out, the next one worked in 2 s.
+  it('a start that fails is tried once more with a fresh Edge', async () => {
+    let tries = 0;
+    const made = [];
+    const stream = () => ({ start: async () => { tries += 1; if (tries === 1) throw new Error('slow'); return { sdp: 'OFFER', width: 1920, height: 1200 }; }, answer: async () => {}, stop: () => made.push('stopped') });
+    const host = new PluginHost({ runtime: { sendToDevice() {} }, env: {}, logger: { warn() {}, info() {} } });
+    host.register(createLiveScreenPlugin({ driver: { screenshot: async () => ({ png: Buffer.from('A'), width: 1, height: 1 }) }, stream, gapMs: 0 }));
+    await host.get('live_screen_open').gate({}, { from: PHONE });
+    await host.get('live_screen_open').run({});
+    const out = [];
+    await host.runtime.liveMessage({ type: 'live_stream' }, PHONE, (m) => out.push(m));
+    expect(tries).toBe(2);
+    expect(out[0].type).toBe('live_offer');
+  });
   it('a second start replaces the old stream; closing ends it', async () => {
     const s = setup();
     await s.open();
@@ -192,5 +206,22 @@ describe('the phone answers the offer', () => {
     FakePeer.last.connectionState = 'connected';
     FakePeer.last.onconnectionstatechange();
     expect(got).toEqual([['track', 'v'], ['state', 'connected']]);
+  });
+});
+
+import { trustedByPin } from '../../server/voice/heardFilter.js';
+
+// User's choice (2026-11-08): the phone that opened the remote view with the PIN is trusted by voice while it
+// watches (its voice scored 0.50-0.54 through the phone mic, under the pass mark). A strict card still checks.
+describe('voice from the phone watching the remote view', () => {
+  it('skips the voice check while it watches', () => {
+    expect(trustedByPin([], true)).toBe(true);
+    expect(trustedByPin([{ tier: 'medium' }], true)).toBe(true);
+  });
+  it('never for a phone that is not watching, or while a high-risk / PIN / delete card waits', () => {
+    expect(trustedByPin([], false)).toBe(false);
+    expect(trustedByPin([{ tier: 'high' }], true)).toBe(false);
+    expect(trustedByPin([{ pin: true }], true)).toBe(false);
+    expect(trustedByPin([{ kind: 'delete' }], true)).toBe(false);
   });
 });

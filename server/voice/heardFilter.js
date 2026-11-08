@@ -34,6 +34,10 @@ export const cardSlack = (pending = []) => (pending.length && pending.every((a) 
 // The voice was learned on the laptop mic, and a phone sounds different (live: a real clip scored 0.568 against
 // 0.57). A paired phone is already trusted, so its check is a little easier, unless a riskier card waits.
 const PHONE_SLACK = 0.05;
+// The phone that opened the remote view with the PIN is trusted by voice while it watches (user, 2026-11-08:
+// through the phone mic their voice scored 0.50-0.54, under the pass mark). A strict card still checks.
+export const trustedByPin = (pending = [], viewing = false) => Boolean(viewing) && !pending.some((a) => a.tier === 'high' || a.pin || a.kind);
+
 export const voiceSlack = (pending = [], from = 'local') => {
   if (pending.some((a) => a.tier === 'high' || a.pin || a.kind)) return 0;
   return Math.max(cardSlack(pending), from === 'local' ? 0 : PHONE_SLACK);

@@ -1,0 +1,74 @@
+import { describe, it, expect } from 'vitest';
+import { Agent } from '../../server/brain/agent.js';
+import { ApprovalQueue } from '../../server/permissions.js';
+import { ToolRegistry } from '../../server/tools/registry.js';
+import { typingStep } from '../../server/brain/dictationCommand.js';
+
+// User, 2026-11-08: in the remote view, "when I say type it should start typing … asap, and when I say enter
+// … sent it". "Type" turns on typing: every phrase after it is typed as you pause, the mic opens again by
+// itself, "enter" sends and ends it, "stop typing" ends it.
+describe('what a phrase means while typing', () => {
+  it('words are typed as said', () => {
+    expect(typingStep('hello there')).toEqual({ text: 'hello there' });
+    expect(typingStep('How are you?')).toEqual({ text: 'How are you?' });
+  });
+  it('"enter" / "send it" at the end sends what came before', () => {
+    expect(typingStep('see you tomorrow, enter')).toEqual({ text: 'see you tomorrow', enter: true });
+    expect(typingStep('see you tomorrow enter.')).toEqual({ text: 'see you tomorrow', enter: true });
+    expect(typingStep('Enter.')).toEqual({ text: '', enter: true });
+    expect(typingStep('send it')).toEqual({ text: '', enter: true });
+    expect(typingStep('ok bhej do')).toEqual({ text: 'ok', enter: true });
+  });
+  it('"stop typing" ends it; a lone "Thank you." (speech-to-text noise) is not typed', () => {
+    expect(typingStep('stop typing')).toEqual({ stop: true });
+    expect(typingStep('Done typing.')).toEqual({ stop: true });
+    expect(typingStep('Thank you.')).toEqual({ text: '' });
+  });
+});
+
+function mk() {
+  const ran = [];
+  const tool = (name, run) => ({ name, description: name, parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => name, run: async (a) => { ran.push([name, a]); return run(a); } });
+  const tools = new ToolRegistry()
+    .add(tool('screen_type_into', () => ({ note: 'Typed it.' })))
+    .add(tool('screen_enter', () => ({ note: 'Pressed Enter.' })));
+  const agent = new Agent({ router: { chat: async () => ({ message: { role: 'assistant', content: 'AI' }, provider: 'groq', model: 'm' }) }, tools, approvals: new ApprovalQueue(), memory: { listProjects: () => [] }, tasks: { status: () => ({ active: false }) } });
+  const typing = [];
+  agent.liveViewing = (from) => from?.deviceId === 'p1';
+  agent.liveTyping = (from, on) => typing.push([from.deviceId, on]);
+  return { agent, ran, typing };
+}
+const P1 = { from: { deviceId: 'p1' } };
+
+describe('typing by voice in the remote view', () => {
+  it('"type" turns it on; phrases are typed with a space between; the mic is told to open again each time', async () => {
+    const s = mk();
+    expect(await s.agent.handle('Type.', P1)).toMatch(/typing/i);
+    expect(s.typing.at(-1)).toEqual(['p1', true]);
+    await s.agent.handle('hello there', P1);
+    await s.agent.handle('how are you', P1);
+    expect(s.ran).toEqual([['screen_type_into', { text: 'hello there' }], ['screen_type_into', { text: ' how are you' }]]);
+    expect(s.typing.filter(([, on]) => on)).toHaveLength(3);
+  });
+  it('"enter" types the rest, presses Enter and ends it', async () => {
+    const s = mk();
+    await s.agent.handle('type', P1);
+    await s.agent.handle('see you, enter', P1);
+    expect(s.ran).toEqual([['screen_type_into', { text: 'see you' }], ['screen_enter', {}]]);
+    expect(s.typing.at(-1)).toEqual(['p1', false]);
+    await s.agent.handle('hello', P1);
+    expect(s.ran).toHaveLength(2); // typing is off: "hello" went on as a normal request
+  });
+  it('"stop typing" ends it without Enter', async () => {
+    const s = mk();
+    await s.agent.handle('type', P1);
+    expect(await s.agent.handle('stop typing', P1)).toMatch(/stopped/i);
+    expect(s.ran).toEqual([]);
+    expect(s.typing.at(-1)).toEqual(['p1', false]);
+  });
+  it('only for the phone watching the remote view', async () => {
+    const s = mk();
+    await s.agent.handle('type', { from: { deviceId: 'p2' } });
+    expect(s.typing).toEqual([]);
+  });
+});

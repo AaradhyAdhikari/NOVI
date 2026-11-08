@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { cloneElement, isValidElement, useEffect, useRef, useState } from 'react';
 import { X, CornerDownLeft, Delete, ArrowLeft, Send } from 'lucide-react';
 import { onLive, tapPoint, scrollNotches } from '../lib/liveInput.js';
 import { answerOffer } from '../lib/liveVideo.js';
@@ -12,12 +12,24 @@ const button = { background: '#1b2733', color: '#e6ecf2', border: 0, borderRadiu
 // The laptop's screen, full-screen on the phone: smooth video (plugins/live-screen/stream.js), else pictures.
 // One finger: tap to click, drag to scroll.
 // Two fingers: pinch to zoom and move around. The bar below types and presses keys.
-export default function LiveScreen({ send }) {
+export default function LiveScreen({ send, reply = '', children = null }) {
   const [src, setSrc] = useState('');
   const [mode, setMode] = useState('connecting'); // connecting | video | pictures
   const video = useRef(null);
   const [text, setText] = useState('');
   const [note, setNote] = useState('');
+  const firstReply = useRef(reply);
+  const [typing, setTyping] = useState(false); // typing by voice: the mic re-opens after each phrase
+  const [answerAt, setAnswerAt] = useState(0);
+  const landscape = useLandscape();
+  // A reply that arrives while the view is open (a voice step's answer) shows for a few seconds.
+  useEffect(() => {
+    if (!reply || reply === firstReply.current) return undefined;
+    firstReply.current = null;
+    setNote(reply);
+    const t = setTimeout(() => setNote((n) => (n === reply ? '' : n)), 6000);
+    return () => clearTimeout(t);
+  }, [reply]);
   const [view, setView] = useState({ zoom: 1, x: 0, y: 0 });
   const img = useRef(null);
   const fingers = useRef(new Map());
@@ -37,6 +49,7 @@ export default function LiveScreen({ send }) {
     const stop = onLive(async (msg) => {
       if (msg.type === 'live_note') { setNote(msg.text); return; }
       if (msg.type === 'live_stream_failed') { usePictures(); return; }
+      if (msg.type === 'live_typing') { setTyping(msg.on); if (msg.on) setAnswerAt(msg.at || Date.now()); return; }
       if (msg.type === 'live_offer') {
         try {
           const r = await answerOffer(msg.sdp, {
@@ -73,7 +86,12 @@ export default function LiveScreen({ send }) {
     e.currentTarget.setPointerCapture?.(e.pointerId);
     fingers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     const pts = [...fingers.current.values()];
-    if (pts.length === 1) gesture.current = { kind: 'one', x: e.clientX, y: e.clientY, sent: 0, moved: false };
+    if (pts.length === 1) {
+      // Where the finger went down: the laptop scrolls the part under it (a side panel, not the middle).
+      const shown = mode === 'video' ? video.current : img.current;
+      const at = shown ? tapPoint(shown.getBoundingClientRect(), e.clientX, e.clientY) : null;
+      gesture.current = { kind: 'one', x: e.clientX, y: e.clientY, sent: 0, moved: false, at };
+    }
     if (pts.length === 2) {
       gesture.current = {
         kind: 'two', view, gap: Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y),
@@ -98,7 +116,7 @@ export default function LiveScreen({ send }) {
       const dy = e.clientY - g.y;
       if (Math.hypot(e.clientX - g.x, dy) >= MOVED_PX) g.moved = true;
       const notches = scrollNotches(dy) - g.sent;
-      if (notches) { g.sent += notches; input({ kind: 'scroll', notches }); }
+      if (notches) { g.sent += notches; input({ kind: 'scroll', notches, ...(g.at || {}) }); }
     }
   };
 
@@ -121,7 +139,7 @@ export default function LiveScreen({ send }) {
   };
 
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: '#000', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: '#000', display: 'flex', flexDirection: landscape ? 'row' : 'column' }}>
       <div
         style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', touchAction: 'none' }}
         onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}
@@ -134,14 +152,17 @@ export default function LiveScreen({ send }) {
           ? <img ref={img} src={src} alt="Laptop screen" draggable={false} style={{ maxWidth: '100%', maxHeight: '100%', transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`, userSelect: 'none' }} />
           : <span style={{ color: '#9aa8b6' }}>Connecting to the laptop…</span>}
       </div>
+      <div style={landscape ? { width: 230, flexShrink: 0, overflowY: 'auto', background: '#0b1016', display: 'flex', flexDirection: 'column', paddingRight: 'env(safe-area-inset-right)' } : { display: 'contents' }}>
+      {typing && <div style={{ background: '#123a2a', color: '#7ff0b8', padding: '6px 12px', fontSize: 14 }}>Typing by voice: say enter to send, or stop typing.</div>}
       {note && <div style={{ background: '#3a2d12', color: '#f0c36a', padding: '8px 12px', fontSize: 14 }} onClick={() => setNote('')}>{note}</div>}
-      <div style={bar}>
+      <div style={landscape ? { ...bar, flexWrap: 'wrap' } : bar}>
         <input
           value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') typeIt(); }}
           placeholder="Type on the laptop" autoComplete="off" autoCorrect="off"
           style={{ flex: 1, minWidth: 0, background: '#1b2733', color: '#e6ecf2', border: 0, borderRadius: 8, padding: '10px 12px', fontSize: 16 }}
         />
         <button style={button} onClick={typeIt} aria-label="Type it"><Send size={18} /></button>
+        {children && <div className="live-talk">{isValidElement(children) ? cloneElement(children, { answerAt }) : children}</div>}
       </div>
       <div style={{ ...bar, paddingTop: 0, paddingBottom: 'max(8px, env(safe-area-inset-bottom))', flexWrap: 'wrap' }}>
         <button style={button} onClick={() => input({ kind: 'key', key: 'enter' })}><CornerDownLeft size={18} />Enter</button>
@@ -150,6 +171,21 @@ export default function LiveScreen({ send }) {
         <button style={button} onClick={() => input({ kind: 'key', key: 'esc' })}>Esc</button>
         <button style={{ ...button, marginLeft: 'auto' }} onClick={() => send({ type: 'live_stop' })}><X size={18} />Close</button>
       </div>
+      </div>
     </div>
   );
+}
+
+// Phone turned sideways: the screen gets the full height and the controls go to a column on the right.
+function useLandscape() {
+  const query = '(orientation: landscape) and (max-height: 600px)';
+  const [on, setOn] = useState(() => typeof window !== 'undefined' && window.matchMedia?.(query).matches);
+  useEffect(() => {
+    const m = window.matchMedia?.(query);
+    if (!m) return undefined;
+    const change = () => setOn(m.matches);
+    m.addEventListener?.('change', change);
+    return () => m.removeEventListener?.('change', change);
+  }, []);
+  return Boolean(on);
 }

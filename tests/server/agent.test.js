@@ -1715,6 +1715,16 @@ describe('switching windows by voice (2026-11-04)', () => {
     expect(s.ran).toContain('picture');
     expect(s.agent.silentTurn()).toBe(true);
   });
+  // Remote control (2026-11-08): the phone is already watching the live video, so no picture after a step.
+  it('a phone watching the live screen gets no picture after a step', async () => {
+    const s = mk();
+    s.agent.screenPictureMs = 0;
+    s.agent.liveViewing = (from) => from?.deviceId === 'p';
+    await s.agent.handle('scroll down please', { from: { deviceId: 'p' } });
+    expect(s.ran).not.toContain('picture');
+    await s.agent.handle('scroll down please', { from: { deviceId: 'q' } });
+    expect(s.ran).toContain('picture');
+  });
   it('a Screen Mode step you can see stays quiet; a problem is spoken', async () => {
     const s = mk();
     await s.agent.handle('start screen control');
@@ -2071,6 +2081,15 @@ describe('phone typing (plugins/phone-control, 2026-10-29)', () => {
     expect(ran.at(-1)[0]).toBe('screen_type_into');
     expect(await agent.handle('type hi on my phone')).toBe('Typed it on the phone.');
     expect(ran.at(-1)).toEqual(['phone_action', { said: 'type hi on my phone', inApp: false }]);
+  });
+
+  // Remote control (2026-11-08): watching the laptop live, a step is meant for the laptop unless the words say phone.
+  it('while that phone watches the live laptop screen, steps go to the laptop', async () => {
+    const { agent, ran } = mk();
+    agent.liveViewing = (from) => from?.deviceId === 'p1';
+    expect(await agent.handle('type hi and send', { from: { deviceId: 'p1' }, phoneApp: 'com.whatsapp' })).toBe('Typed it.');
+    expect(ran.at(-1)[0]).toBe('screen_type_into');
+    expect(await agent.handle('type hi on my phone', { from: { deviceId: 'p1' } })).toBe('Typed it on the phone.');
   });
 
   it('other words from inside a phone app go on as usual', async () => {

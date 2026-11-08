@@ -18,6 +18,12 @@ import SettingsDrawer from './components/SettingsDrawer.jsx';
 import MemoryGalaxy from './components/MemoryGalaxy.jsx';
 import { wantsMemory } from './lib/memoryLink.js';
 
+// Novi's newest written reply, shown on the remote view so a voice step's answer is seen there.
+const lastNoviLine = (transcript = []) => {
+  for (let i = transcript.length - 1; i >= 0; i -= 1) if (transcript[i].role === 'novi' && transcript[i].text) return transcript[i].text;
+  return '';
+};
+
 export default function App() {
   const [muted, setMuted] = useState(() => getItem('novi.muted') === '1');
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -104,7 +110,12 @@ export default function App() {
           <TaskPanel task={state.task} feed={state.feed} onStop={() => send({ type: 'stop' })} onAllowEdits={(allow) => send({ type: 'allow_edits', allow })} />
         </section>
       </main>
-      {state.live?.open && <LiveScreen send={novi.send} />}
+      {state.live?.open && (
+        <LiveScreen send={novi.send} reply={lastNoviLine(state.transcript)}>
+          {/* Voice on top of the remote view: "click Submit", "open Chrome", "type hello" act on the laptop. */}
+          <TalkButton onText={sendVoice} api={novi.api} onRecording={() => {}} />
+        </LiveScreen>
+      )}
       {novi.isLocal && <PairRequests requests={state.pairRequests} api={novi.api} />}
       <NoticeCards notices={state.notices} onOk={(id) => send({ type: 'notice_ok', id })} />
       <ApprovalCards api={novi.api} approvals={state.approvals} resolved={state.resolvedNote} onAnswer={(id, allow, choice, opts = {}) => send({ type: 'approval', id, allow, ...(choice ? { choice } : {}), ...(opts.always ? { always: true } : {}), ...(typeof opts.answer === 'string' ? { answer: opts.answer } : {}), ...(opts.proof || {}) })} />

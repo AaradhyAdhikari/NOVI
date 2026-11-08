@@ -47,7 +47,7 @@ export function useNovi({ onSpeak }) {
         case 'task': setState((s) => ({ ...s, task: msg.task })); break;
         case 'live_open': setState((s) => ({ ...s, live: { open: true } })); break;
         case 'live_closed': setState((s) => ({ ...s, live: { open: false, reason: msg.reason } })); break;
-        case 'live_frame': case 'live_same': case 'live_note': case 'live_offer': case 'live_stream_failed': emitLive(msg); break;
+        case 'live_frame': case 'live_same': case 'live_note': case 'live_offer': case 'live_stream_failed': case 'live_typing': emitLive(msg); break;
         case 'quiet': setState((s) => ({ ...s, quiet: { on: msg.on, until: msg.until } })); break;
         case 'code_saved': setState((s) => ({ ...s, codeSaved: { ...(s.codeSaved || {}), [msg.id]: { ok: msg.ok, changed: msg.changed, error: msg.error, at: Date.now() } } })); break;
         case 'notice_added': setState((s) => ({ ...s, notices: [...(s.notices || []).filter((n) => n.id !== msg.notice.id), msg.notice] })); break;
@@ -82,7 +82,7 @@ export function useNovi({ onSpeak }) {
       wsRef.current = ws;
       ws.onopen = () => {
         setConnected(true);
-        if (token) ws.send(JSON.stringify({ type: 'hello', token }));
+        if (token) ws.send(JSON.stringify({ type: 'hello', token, ui: myScript().split('/').pop() })); // which page code this is, for the log
       };
       ws.onmessage = (e) => handle(JSON.parse(e.data));
       ws.onclose = (e) => {

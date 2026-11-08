@@ -66,7 +66,7 @@ import { PairRequests } from './pairRequests.js';
 import { enrollVoice, readClips, createVoiceprintStore } from './voice/speaker/enroll.js';
 import { readWavInt16 } from './voice/wakeword/detector.js';
 import { createVocabulary } from './voice/vocabulary.js';
-import { judgeHeard, voiceSlack } from './voice/heardFilter.js';
+import { judgeHeard, voiceSlack, trustedByPin } from './voice/heardFilter.js';
 import { hintNames, fixNames } from './voice/techWords.js';
 import { createVoiceLog } from './voice/voiceLog.js';
 import { createWatchWindows } from './claude/watchWindow.js';
@@ -334,6 +334,10 @@ export function createNovi(config, overrides = {}) {
   // The learning loop (server/brain/learning.js): misses noticed, the words that failed learned from the fix.
   const learning = overrides.learning || createLearning({ file: path.join(config.dataDir, 'learning', 'learning.json'), shortcuts });
   const agent = overrides.agent || new Agent({ phoneOnly: laptopSilent, router, tools, approvals, memory, tasks, accounts, privateProviders: config.privateProviders || ['groq'], summarize: (text) => plugins.runtime.privateComplete(text), activity, quiet, shortcuts, learning });
+  // A phone watching the live screen needs no picture after each step (plugins/live-screen).
+  agent.liveViewing = (from) => Boolean(plugins.runtime.liveViewing?.(from));
+  // Typing by voice there: the phone re-opens its mic after each phrase while this is on.
+  agent.liveTyping = (from, on) => sendTo(from, { type: 'live_typing', on: Boolean(on), at: Date.now() });
   // Every Monday morning: last week's misses as a note in Novi Memory ("Novi's mistakes").
   const weeklyMistakes = everyDayAt({
     time: '09:10',
@@ -405,7 +409,8 @@ export function createNovi(config, overrides = {}) {
     const waiting = approvals.pending();
     const early = waiting.length ? stt(audio, mimeType) : null;
     early?.catch(() => {});
-    const verdict = voiceChecked ? null : await voiceVerdict(audio, voiceSlack(waiting, from));
+    const trusted = voiceChecked || trustedByPin(waiting, from !== 'local' && plugins.runtime.liveViewing?.(from));
+    const verdict = trusted ? null : await voiceVerdict(audio, voiceSlack(waiting, from));
     // Not the owner: only a PIN for a card that waits for one is worth transcribing.
     if (verdict?.ok === false && !agent.wantsPin?.(from)) {
       if (!clip) notYou(from, verdict);
@@ -1288,7 +1293,7 @@ export function createNovi(config, overrides = {}) {
         try { msg = JSON.parse(data); } catch { return; }
         if (!authed) {
           const paired = msg.type === 'hello' && pairing.verify(msg.token);
-          if (paired) { authed = true; token = msg.token; ws.deviceId = paired.id; admit(); console.log(`[app] ${ws.agent} connected, build ${msg.appVersion ?? 'not reported'}`); checkAppVersion(msg.appVersion); } else ws.close(4001, 'Not paired');
+          if (paired) { authed = true; token = msg.token; ws.deviceId = paired.id; admit(); console.log(`[app] ${ws.agent} connected, build ${msg.appVersion ?? 'not reported'}${typeof msg.ui === 'string' ? `, page ${msg.ui.slice(0, 40)}` : ''}`); checkAppVersion(msg.appVersion); } else ws.close(4001, 'Not paired');
           return;
         }
         if (msg.type === 'hello') return;

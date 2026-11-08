@@ -105,7 +105,7 @@ async function launch({ url, screen = 1, edge = EDGE }) {
 }
 
 // One stream: start() → { sdp, width, height } (the offer for the phone), answer(sdp), stop().
-export function createStream({ serve: serveImpl = serve, launch: launchImpl = launch, connect = cdpConnect, screen = 1, timeoutMs = 20_000, logger = null } = {}) {
+export function createStream({ serve: serveImpl = serve, launch: launchImpl = launch, connect = cdpConnect, screen = 1, timeoutMs = 8_000, logger = null } = {}) {
   let server = null;
   let edge = null;
   let cdp = null;
@@ -134,6 +134,8 @@ export function createStream({ serve: serveImpl = serve, launch: launchImpl = la
             else if (m.type === 'state') logger?.info?.(`[live] stream ${m.state}`);
           });
         });
+        // Anything the page throws is logged, so a stream that never starts says why.
+        cdp.on('Runtime.exceptionThrown', ({ exceptionDetails: d }) => logger?.warn?.(`[live] page error: ${String(d?.exception?.description || d?.text || '').slice(0, 200)}`));
         await cdp.send('Runtime.enable');
         await cdp.send('Runtime.addBinding', { name: 'noviSignal' });
         await cdp.send('Runtime.evaluate', { expression: 'start()', userGesture: true });

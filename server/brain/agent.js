@@ -14,7 +14,7 @@ import { chatgptCommand } from './chatgptCommand.js';
 import { sameCommand } from './sameCommand.js';
 import { replyFrom } from './shortcuts.js';
 import { briefCommand, changeCommand } from './briefCommand.js';
-import { dictationCommand, enterCommand, chainCommand, typeNextCommand, sentenceEnter, nextLineWords } from './dictationCommand.js';
+import { dictationCommand, enterCommand, chainCommand, typeNextCommand, sentenceEnter, nextLineWords, typingStep } from './dictationCommand.js';
 import { claudeLinkCommand, linkFolderCommand, projectStatusCommand, projectAboutCommand, claudeActivityCommand, claudeUsageCommand } from './claudeLinkCommand.js';
 import { changesCommand } from './changesCommand.js';
 import { commitCommand } from './commitCommand.js';
@@ -409,6 +409,8 @@ export class Agent {
     // screen command first ("click 3", "press enter", "minimize this"); anything else goes on as usual.
     // Phone typing (plugins/phone-control, 2026-10-29): spoken from inside another phone app (the Novi
     // app's mic bubble), or "… on my phone" — before Screen Mode, so it never lands on the laptop.
+    const typed = await this._liveTypingCommand(text, from);
+    if (typed != null) return this._remember(text, typed);
     const phone = await this._phoneCommand(text, from, phoneApp);
     if (phone != null) return this._remember(text, phone);
     // "Open youtube type claude code and enter": both halves, with time for the app to come up. A page
@@ -1190,9 +1192,47 @@ export class Agent {
   screenModeOn() { return Boolean(this._screenMode && this.tools.get('screen_command')); }
 
   // One step inside the phone app the user is in. The plugin reads the words; null = not a phone step.
+  // Typing by voice in the remote view (user, 2026-11-08): "type" turns it on for the phone watching the
+  // live laptop screen; each phrase after it is typed (a space between), the phone's mic opens again by
+  // itself (liveTyping), "… enter" sends and ends it, "stop typing" ends it. Off after 5 min of silence.
+  async _liveTypingCommand(text, from) {
+    const id = from && from !== 'local' ? from.deviceId : null;
+    if (!id || !this.tools.get('screen_type_into') || !this.liveViewing?.(from)) return null;
+    const on = this._liveTyping && this._liveTyping.id === id && Date.now() - this._liveTyping.at < 5 * 60_000 ? this._liveTyping : null;
+    if (!on) {
+      if (!typeNextCommand(text)) return null;
+      this._liveTyping = { id, at: Date.now(), typed: false };
+      this.liveTyping?.(from, true);
+      return 'Typing. Say enter to send, or stop typing.';
+    }
+    const step = typingStep(text);
+    const run = async (name, args) => (await this._runTool({ id: `ltype-${Date.now()}`, function: { name, arguments: JSON.stringify(args) } }, { direct: true })).output || {};
+    if (step.stop) {
+      this._liveTyping = null;
+      this.liveTyping?.(from, false);
+      return 'Stopped typing.';
+    }
+    on.at = Date.now();
+    if (step.text) {
+      const out = await run('screen_type_into', { text: on.typed ? ` ${step.text}` : step.text });
+      if (out.error) { this._liveTyping = null; this.liveTyping?.(from, false); return out.error; }
+      on.typed = true;
+    }
+    if (step.enter) {
+      this._liveTyping = null;
+      const out = await run('screen_enter', {});
+      this.liveTyping?.(from, false);
+      return out.error || 'Sent.';
+    }
+    this.liveTyping?.(from, true);
+    this._quietReply = true;
+    return step.text ? 'Typed.' : '';
+  }
+
   async _phoneCommand(text, from, phoneApp) {
     if (!this.tools.get('phone_action')) return null;
-    const inApp = Boolean(from && from !== 'local' && phoneApp && !/^app\.novi\./.test(phoneApp));
+    // Watching the laptop live (remote control), a step is for the laptop unless the words say phone.
+    const inApp = Boolean(from && from !== 'local' && phoneApp && !/^app\.novi\./.test(phoneApp) && !this.liveViewing?.(from));
     if (!inApp && !/\bphone\b/i.test(text)) return null;
     const { output } = await this._runTool({ id: `phone-${Date.now()}`, function: { name: 'phone_action', arguments: JSON.stringify({ said: text, inApp }) } }, { direct: true });
     if (output?.unknown) return null;
@@ -1211,8 +1251,9 @@ export class Agent {
     if (out.unknown) return null;
     if (out.error) return out.error === 'The user declined this action.' ? "Okay, I won't." : out.error;
     if (!out.run || !this.tools.get(out.run.tool)) {
-      // From a phone you can't see the laptop: a step that changed something comes back with a picture.
-      if (from !== 'local' && out.done && this.tools.get('screen_show')) {
+      // From a phone you can't see the laptop: a step that changed something comes back with a picture,
+      // unless that phone is watching the live screen already (remote control, 2026-11-08).
+      if (from !== 'local' && out.done && this.tools.get('screen_show') && !this.liveViewing?.(from)) {
         await new Promise((r) => setTimeout(r, this.screenPictureMs ?? 700));
         await run('screen_show', {});
       }

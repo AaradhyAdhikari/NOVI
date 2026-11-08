@@ -57,3 +57,17 @@ export function dictationCommand(text) {
   if (line) out.newLine = true;
   return send ? { ...out, enter: true } : out;
 }
+
+// Typing by voice in the remote view (user, 2026-11-08): after "type", each phrase is typed; "… enter" /
+// "send it" / "bhej do" at the end sends what came before; "stop typing" ends it. A lone "Thank you."
+// (what speech-to-text hears in silence) types nothing.
+const TYPING_STOP = /^(?:stop typing|done typing|stop|that'?s all|bas)[.!]?$/i;
+const TYPING_SEND = /^(.*?)[,.\s]*\b(?:press enter|enter|send it|send|bhej do|bhejo)[.!]?$/i;
+const TYPING_NOISE = /^(?:thank you|thanks|you|bye)[.!]?$/i;
+export function typingStep(text) {
+  const t = String(text || '').trim();
+  if (TYPING_STOP.test(t)) return { stop: true };
+  const send = TYPING_SEND.exec(t);
+  if (send) return { text: send[1].trim(), enter: true };
+  return { text: TYPING_NOISE.test(t) ? '' : t };
+}
