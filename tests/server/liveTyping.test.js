@@ -68,6 +68,14 @@ describe('typing by voice in the remote view', () => {
     await s.agent.handle('scroll down', P1);
     expect(s.ran).toEqual([['screen_type_into', { text: 'hello there' }]]);
   });
+  // Live 2026-11-08: "typing" alone and "typing X" were asked back.
+  it('"typing" means type too', async () => {
+    const s = mk();
+    expect(await s.agent.handle('Typing.', P1)).toMatch(/say it/i);
+    await s.agent.handle('hello', P1);
+    await s.agent.handle('typing see you soon', P1);
+    expect(s.ran).toEqual([['screen_type_into', { text: 'hello' }], ['screen_type_into', { text: 'see you soon' }]]);
+  });
   it('only for the phone watching the remote view', async () => {
     const s = mk();
     expect(await s.agent.handle('Type.', { from: { deviceId: 'p2' } })).not.toMatch(/say it/i);

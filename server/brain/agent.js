@@ -1220,13 +1220,13 @@ export class Agent {
     const send = async () => { const out = await run('screen_enter', {}); return out.error || 'Sent.'; };
     if (/^(?:send(?: it)?|enter|press enter|bhej do|bhejo)[.!]?$/i.test(t)) { this._liveTyping = null; return send(); }
     // "Pipe." / "Tape.": what speech-to-text made of "type" live.
-    if (typeNextCommand(t) || /^(?:pipe|tape|tight|tie|taipe?)[.!]?$/i.test(t)) {
+    if (typeNextCommand(t) || /^(?:typing|pipe|tape|tight|tie|taipe?)[.!]?$/i.test(t)) {
       this._liveTyping = { id, at: Date.now() };
       this.liveTyping?.(from, true);
       return "Say it, I'll type it.";
     }
     const armed = this._liveTyping && this._liveTyping.id === id && Date.now() - this._liveTyping.at < 30_000;
-    const said = /^(?:type|tipe|taip|pipe|likho)\s*[:,]?\s+(.+)$/i.exec(t);
+    const said = /^(?:type|typing|tipe|taip|pipe|likho)\s*[:,]?\s+(.+)$/i.exec(t);
     let words = said ? said[1] : armed ? t : null;
     if (words == null) return null;
     this._liveTyping = null;
