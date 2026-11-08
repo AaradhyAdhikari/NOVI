@@ -40,14 +40,21 @@ const appName = ({ process = '', title = '' }) => {
   const name = String(process).replace(/\.exe$/i, '');
   return name ? name[0].toUpperCase() + name.slice(1) : title || 'An app';
 };
-const firstLine = (text) => String(text || '').split('|').map((s) => s.trim()).find(Boolean)?.replace(/[.!?:]+$/, '').slice(0, 90) || '';
+// The box's question: not the window's own name or a button label (live: Notepad's card said "Notepad: Notepad").
+// The line ending in "?" when there is one, else the longest.
+function questionLine(box, app) {
+  const skip = new Set([app, box.title, String(box.process || '').replace(/\.exe$/i, ''), ...(box.buttons || [])].filter(Boolean).map((s) => String(s).toLowerCase()));
+  const lines = String(box.text || '').split(/[|\r\n]/).map((s) => s.trim()).filter((s) => s && !skip.has(s.toLowerCase()) && s.split(/\s+/).length > 1);
+  const pick = lines.find((s) => s.endsWith('?')) || [...lines].sort((a, b) => b.length - a.length)[0] || '';
+  return pick.replace(/[.!?:]+$/, '').slice(0, 90);
+}
 
 // All of its words: a box that changes is a new question and gets a new card.
 export const boxKey = (box) => `${box.hwnd}:${box.process || ''}:${[...(box.buttons || [])].sort().join('+')}:${box.text || ''}`;
 
 export function cardFor(box) {
   const app = appName(box);
-  const line = firstLine(box.text);
+  const line = questionLine(box, app);
   const words = String(box.text || '').split('|').map((s) => s.trim()).filter(Boolean).join('\n').slice(0, 600);
   return {
     tag: boxKey(box),

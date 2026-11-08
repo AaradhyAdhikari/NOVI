@@ -191,3 +191,20 @@ describe('a card that closes by itself', () => {
     expect(q.cancel('box-1')).toBe(false);
   });
 });
+
+// Live 2026-11-08: a real Notepad box became the card "Notepad: Notepad" (the first words were the window's own name).
+describe('the card names the real question', () => {
+  const NOTEPAD = { hwnd: 7, process: 'notepad.exe', title: 'Notepad', buttons: ['Yes', 'No', 'Cancel'], text: 'Notepad | Cannot find the novi-box-test.txt file. | Do you want to create a new file? | Yes | No' };
+  it('the question, not the window name or a button', () => {
+    expect(cardFor(NOTEPAD).title).toBe('Notepad: Do you want to create a new file');
+  });
+  it('no question mark: the longest real line', () => {
+    expect(cardFor({ ...NOTEPAD, text: 'Notepad | The file has been changed outside Notepad | OK' }).title).toBe('Notepad: The file has been changed outside Notepad');
+  });
+  it('one block with line breaks (a standard message box): the question line', () => {
+    expect(cardFor({ ...NOTEPAD, text: 'Cannot find the novi-box-test.txt file.\n\nDo you want to create a new file? | Yes' }).title).toBe('Notepad: Do you want to create a new file');
+  });
+  it('nothing but names left: the old fallback', () => {
+    expect(cardFor({ ...NOTEPAD, text: 'Notepad | Yes' }).title).toBe('Notepad: asks for your OK');
+  });
+});
