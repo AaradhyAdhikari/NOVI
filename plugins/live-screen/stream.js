@@ -46,7 +46,14 @@ window.start = async () => {
     const { width = 0, height = 0 } = track.getSettings();
     say({ type: 'stage', stage: 'got the screen, setting up the video' });
     pc = new RTCPeerConnection({ iceServers: [] });
-    const sender = pc.addTransceiver(track, { direction: 'sendonly' }).sender;
+    const transceiver = pc.addTransceiver(track, { direction: 'sendonly' });
+    const sender = transceiver.sender;
+    // H.264 first: Edge encodes it on the graphics chip (sharper for the same load); the others stay as fallback.
+    try {
+      const all = RTCRtpSender.getCapabilities('video').codecs;
+      const h264 = all.filter((c) => c.mimeType === 'video/H264');
+      if (h264.length) transceiver.setCodecPreferences([...h264, ...all.filter((c) => c.mimeType !== 'video/H264')]);
+    } catch (e) { /* keep the default order */ }
     pc.onconnectionstatechange = () => say({ type: 'state', state: pc.connectionState });
     track.onended = () => say({ type: 'state', state: 'ended' });
     await pc.setLocalDescription(await pc.createOffer());
@@ -155,8 +162,40 @@ export function createStream({ serve: serveImpl = serve, launch: launchImpl = la
     },
     async answer(sdp) {
       if (stopped || !cdp) return;
-      await cdp.send('Runtime.evaluate', { expression: `fromPhone(${JSON.stringify({ type: 'answer', sdp: String(sdp) })})` });
+      await cdp.send('Runtime.evaluate', { expression: `fromPhone(${JSON.stringify({ type: 'answer', sdp: boostAnswer(String(sdp)) })})` });
     },
     stop,
   };
+}
+
+// The phone's answer, on its way to the laptop's Edge: the stream starts at 6 Mbps and never falls below
+// 3 Mbps (measured live: VP8 at 966 kbps, soft text, because WebRTC starts low and creeps up), up to 12.
+const RATES = 'x-google-start-bitrate=6000;x-google-min-bitrate=3000;x-google-max-bitrate=12000';
+export function boostAnswer(sdp) {
+  const text = String(sdp || '');
+  if (text.includes('x-google-start-bitrate')) return text;
+  const lines = text.split('\r\n');
+  const out = [];
+  let video = false;
+  const codecs = new Set(); // payload types of real video codecs in the video section
+  for (const line of lines) {
+    if (line.startsWith('m=')) video = line.startsWith('m=video');
+    if (video) {
+      const map = /^a=rtpmap:(\d+) (VP8|VP9|H264|AV1)\//i.exec(line);
+      if (map) codecs.add(map[1]);
+    }
+  }
+  if (!codecs.size) return text;
+  const withFmtp = new Set(lines.map((l) => /^a=fmtp:(\d+) /.exec(l)?.[1]).filter(Boolean));
+  video = false;
+  for (const line of lines) {
+    if (line.startsWith('m=')) video = line.startsWith('m=video');
+    const fmtp = /^a=fmtp:(\d+) /.exec(line);
+    out.push(video && fmtp && codecs.has(fmtp[1]) ? `${line};${RATES}` : line);
+    if (!video) continue;
+    if (line.startsWith('c=')) out.push('b=AS:12000');
+    const map = /^a=rtpmap:(\d+) /.exec(line);
+    if (map && codecs.has(map[1]) && !withFmtp.has(map[1])) out.push(`a=fmtp:${map[1]} ${RATES}`);
+  }
+  return out.join('\r\n');
 }

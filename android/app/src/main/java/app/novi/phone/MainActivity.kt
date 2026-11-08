@@ -39,6 +39,13 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var store: Store
     private var web: WebView? = null
+    // The remote view's voice: the phone's own recognizer, results handed to the page (window.__noviHeard).
+    private val speech by lazy {
+        PhoneSpeech(this) { id, text, final, error ->
+            val js = "window.__noviHeard && window.__noviHeard(${org.json.JSONObject.quote(id)}, ${org.json.JSONObject.quote(text)}, $final, ${org.json.JSONObject.quote(error)})"
+            runOnUiThread { web?.evaluateJavascript(js, null) }
+        }
+    }
     private var loadedBase: String? = null
     private var signedIn = false
     private val stops = java.util.Collections.synchronizedSet(HashSet<String>())
@@ -69,6 +76,30 @@ class MainActivity : ComponentActivity() {
                 stops.remove(id)
                 deliver(id, heard?.pcm?.takeIf { it.isNotEmpty() })
             }.start()
+        }
+
+        /** The remote view's voice (2026-11-08): the phone's own speech recognition, no upload. */
+        @JavascriptInterface
+        fun canRecognize(): Boolean = speech.available()
+
+        @JavascriptInterface
+        fun recognize(id: String) {
+            if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                runOnUiThread { requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 1) }
+                speechError(id, "no permission")
+                return
+            }
+            runOnUiThread { speech.start(id) }
+        }
+
+        @JavascriptInterface
+        fun stopRecognize() {
+            runOnUiThread { speech.stop() }
+        }
+
+        private fun speechError(id: String, error: String) {
+            val js = "window.__noviHeard && window.__noviHeard(${org.json.JSONObject.quote(id)}, \"\", true, ${org.json.JSONObject.quote(error)})"
+            runOnUiThread { web?.evaluateJavascript(js, null) }
         }
 
         /** The remote view's rotate button (user, 2026-11-08: the view didn't turn sideways): true = lie the

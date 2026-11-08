@@ -272,3 +272,26 @@ describe('the video warms up during the PIN card', () => {
     expect(w.made).toHaveLength(2);
   });
 });
+
+import { boostAnswer } from '../../plugins/live-screen/stream.js';
+
+// User, 2026-11-08: "the quality is bad … at least 2K". Measured: VP8 at 966 kbps (WebRTC starts low and
+// creeps up). The phone's answer gets a floor and a start rate before it reaches the laptop's Edge, and the
+// page prefers H.264 (encoded on the graphics chip).
+describe('a sharp stream', () => {
+  const ANSWER = 'v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96 102\r\nc=IN IP4 0.0.0.0\r\na=rtpmap:96 VP8/90000\r\na=rtpmap:102 H264/90000\r\na=fmtp:102 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f\r\n';
+  it('every video codec gets start / floor / ceiling rates, and the line gets a bandwidth', () => {
+    const out = boostAnswer(ANSWER);
+    expect(out).toMatch(/a=fmtp:102 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f;x-google-start-bitrate=6000;x-google-min-bitrate=3000;x-google-max-bitrate=12000\r\n/);
+    expect(out).toMatch(/a=fmtp:96 x-google-start-bitrate=6000;x-google-min-bitrate=3000;x-google-max-bitrate=12000\r\n/);
+    expect(out).toMatch(/c=IN IP4 0\.0\.0\.0\r\nb=AS:12000\r\n/);
+  });
+  it('is done once only, and leaves an answer with no video alone', () => {
+    expect(boostAnswer(boostAnswer(ANSWER))).toBe(boostAnswer(ANSWER));
+    expect(boostAnswer('v=0\r\nm=audio 9 RTP 111\r\n')).toBe('v=0\r\nm=audio 9 RTP 111\r\n');
+  });
+  it('the page puts H.264 first', () => {
+    expect(senderPage()).toMatch(/setCodecPreferences/);
+    expect(senderPage()).toMatch(/video\/H264/);
+  });
+});

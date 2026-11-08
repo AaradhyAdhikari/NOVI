@@ -1,6 +1,7 @@
 import { createQuiet } from './quiet.js';
 import { createPhoneOnly } from './phoneOnly.js';
 import { uiBuildOf } from './uiBuild.js';
+import { replyPlace } from './liveReplies.js';
 import { latestApp, updateCard } from './appUpdate.js';
 import { createCodeEdits } from './codeEdits.js';
 import { createActivity } from './activity.js';
@@ -1215,8 +1216,10 @@ export function createNovi(config, overrides = {}) {
       working += 1;
       // Said at the laptop: the words are only written once the turn turns out to need them.
       const quietVoice = msg.voice === true && from === 'local';
+      // From the phone watching the remote view: nothing in the chat, the reply on the view's line.
+      const onView = replyPlace({ from, viewing: Boolean(plugins.runtime.liveViewing?.(from)) }) === 'view';
       let wordsDue = quietVoice;
-      if (!quietVoice) say('user', text, from);
+      if (!quietVoice && !onView) say('user', text, from);
       sendTo(from, { type: 'thinking', on: true });
       try {
         const t0 = Date.now();
@@ -1227,6 +1230,10 @@ export function createNovi(config, overrides = {}) {
         const unwritten = quietVoice && Boolean(agent.unwrittenTurn?.());
         if (unwritten) wordsDue = false;
         if (wordsDue) { say('user', text, from); wordsDue = false; }
+        if (onView) {
+          if (reply) sendTo(from, { type: 'live_note', text: reply });
+          return reply;
+        }
         // An empty reply = a tool already showed the answer (and the AI had nothing to add).
         if (reply) {
           if (!unwritten) say('novi', reply, from);
@@ -1240,6 +1247,7 @@ export function createNovi(config, overrides = {}) {
         }
         return reply;
       } catch (err) {
+        if (onView) { sendTo(from, { type: 'live_note', text: `Something went wrong: ${err.message}` }); return ''; }
         if (wordsDue) say('user', text, from);
         say('novi', `Something went wrong: ${err.message}`, from);
       } finally {

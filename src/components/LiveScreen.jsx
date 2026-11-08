@@ -1,7 +1,8 @@
 import { cloneElement, isValidElement, useEffect, useRef, useState } from 'react';
-import { X, CornerDownLeft, Delete, ArrowLeft, Send, Mic, MicOff, RotateCw } from 'lucide-react';
+import { X, CornerDownLeft, Delete, ArrowLeft, Send, Mic, MicOff, RotateCw, Keyboard } from 'lucide-react';
 import { onLive, tapPoint, scrollNotches } from '../lib/liveInput.js';
 import { answerOffer } from '../lib/liveVideo.js';
+import { phoneSpeech, onHeard } from '../lib/phoneSpeech.js';
 
 const MOVED_PX = 12; // less than this is a tap
 const MAX_ZOOM = 4;
@@ -18,6 +19,7 @@ export default function LiveScreen({ send, reply = '', children = null }) {
   const [text, setText] = useState('');
   const [note, setNote] = useState('');
   const firstReply = useRef(reply);
+  const noteTimer = useRef(null);
   const [typing, setTyping] = useState(false); // typing by voice: the mic re-opens after each phrase
   const [answerAt, setAnswerAt] = useState(0);
   const landscape = useLandscape();
@@ -32,8 +34,34 @@ export default function LiveScreen({ send, reply = '', children = null }) {
   // The talk button opens the mic only when it is idle (not while it sends the last phrase), so it is
   // nudged every 0.7 s while listening is on.
   const listen = useRef({ startedAt: 0, quick: 0 });
+  // The Novi app's own speech recognition (app 2.5.0): faster than recording + uploading, words show as you
+  // speak. Without it, the talk button below is used.
+  const [speechApp] = useState(() => phoneSpeech());
+  const [hearing, setHearing] = useState('');
   useEffect(() => {
-    if (!listening) return undefined;
+    if (!listening || !speechApp) return undefined;
+    let alive = true;
+    let n = 0;
+    let current = '';
+    let failures = 0;
+    let timer = null;
+    const next = () => { if (!alive) return; current = `s${++n}`; speechApp.recognize(current); };
+    const stop = onHeard((r) => {
+      if (!alive || r.id !== current) return;
+      if (!r.final) { setHearing(r.text); return; }
+      setHearing('');
+      if (r.text) { failures = 0; send({ type: 'user_message', text: r.text, voice: true }); }
+      else if (r.error && r.error !== 'no speech' && r.error !== 'no match') {
+        failures += 1;
+        if (failures >= 3) { setListening(false); setNote(`Listening stopped (${r.error}). Tap the mic to try again.`); return; }
+      }
+      timer = setTimeout(next, r.text ? 150 : 300);
+    });
+    next();
+    return () => { alive = false; clearTimeout(timer); stop(); setHearing(''); try { speechApp.stopRecognize?.(); } catch { /* gone */ } };
+  }, [listening, speechApp, send]);
+  useEffect(() => {
+    if (!listening || speechApp) return undefined;
     const timer = setInterval(() => setAnswerAt(Date.now()), 700);
     return () => clearInterval(timer);
   }, [listening]);
@@ -68,7 +96,13 @@ export default function LiveScreen({ send, reply = '', children = null }) {
       send({ type: 'live_ack' });
     };
     const stop = onLive(async (msg) => {
-      if (msg.type === 'live_note') { setNote(msg.text); return; }
+      // What Novi did ("Opened Spotify.") or asks: the view's line, gone after a few seconds.
+      if (msg.type === 'live_note') {
+        setNote(msg.text);
+        clearTimeout(noteTimer.current);
+        noteTimer.current = setTimeout(() => setNote((n) => (n === msg.text ? '' : n)), 6000);
+        return;
+      }
       if (msg.type === 'live_stream_failed') { usePictures(); return; }
       if (msg.type === 'live_typing') { setTyping(msg.on); if (msg.on) setAnswerAt(msg.at || Date.now()); return; }
       if (msg.type === 'live_offer') {
@@ -172,6 +206,7 @@ export default function LiveScreen({ send, reply = '', children = null }) {
           : <span style={{ color: '#9aa8b6' }}>Connecting to the laptop…</span>}
       </div>
       <div style={landscape ? { width: 230, flexShrink: 0, overflowY: 'auto', background: '#0b1016', display: 'flex', flexDirection: 'column', paddingRight: 'env(safe-area-inset-right)' } : { display: 'contents' }}>
+      {hearing && <div style={{ background: '#0f1a24', color: '#9fd4ff', padding: '6px 12px', fontSize: 14 }}>… {hearing}</div>}
       {typing && <div style={{ background: '#123a2a', color: '#7ff0b8', padding: '6px 12px', fontSize: 14 }}>Typing by voice: say enter to send, or stop typing.</div>}
       {note && <div style={{ background: '#3a2d12', color: '#f0c36a', padding: '8px 12px', fontSize: 14 }} onClick={() => setNote('')}>{note}</div>}
       <div style={landscape ? { ...bar, flexWrap: 'wrap' } : bar}>
@@ -181,6 +216,9 @@ export default function LiveScreen({ send, reply = '', children = null }) {
           style={{ flex: 1, minWidth: 0, background: '#1b2733', color: '#e6ecf2', border: 0, borderRadius: 8, padding: '10px 12px', fontSize: 16 }}
         />
         <button style={button} onClick={typeIt} aria-label="Type it"><Send size={18} /></button>
+        <button style={{ ...button, background: typing ? '#123a2a' : '#1b2733' }} onClick={() => send({ type: 'user_message', text: typing ? 'stop typing' : 'type', voice: true })} aria-label={typing ? 'Stop typing' : 'Type by voice'}>
+          <Keyboard size={18} />{typing ? 'Stop' : 'Type'}
+        </button>
         {canRotate && <button style={button} onClick={rotate} aria-label={sideways ? 'Turn upright' : 'Turn sideways'}><RotateCw size={18} /></button>}
         <button style={{ ...button, background: listening ? '#123a2a' : '#1b2733' }} onClick={() => { listen.current.quick = 0; setListening((v) => !v); }} aria-label={listening ? 'Stop listening' : 'Listen'}>
           {listening ? <Mic size={18} /> : <MicOff size={18} />}

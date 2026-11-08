@@ -117,3 +117,38 @@ describe('remote view phrases as actually heard', () => {
     expect(await s.agent.handle('Thank you.', P1)).toBe('');
   });
 });
+
+import { replyPlace } from '../../server/liveReplies.js';
+
+// User, 2026-11-08: "when I am on the live screen it shouldn't be logging those things in the Novi … hide all
+// those commands", and the yellow line "should be telling me what it did".
+describe('where a remote-view turn shows', () => {
+  it('the phone watching the view: on the view only, never in the chat', () => {
+    expect(replyPlace({ from: { deviceId: 'p1' }, viewing: true })).toBe('view');
+  });
+  it('anywhere else: the chat as before', () => {
+    expect(replyPlace({ from: { deviceId: 'p1' }, viewing: false })).toBe('chat');
+    expect(replyPlace({ from: 'local', viewing: true })).toBe('chat');
+  });
+});
+
+import { phoneSpeech, onHeard, heard } from '../../src/lib/phoneSpeech.js';
+
+// The remote view listens with the phone's own speech recognition when the Novi app offers it (app 2.5.0).
+describe('phone speech in the remote view', () => {
+  it('used only when the app has it and says it works', () => {
+    expect(phoneSpeech({})).toBe(null);
+    expect(phoneSpeech({ NoviApp: { recognize() {}, canRecognize: () => false } })).toBe(null);
+    const app = { recognize() {}, canRecognize: () => true };
+    expect(phoneSpeech({ NoviApp: app })).toBe(app);
+  });
+  it('results reach the one listener, partial and final', () => {
+    const got = [];
+    const stop = onHeard((r) => got.push(r));
+    heard('a', 'open spo', false, '');
+    heard('a', 'open spotify', true, '');
+    stop();
+    heard('a', 'ignored', true, '');
+    expect(got).toEqual([{ id: 'a', text: 'open spo', final: false, error: '' }, { id: 'a', text: 'open spotify', final: true, error: '' }]);
+  });
+});
