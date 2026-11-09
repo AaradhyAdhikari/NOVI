@@ -18,7 +18,7 @@ export function mergeTranscript(shown, fromServer) {
 
 // What the user typed or said shows at once (live 2026-10-20 it waited for Novi's echo); the echo takes
 // its place when it comes.
-export const addPending = (list, text) => [...list, { role: 'user', text, at: new Date().toISOString(), pending: true }].slice(-100);
+export const addPending = (list, text, extra = {}) => [...list, { role: 'user', text, at: new Date().toISOString(), pending: true, ...extra }].slice(-100);
 
 export function addChat(list, entry) {
   const i = entry.role === 'user' ? list.findIndex((e) => e.pending && e.text === entry.text) : -1;

@@ -21,6 +21,7 @@ export default function Transcript({ entries, thinking, codeSaved = {}, onCodeSa
           )}
           {e.code ? <CodeCard code={e.code} caption={e.text} saved={codeSaved[e.code.id]} onSave={onCodeSave} />
             : e.link ? <a className="open-link" href={e.link} target="_blank" rel="noreferrer">{linkLabel(e.text)}</a> : e.text}
+          {e.unsent && <div className="unsent">Waiting for Novi… it goes out when she's back.</div>}
         </div>
       ))}
       {thinking && <div className="bubble novi thinking"><span /><span /><span /></div>}

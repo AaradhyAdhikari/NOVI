@@ -1,4 +1,5 @@
 import { mergeTranscript, addChat, addPending, showsPending } from './transcript.js';
+import { queue, due } from './outbox.js';
 import { emitLive } from './liveInput.js';
 import { staleUi, myScript } from './pageBuild.js';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -17,6 +18,7 @@ export function useNovi({ onSpeak }) {
   const [connected, setConnected] = useState(false);
   const [state, setState] = useState(initialState);
   const wsRef = useRef(null);
+  const outboxRef = useRef([]); // typed while Novi was away: sent when she's back (src/lib/outbox.js)
   const liveRef = useRef(false); // the remote view is open: words said there are never written in the chat
   const speakRef = useRef(onSpeak);
   speakRef.current = onSpeak;
@@ -32,6 +34,10 @@ export function useNovi({ onSpeak }) {
       switch (msg.type) {
         case 'snapshot': {
           const { type, ...rest } = msg;
+          // Back in touch (the snapshot comes after sign-in): what was typed meanwhile goes out now.
+          const waiting = due(outboxRef.current);
+          outboxRef.current = [];
+          for (const m of waiting) wsRef.current?.send(JSON.stringify(m));
           // Novi has newer page code than this open page (the phone app keeps its page for days): reload once.
           let reloadedFor = null;
           try { reloadedFor = sessionStorage.getItem('novi.reloadedFor'); } catch { /* no storage */ }
@@ -107,7 +113,14 @@ export function useNovi({ onSpeak }) {
 
   const send = useCallback((msg) => {
     const ws = wsRef.current;
-    if (ws?.readyState !== 1) return;
+    if (ws?.readyState !== 1) {
+      // Novi is away (a restart, a bad signal): the words wait here instead of vanishing.
+      if (msg.type === 'user_message' && String(msg.text || '').trim()) {
+        outboxRef.current = queue(outboxRef.current, msg);
+        if (!liveRef.current) setState((s) => ({ ...s, transcript: addPending(s.transcript, String(msg.text).trim(), { unsent: true }) }));
+      }
+      return;
+    }
     ws.send(JSON.stringify(msg));
     if (msg.type !== 'user_message' || liveRef.current) return; // the remote view: nothing written, no "thinking"
     if (showsPending(msg, { isLocal })) setState((s) => ({ ...s, transcript: addPending(s.transcript, String(msg.text).trim()), thinking: true }));

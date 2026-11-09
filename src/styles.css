@@ -234,3 +234,4 @@ code { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--m
 .live-talk .talk-btn { width: 44px; height: 44px; }
 .live-talk .talk-btn svg { width: 22px; height: 22px; }
 .live-talk .talk-hint { display: none; }
+.unsent { font-size: 12px; opacity: .75; margin-top: 4px; }
