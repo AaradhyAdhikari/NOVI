@@ -28,3 +28,9 @@ export function addChat(list, entry) {
 
 // A link in the chat reads "Open …" — once, even when its label already starts with "Open".
 export const linkLabel = (text) => (/^open\b/i.test(String(text || '').trim()) ? String(text).trim() : `Open ${text || 'link'}`);
+
+// Should the page write these words at once, before Novi answers? Never while the remote view is open
+// (user, 2026-11-10: "nothing should be written when I am using the live screen"); laptop voice waits for
+// the turn as before.
+export const showsPending = (msg, { live = false, isLocal = false } = {}) =>
+  msg?.type === 'user_message' && Boolean(String(msg.text || '').trim()) && !live && !(msg.voice && isLocal);

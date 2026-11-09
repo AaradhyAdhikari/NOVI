@@ -159,3 +159,18 @@ describe('phone speech in the remote view', () => {
     expect(got).toEqual([{ id: 'a', text: 'open spo', final: false, error: '' }, { id: 'a', text: 'open spotify', final: true, error: '' }]);
   });
 });
+
+import { showsPending } from '../../src/lib/transcript.js';
+
+// Live 2026-11-10: every phrase said in the remote view still showed in the chat ("typings", "Type.", "send"):
+// the page writes your words the moment it sends them. Not while the remote view is open.
+describe('the page writes your words at once', () => {
+  it('not while the remote view is open', () => {
+    expect(showsPending({ type: 'user_message', text: 'type hi' }, { live: true })).toBe(false);
+  });
+  it('otherwise as before (laptop voice waits for the turn)', () => {
+    expect(showsPending({ type: 'user_message', text: 'hi' }, { live: false, isLocal: false })).toBe(true);
+    expect(showsPending({ type: 'user_message', text: 'hi', voice: true }, { live: false, isLocal: true })).toBe(false);
+    expect(showsPending({ type: 'user_message', text: '  ' }, {})).toBe(false);
+  });
+});

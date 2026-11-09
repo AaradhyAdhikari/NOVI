@@ -1,4 +1,4 @@
-import { mergeTranscript, addChat, addPending } from './transcript.js';
+import { mergeTranscript, addChat, addPending, showsPending } from './transcript.js';
 import { emitLive } from './liveInput.js';
 import { staleUi, myScript } from './pageBuild.js';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -17,6 +17,7 @@ export function useNovi({ onSpeak }) {
   const [connected, setConnected] = useState(false);
   const [state, setState] = useState(initialState);
   const wsRef = useRef(null);
+  const liveRef = useRef(false); // the remote view is open: words said there are never written in the chat
   const speakRef = useRef(onSpeak);
   speakRef.current = onSpeak;
   // Notification buttons on this phone answer cards with its own token (public/sw.js).
@@ -45,8 +46,8 @@ export function useNovi({ onSpeak }) {
         case 'chat': setState((s) => ({ ...s, transcript: addChat(s.transcript, msg.entry) })); break;
         case 'feed': setState((s) => ({ ...s, feed: [...s.feed, { text: msg.text, taskId: msg.taskId, at: Date.now() }].slice(-200) })); break;
         case 'task': setState((s) => ({ ...s, task: msg.task })); break;
-        case 'live_open': setState((s) => ({ ...s, live: { open: true } })); break;
-        case 'live_closed': setState((s) => ({ ...s, live: { open: false, reason: msg.reason } })); break;
+        case 'live_open': liveRef.current = true; setState((s) => ({ ...s, live: { open: true } })); break;
+        case 'live_closed': liveRef.current = false; setState((s) => ({ ...s, live: { open: false, reason: msg.reason } })); break;
         case 'live_frame': case 'live_same': case 'live_note': case 'live_offer': case 'live_stream_failed': case 'live_typing': emitLive(msg); break;
         case 'quiet': setState((s) => ({ ...s, quiet: { on: msg.on, until: msg.until } })); break;
         case 'code_saved': setState((s) => ({ ...s, codeSaved: { ...(s.codeSaved || {}), [msg.id]: { ok: msg.ok, changed: msg.changed, error: msg.error, at: Date.now() } } })); break;
@@ -108,8 +109,9 @@ export function useNovi({ onSpeak }) {
     const ws = wsRef.current;
     if (ws?.readyState !== 1) return;
     ws.send(JSON.stringify(msg));
-    if (msg.type === 'user_message' && msg.voice && isLocal) setState((s) => ({ ...s, thinking: true }));
-    else if (msg.type === 'user_message' && String(msg.text || '').trim()) setState((s) => ({ ...s, transcript: addPending(s.transcript, String(msg.text).trim()), thinking: true }));
+    if (msg.type !== 'user_message' || liveRef.current) return; // the remote view: nothing written, no "thinking"
+    if (showsPending(msg, { isLocal })) setState((s) => ({ ...s, transcript: addPending(s.transcript, String(msg.text).trim()), thinking: true }));
+    else if (msg.voice && isLocal) setState((s) => ({ ...s, thinking: true }));
   }, []);
 
   const api = useCallback((path, init = {}) => fetch(path, {
