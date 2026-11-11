@@ -308,3 +308,48 @@ describe('a sharp stream', () => {
     expect(senderPage()).toMatch(/video\/H264/);
   });
 });
+
+import { leftoverScript, hideScript, closeScript } from '../../plugins/live-screen/edgeCleanup.js';
+
+// Live 2026-11-11: 8 stream Edges were left running (each Novi restart left one; Windows keeps a program's
+// children alive) and showed up on the taskbar with Edge's warning bar. Leftovers are closed by Novi's own
+// profile name (never the user's Edge), and the stream window is hidden.
+describe('leftover stream Edges', () => {
+  it('only Edges started with Novi\'s stream profile, never the user\'s, sparing the running one', () => {
+    const s = leftoverScript(['novi-remote-Ab12']);
+    expect(s).toMatch(/Name='msedge\.exe'/);
+    expect(s).toMatch(/novi-remote-/);
+    expect(s).toMatch(/-notmatch 'novi-remote-Ab12'/);
+    expect(s).toMatch(/taskkill/);
+  });
+  // Live 2026-11-11: the Edge Novi starts hands off to another process and exits, so its process id missed;
+  // each stream is found by its own profile folder name instead.
+  it('hides and closes one stream by its profile folder name; nothing else gets in', () => {
+    expect(hideScript('novi-remote-Ab12')).toMatch(/novi-remote-Ab12/);
+    expect(hideScript('novi-remote-Ab12')).toMatch(/ShowWindow\(\$h, 0\)/);
+    expect(closeScript('novi-remote-Ab12')).toMatch(/taskkill/);
+    expect(() => hideScript("novi-remote-x'; rm")).toThrow();
+    expect(() => closeScript('C:\\Users')).toThrow();
+  });
+  it('Novi closes leftovers when it starts', async () => {
+    let cleaned = 0;
+    const host = new PluginHost({ runtime: { sendToDevice() {} }, env: {}, logger: { warn() {}, info() {} } });
+    host.register(createLiveScreenPlugin({ driver: {}, stream: () => ({}), cleanup: async () => { cleaned += 1; } }));
+    await host.startServices?.();
+    expect(cleaned).toBe(1);
+  });
+});
+
+// Live 2026-11-11: the PIN-card warm-up started a REAL Edge in every test run (one test passed no stream), and
+// each full run left more on the user's screen. Under the test runner the defaults never touch Edge.
+describe('tests never start a real Edge', () => {
+  it('the default stream and cleanup are inert under the test runner', async () => {
+    const host = new PluginHost({ runtime: { sendToDevice() {} }, env: {}, logger: { warn() {}, info() {} } });
+    host.register(createLiveScreenPlugin({ driver: { screenshot: async () => ({ png: Buffer.from('A'), width: 1, height: 1 }) }, gapMs: 0 }));
+    await host.get('live_screen_open').gate({}, { from: PHONE });
+    await host.get('live_screen_open').run({});
+    const out = [];
+    await host.runtime.liveMessage({ type: 'live_stream' }, PHONE, (m) => out.push(m));
+    expect(out).toEqual([{ type: 'live_stream_failed' }]);
+  });
+});

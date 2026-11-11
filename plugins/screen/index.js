@@ -20,7 +20,7 @@ const KEY_CODES = {
   enter: '{ENTER}', tab: '{TAB}', 'shift+tab': '+{TAB}', esc: '{ESC}', escape: '{ESC}', space: ' ', backspace: '{BACKSPACE}',
   up: '{UP}', down: '{DOWN}', left: '{LEFT}', right: '{RIGHT}', pageup: '{PGUP}', pagedown: '{PGDN}', home: '{HOME}', end: '{END}',
   'ctrl+a': '^a', 'ctrl+c': '^c', 'ctrl+v': '^v', 'ctrl+x': '^x', 'ctrl+z': '^z', 'ctrl+s': '^s', 'ctrl+f': '^f', 'ctrl+n': '^n', 'ctrl+t': '^t', 'alt+tab': '%{TAB}',
-  'ctrl+w': '^w', 'ctrl+shift+t': '^+t', 'alt+left': '%{LEFT}', 'alt+right': '%{RIGHT}', f5: '{F5}',
+  'ctrl+w': '^w', 'ctrl+plus': '^{ADD}', 'ctrl+minus': '^{SUBTRACT}', 'ctrl+0': '^0', 'ctrl+shift+t': '^+t', 'alt+left': '%{LEFT}', 'alt+right': '%{RIGHT}', f5: '{F5}',
 };
 export const KEYS = Object.keys(KEY_CODES);
 const normKey = (k) => String(k || '').toLowerCase().replace(/\s+/g, '').replace('control', 'ctrl').replace('return', 'enter');
@@ -412,6 +412,19 @@ export function createScreenPlugin({ driver = windowsDriver, now = Date.now, foc
             if (spot.sensitive) return { note: SENS };
             const out = await clickAt({ ...spot, name: spot.name || intent.target }, s.title, level);
             return { ...out, vision: true };
+          }
+          case 'zoom': {
+            // Click the picture (opens it big on most sites), then zoom in twice.
+            const s = await look();
+            if (sensitiveScreen(s.title, s.raw)) return { note: SENS };
+            let it = findTarget(s.list, intent.target);
+            if (!it) { const spot = await byVision(s.title, `Find "${intent.target}" on this screenshot.`); if (spot?.sensitive) return { note: SENS }; if (spot) it = { ...spot, name: spot.name || intent.target }; }
+            if (!it) return listOffer(`I couldn't find ${intent.target}.`);
+            const out = await clickAt(it, s.title, 0);
+            if (!out?.done) return out; // refused or the window went away
+            for (let i = 0; i < 2; i++) await driver.key('ctrl+plus');
+            stale();
+            return { ...out, note: `Opened ${it.name} and zoomed in. Say "zoom in" or "zoom out" for more.` };
           }
           case 'video': {
             const s = await look(true);

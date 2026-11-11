@@ -2,6 +2,7 @@ import { createQuiet } from './quiet.js';
 import { createPhoneOnly } from './phoneOnly.js';
 import { uiBuildOf } from './uiBuild.js';
 import { replyPlace } from './liveReplies.js';
+import { createGaps } from './brain/gaps.js';
 import { latestApp, updateCard } from './appUpdate.js';
 import { createCodeEdits } from './codeEdits.js';
 import { createActivity } from './activity.js';
@@ -346,6 +347,16 @@ export function createNovi(config, overrides = {}) {
     run: async () => { if (new Date().getDay() === 1 && learning.misses(7 * 24 * 3600_000).length) plugins.runtime.wikiWrite?.({ title: "Novi's mistakes", text: learning.weekNote() }); },
   });
   if (!overrides.agent) weeklyMistakes.start?.();
+  // Smart routing: requests no rule caught, and what the quick AI picked for them (server/brain/gaps.js).
+  const gaps = createGaps({ file: path.join(config.dataDir, 'gaps', 'gaps.jsonl') });
+  agent.gaps ??= gaps;
+  agent.smartPick ??= true; // no keyword fit → the quick AI picks from every ability (server/brain/intentPick.js)
+  const weeklyGaps = everyDayAt({
+    time: '09:15',
+    stateFile: path.join(config.dataDir, 'gaps', 'weekly-note.json'),
+    run: async () => { if (new Date().getDay() === 1 && gaps.list(7).length) plugins.runtime.wikiWrite?.({ title: "What Novi didn't understand", text: gaps.summary(7) }); },
+  });
+  if (!overrides.agent) weeklyGaps.start?.();
   const pairing = overrides.pairing || new Pairing({ file: path.join(config.dataDir, 'devices.json') });
   const tailscaleIdentity = overrides.tailscaleIdentity || createTailscaleIdentity();
   const pairRequests = new PairRequests({ issue: (name) => pairing.issue(name, 'laptop') });

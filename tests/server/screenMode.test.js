@@ -678,3 +678,48 @@ describe('a video that is on the screen', () => {
     expect((await s.host.get('screen_command').run({ text: 'second video of Rajshamani', anywhere: true })).unknown).toBe(true);
   });
 });
+
+// User, 2026-11-11 (remote view): "press okay" on a Notepad box said "I can't press okay" — it should click
+// whatever is named: any box, link or button, and zoom pictures.
+describe('press / click / open anything on the screen', () => {
+  const DIALOG = { title: 'Notepad', items: [{ type: 'Text', name: 'Cannot find the file.', x: 480, y: 360 }, { type: 'Button', name: 'OK', x: 545, y: 417 }, { type: 'Button', name: 'Bookmarks', x: 10, y: 10 }] };
+  it('"press X" is a click when X is not a key', () => {
+    expect(parseScreenCommand('Press okay.')).toEqual({ do: 'click', target: 'okay' });
+    expect(parseScreenCommand('press the OK button')).toEqual({ do: 'click', target: 'OK button' });
+    expect(parseScreenCommand('hit save')).toEqual({ do: 'click', target: 'save' });
+    expect(parseScreenCommand('press enter')).toEqual({ do: 'key', key: 'enter', times: 1 });
+    expect(parseScreenCommand('press f13')).toEqual({ do: 'key', key: 'f13', times: 1 });
+  });
+  it('"open the X link / picture" clicks it instead of opening an app', () => {
+    expect(parseScreenCommand('open the pricing link')).toEqual({ do: 'click', target: 'pricing link' });
+    expect(parseScreenCommand('open the cat picture')).toEqual({ do: 'click', target: 'cat picture' });
+    expect(parseScreenCommand('open Chrome')).toEqual({ do: 'open', app: 'Chrome' });
+  });
+  it('zoom in, out and back', () => {
+    expect(parseScreenCommand('zoom in')).toEqual({ do: 'key', key: 'ctrl+plus', times: 1, say: 'Zoomed in.' });
+    expect(parseScreenCommand('zoom in twice')).toEqual({ do: 'key', key: 'ctrl+plus', times: 2, say: 'Zoomed in.' });
+    expect(parseScreenCommand('zoom out')).toEqual({ do: 'key', key: 'ctrl+minus', times: 1, say: 'Zoomed out.' });
+    expect(parseScreenCommand('reset the zoom')).toEqual({ do: 'key', key: 'ctrl+0', times: 1, say: 'Zoom back to normal.' });
+    expect(parseScreenCommand('zoom into the cat picture')).toEqual({ do: 'zoom', target: 'cat picture' });
+  });
+  it('"press okay" clicks the OK button of the box in front', async () => {
+    const s = await on(setup({ screen: DIALOG }));
+    await s.say('press okay');
+    expect(s.actions.at(-1)).toEqual(['click', 545, 417]);
+  });
+  it('"zoom into the picture" clicks it, then zooms in', async () => {
+    const s = await on(setup({ screen: { title: 'Photos - Google Chrome', items: [{ type: 'Image', name: 'cat picture', x: 300, y: 300 }] } }));
+    await s.say('zoom into the cat picture');
+    expect(s.actions.slice(-3)).toEqual([['click', 300, 300], ['key', 'ctrl+plus'], ['key', 'ctrl+plus']]);
+  });
+});
+
+describe('these are screen steps any time (no Screen Mode needed)', () => {
+  it('press a button, open a link, zoom', () => {
+    expect(isScreenStep('press okay')).toBe(true);
+    expect(isScreenStep('open the pricing link')).toBe(true);
+    expect(isScreenStep('zoom in')).toBe(true);
+    expect(isScreenStep('zoom into the cat picture')).toBe(true);
+    expect(isScreenStep('open Chrome')).toBe(false);
+  });
+});

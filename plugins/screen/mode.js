@@ -20,8 +20,10 @@ const KEY_WORDS = {
   up: 'up', down: 'down', left: 'left', right: 'right', 'up arrow': 'up', 'down arrow': 'down', 'left arrow': 'left', 'right arrow': 'right',
   'page up': 'pageup', 'page down': 'pagedown', home: 'home', end: 'end', f5: 'f5',
 };
-export const KEY_LABEL = { enter: 'Enter', esc: 'Escape', tab: 'Tab', space: 'Space', backspace: 'Backspace', up: 'Up', down: 'Down', left: 'Left', right: 'Right', pageup: 'Page Up', pagedown: 'Page Down', home: 'Home', end: 'End', f5: 'F5' };
+export const KEY_LABEL = { enter: 'Enter', esc: 'Escape', tab: 'Tab', space: 'Space', backspace: 'Backspace', up: 'Up', down: 'Down', left: 'Left', right: 'Right', pageup: 'Page Up', pagedown: 'Page Down', home: 'Home', end: 'End', f5: 'F5', 'ctrl+plus': 'zoom in', 'ctrl+minus': 'zoom out', 'ctrl+0': 'zoom reset' };
 
+// A key name (known or key-shaped like f13 / ctrl+x), so "press f13" is still a key Novi refuses, not a click.
+const isKeyWord = (w) => { const k = String(w).toLowerCase().trim(); return Boolean(KEY_WORDS[k]) || /^(?:f\d{1,2}|(?:ctrl|control|alt|shift|win|windows)\b.*)$/.test(k); };
 const re = (src) => new RegExp(`^(?:${src})$`, 'i');
 const ORD = `(${Object.keys(ORDINAL).join('|')}|\\d+(?:st|nd|rd|th))`;
 const N = `(\\d+|${Object.keys(NUMBER).join('|')})`;
@@ -78,7 +80,15 @@ const RULES = [
   [re(`(?:click|tap|press|select|choose|open)(?: on)?(?: (?:option|number|item|no\\.?))? ${N}`), (m) => ({ do: 'click', n: num(m[1]) })],
   [re(`(?:option|number) ${N}`), (m) => ({ do: 'click', n: num(m[1]) })],
   // keys
-  [re(`(?:press|hit|push) (?:the )?(.+?)(?: key)?(?: ${T})?`), (m) => ({ do: 'key', key: KEY_WORDS[m[1].toLowerCase()] || m[1].toLowerCase(), times: times(m[2]) })],
+  // zoom (browsers, Photos, PDFs: Ctrl and plus / minus / 0)
+  [re(`zoom in(?: ${T})?`), (m) => ({ do: 'key', key: 'ctrl+plus', times: times(m[1]), say: 'Zoomed in.' })],
+  [re('zoom (?:in ?to|in on|on) (?:the |this |that )?(.+?)'), (m) => ({ do: 'zoom', target: m[1].replace(WHERE_TAIL, '') })],
+  [re(`zoom out(?: ${T})?`), (m) => ({ do: 'key', key: 'ctrl+minus', times: times(m[1]), say: 'Zoomed out.' })],
+  [re('(?:reset|undo|normal|clear)(?: the)? zoom|zoom (?:back )?(?:to )?(?:normal|100(?: percent| %)?)|reset zoom'), () => ({ do: 'key', key: 'ctrl+0', times: 1, say: 'Zoom back to normal.' })],
+  // "press X": a key when X is a key, else a click on whatever is called X ("press okay", 2026-11-11)
+  [re(`(?:press|hit|push) (?:the )?(.+?)(?: key)?(?: ${T})?`), (m) => (isKeyWord(m[1]) ? { do: 'key', key: KEY_WORDS[m[1].toLowerCase()] || m[1].toLowerCase(), times: times(m[2]) } : { do: 'click', target: m[1] })],
+  // "open the pricing link / cat picture": something on the screen, not an app
+  [re('open (?:the |this |that )?(.+? (?:link|button|tab|picture|image|photo|pic|video|icon|post|article|thumbnail))'), (m) => ({ do: 'click', target: m[1].replace(WHERE_TAIL, '') })],
   [re(`(?:search|google|look up)(?: for| up)? (.+?)(?: and open the ${ORD}(?: (?:result|one|link))?)?`), (m) => ({ do: 'search', query: m[1], ...(m[2] ? { open: num(m[2]) } : {}) })],
   [re('(?:switch|go|jump|move) to (?:the )?(.+?)(?: window| app)?|bring (?:up )?(?:the )?(.+?)(?: window| app)? (?:to the front|forward|up|in front)|(?:show|focus) (?:the )?(.+?) (?:window|app)'), (m) => ({ do: 'focus', app: m[1] || m[2] || m[3] })],
   [re('(?:open|launch|start) (?:the )?(.+?)(?: app| application)?'), (m) => ({ do: 'open', app: m[1] })],
@@ -106,7 +116,8 @@ export function isScreenStep(text, { phone = false } = {}) {
   const it = parseScreenCommand(text);
   if (!it) return false;
   if (it.do === 'scroll' || it.do === 'result' || it.do === 'list' || it.do === 'video') return true;
-  if (it.do === 'click') return SAID_AS_STEP.test(text);
+  if (it.do === 'zoom' || (it.do === 'key' && /^ctrl\+(?:plus|minus|0)$/.test(it.key))) return true;
+  if (it.do === 'click') return SAID_AS_STEP.test(text) || /^\W*(?:ok(?:ay)?[, ]+)?open\b/i.test(text); // "open the pricing link"
   if (it.do === 'type') return Boolean(it.box) || phone;
   if (it.do === 'key') return SAID_AS_STEP.test(text) || (phone && Boolean(it.say) && it.say !== 'Sent.');
   return false;
@@ -175,7 +186,7 @@ export function clickPoint(it) {
 // when the words say box/field, shortest name first.
 const FILLER = new Set('the a an on in at of to button link click tap press icon please my this that one'.split(' '));
 const BOXY = new Set(['box', 'field', 'bar', 'input']);
-const ALIAS = { login: /\b(?:log ?in|sign ?in)\b/i, signin: /\b(?:log ?in|sign ?in)\b/i, logout: /\b(?:log ?out|sign ?out)\b/i, signup: /\b(?:sign ?up|register|create account)\b/i };
+const ALIAS = { ok: /^(?:ok|okay)$/i, okay: /^(?:ok|okay)$/i, login: /\b(?:log ?in|sign ?in)\b/i, signin: /\b(?:log ?in|sign ?in)\b/i, logout: /\b(?:log ?out|sign ?out)\b/i, signup: /\b(?:sign ?up|register|create account)\b/i };
 export function findTarget(list, target) {
   const words = String(target || '').toLowerCase().match(/[\p{L}\p{N}]+/gu)?.filter((w) => !FILLER.has(w)) || [];
   const boxy = words.some((w) => BOXY.has(w));

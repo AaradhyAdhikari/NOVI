@@ -2,6 +2,13 @@ import crypto from 'node:crypto';
 import { definePluginEntry } from '#plugin-sdk';
 import { windowsDriver } from '../screen/index.js';
 import { createStream } from './stream.js';
+import { closeLeftovers } from './edgeCleanup.js';
+
+// Under the test runner the defaults never touch Edge (live 2026-11-11: the PIN-card warm-up started a real Edge
+// in every test run and each run left more windows on the user's screen; cleanup could also have closed the real
+// Novi's stream).
+const INERT = Boolean(process.env.VITEST);
+const noEdge = () => ({ start: async () => { throw new Error('no Edge under tests'); }, answer: async () => {}, stop() {} });
 
 // The laptop's screen, live on the phone: tap to click, swipe to scroll, type with the phone's keyboard
 // (user, 2026-11-04: "control my whole laptop from my phone"). Over Novi's own connection, paired phones
@@ -14,7 +21,7 @@ const KEYS = new Set(['enter', 'esc', 'tab', 'backspace', 'up', 'down', 'left', 
 const unit = (n) => typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= 1;
 
 // `stream`: the smooth video (stream.js); the pictures below stay as the backup when it can't start.
-export function createLiveScreenPlugin({ driver = windowsDriver, now = Date.now, gapMs = GAP_MS, idleMs = IDLE_MS, stream = createStream, prewarmMs = 60_000 } = {}) {
+export function createLiveScreenPlugin({ driver = windowsDriver, now = Date.now, gapMs = GAP_MS, idleMs = IDLE_MS, stream = INERT ? noEdge : createStream, prewarmMs = 60_000, cleanup = INERT ? async () => 0 : closeLeftovers } = {}) {
   return definePluginEntry({
     id: 'live-screen',
     name: 'Live screen',
@@ -25,6 +32,7 @@ export function createLiveScreenPlugin({ driver = windowsDriver, now = Date.now,
       let asked = null; // the phone the PIN card was for; `active` in app.js moves on with whoever speaks next
       // Edge warms up while the PIN card waits (user, 2026-11-08: "the fastest we can as we click"), so the
       // video is nearly ready when the PIN is given. Nobody approves it within prewarmMs: stopped.
+      let liveTidy = null; // set once the service is registered
       let warm = null; // { deviceId, video, result: Promise<{ offer } | { err }>, timer }
       const dropWarm = () => { if (warm) { clearTimeout(warm.timer); warm.video.stop(); warm = null; } };
       const warmUp = (deviceId) => {
@@ -41,6 +49,7 @@ export function createLiveScreenPlugin({ driver = windowsDriver, now = Date.now,
         session?.video?.stop();
         session?.warm?.video.stop();
         session = null;
+        liveTidy?.();
       };
 
       // Live 2026-11-08: a start sometimes never got its offer while the next one worked in 2 s, so a
@@ -155,7 +164,11 @@ export function createLiveScreenPlugin({ driver = windowsDriver, now = Date.now,
         warmUp(asked);
         return { requireApproval: { title: 'Control the laptop from this phone', description: 'Taps, scrolling and typing on your phone will act on the laptop.', prompt: 'Control the laptop from this phone? Say your PIN.', severity: 'warning', category: 'screen', grantable: false, pin: true } };
       });
-      api.registerService({ id: 'live-screen', start() {}, stop() { dropWarm(); end('Novi stopped'); } });
+      // Stream Edges left by an earlier Novi (Windows keeps a program's children alive) are closed at start,
+      // and a few seconds after a view ends when nothing else is streaming.
+      const tidy = () => cleanup().then((n) => { if (n) api.logger?.info?.(`[live] closed ${n} leftover stream Edge(s)`); }).catch(() => {});
+      api.registerService({ id: 'live-screen', start() { return tidy(); }, stop() { dropWarm(); end('Novi stopped'); } });
+      liveTidy = () => setTimeout(() => { if (!session && !warm) tidy(); }, 3000).unref?.();
     },
   });
 }

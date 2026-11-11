@@ -84,11 +84,10 @@ describe('typing by voice in the remote view', () => {
 });
 // sent to the AI ("Nt.js, Tx." went to the AI live). "Novi, …" / "ask …" still reach the AI.
 describe('in the remote view, a phrase that is no step', () => {
-  it('is asked back with examples', async () => {
+  // 2026-11-11: no longer a canned ask-back; the AI gets the screen tools and decides (intentPick.test.js).
+  it('goes to the AI, which can ask back itself', async () => {
     const s = mk();
-    const reply = await s.agent.handle('Nt.js, Tx.', P1);
-    expect(reply).toMatch(/didn't get that/i);
-    expect(reply).toMatch(/click/);
+    expect(await s.agent.handle('Nt.js, Tx.', P1)).toBe('AI');
   });
   it('"Novi, …" or "ask …" still goes to the AI; other phones are untouched', async () => {
     const s = mk();

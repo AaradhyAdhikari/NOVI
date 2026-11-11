@@ -1,5 +1,9 @@
 import { AllProvidersUnavailableError } from './router.js';
 import { selectTools, isQuickTurn, ALWAYS } from './toolSelect.js';
+import { needsPick, pickTools } from './intentPick.js';
+// The remote view (plugins/live-screen): the tools that act on the laptop screen, and what the AI is told.
+const LIVE_TOOLS = /^(?:screen_|laptop_(?:window|tab|media|seek|volume|clipboard|select|current_link|video_mute)|browser_|open_app$|open_website$)/;
+const LIVE_NOTE = 'The user is watching the laptop screen live from their phone and speaking to control it. Do what they ask on the laptop with the screen tools: screen_items lists what is on screen, screen_click clicks it, screen_type_into types. Keep replies to a few words saying what you did. If you truly cannot tell what they mean, ask one short question.';
 import { classifyApproval } from '../grants.js';
 import { UserFacingError } from '../errors.js';
 import { firstSentence } from '../narrator.js';
@@ -401,6 +405,8 @@ export class Agent {
     }
     // "What did you get wrong this week?" — the learning loop's summary.
     if (this.learning && learningCommand(text)) return this._remember(text, this.learning.summary());
+    // Smart routing's gap log: what no rule caught lately (server/brain/gaps.js).
+    if (this.gaps && /\bwhat (?:(?:did ?n'?t|did not|do ?n'?t) you|did you not|do you not) (?:understand|get)\b|\byour gaps\b|\bkya nahi samjh/i.test(text)) return this._remember(text, this.gaps.summary(7));
     // "What went wrong?" — the last request from the activity log, in words.
     if (this.activity && WRONG_RE.test(String(text).trim().replace(/[.!?]+$/, ''))) {
       return this._remember(text, describeTurn(this.activity.list(1)[0]));
@@ -666,7 +672,8 @@ export class Agent {
     if (from !== 'local' && this.liveViewing?.(from) && !this._namedTurn && !/^(?:hey\s+)?(?:novi|ask)\b/i.test(text.trim())) {
       // What speech-to-text hears in silence (the mic is always on there): ignored without a word.
       if (/^(?:thank you|thanks|you|bye|okay|ok|hmm+|uh+)[.!]?$/i.test(text.trim())) return this._remember(text, '');
-      return this._remember(text, "I didn't get that as a step. Say it like: click Submit, open Chrome, switch to WhatsApp, type hello, scroll down, go back. To ask me something, start with \"Novi\".");
+      // Smart routing (2026-11-11): the AI plans the screen steps itself instead of a canned ask-back.
+      this._liveTurn = true;
     }
     // A learned shortcut: words the AI already solved with one quiet tool → that tool at once.
     const learned = this.shortcuts?.find(text);
@@ -778,7 +785,24 @@ export class Agent {
     ];
     // Only the tools this request needs (keeps each call small enough for free rate limits).
     const taskActive = Boolean(this.tasks.status().active);
-    const offered = selectTools(this.tools.schemas(), { text, history: this.history, taskActive });
+    let offered = selectTools(this.tools.schemas(), { text, history: this.history, taskActive });
+    // Watching the laptop live from the phone: the screen and laptop tools, and a note to act on the laptop.
+    if (this._liveTurn) {
+      this._liveTurn = false;
+      offered = this.tools.schemas().filter((s) => LIVE_TOOLS.test(s.function.name) || ALWAYS.has(s.function.name));
+      messages[0] = { role: 'system', content: `${messages[0].content}
+
+${LIVE_NOTE}` };
+      return { extra, messages, offered, purpose: 'fast' };
+    }
+    // No keyword fit (said a new way): a quick AI step reads every ability and picks; the main AI gets those.
+    if (this.smartPick && needsPick(offered, text)) {
+      const all = this.tools.schemas();
+      const pick = await pickTools({ router: this.router, text, schemas: all });
+      const have = new Set(offered.map((s) => s.function.name));
+      offered = [...offered, ...all.filter((s) => pick.tools.includes(s.function.name) && !have.has(s.function.name))];
+      this.gaps?.record({ heard: text, picked: pick.tools });
+    }
     const purpose = isQuickTurn(text, offered, { taskActive }) ? 'quick' : 'fast';
     return { extra, messages, offered, purpose };
   }
