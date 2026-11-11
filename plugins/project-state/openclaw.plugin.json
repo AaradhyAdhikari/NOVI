@@ -1,0 +1,9 @@
+{
+  "id": "project-state",
+  "name": "Project record",
+  "description": "One record per project in <project>/.novi/: facts, task board, decisions, context and audit log. Claude's tasks land on the board; a task cut off by a restart is marked blocked.",
+  "categories": ["other"],
+  "contracts": { "tools": ["project_board", "project_decision", "project_plan"] },
+  "activation": { "onStartup": true },
+  "configSchema": { "type": "object", "additionalProperties": false, "properties": {} }
+}

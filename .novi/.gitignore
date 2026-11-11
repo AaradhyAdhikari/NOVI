@@ -1,0 +1,8 @@
+# Novi's project record (plugins/project-state): kept on this laptop, not in git.
+project.json
+tasks.json
+context.md
+decisions.md
+audit-log.jsonl
+*.broken-*
+*.tmp

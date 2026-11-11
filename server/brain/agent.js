@@ -28,6 +28,7 @@ import { codemapCommand } from './codemapCommand.js';
 import { diagramCommand } from './diagramCommand.js';
 import { editCommand } from './editCommand.js';
 import { doneCheckCommand } from './doneCheckCommand.js';
+import { projectBoardCommand } from './projectBoardCommand.js';
 import { isScreenModeStart, isLiveStart } from './screenModeCommand.js';
 import { isScreenStep } from '../../plugins/screen/mode.js';
 import { parseApproval } from './approvalIntent.js';
@@ -49,7 +50,7 @@ const STEP_TOOLS = new Set(['open_app', 'open_website', 'screen_type_into', 'scr
 const LAPTOP_QUIET = new Set(['laptop_seek', 'laptop_media', 'laptop_video_mute', 'laptop_select']);
 const QUIET_NOTE = /^(?:Skipped ahead|Went back|Jumped to|Paused|Playing|Next|Previous|Already paused|Muted the video|Unmuted the video|The video is already|Selected)/;
 const SAID_NOT_WRITTEN = /^Copied \d+ lines?\.$/; // nothing to see, so it is said, but not written
-const DIRECT_OK = new Set(['live_screen_open', 'text_edit_selection', 'code_start_task', 'code_send_message', 'rename_project', 'file_new_folder', 'open_project', 'file_open', 'file_rename', 'note_write', 'notes_ask', 'note_open', 'whatsapp_send', 'claude_project_make', 'remember_project', 'codemap_build', 'donecheck_run', 'donecheck_fix', 'claude_activity', 'code_changes', 'code_tests', 'code_pull', 'claude_usage']); // whatsapp_send: the user's decision 2026-10-17 — their command is the yes
+const DIRECT_OK = new Set(['project_decision', 'live_screen_open', 'text_edit_selection', 'code_start_task', 'code_send_message', 'rename_project', 'file_new_folder', 'open_project', 'file_open', 'file_rename', 'note_write', 'notes_ask', 'note_open', 'whatsapp_send', 'claude_project_make', 'remember_project', 'codemap_build', 'donecheck_run', 'donecheck_fix', 'claude_activity', 'code_changes', 'code_tests', 'code_pull', 'claude_usage']); // whatsapp_send: the user's decision 2026-10-17 — their command is the yes
 const ASK_ANYWAY = new Set(['file_gather', 'file_undo_move', 'laptop_run', 'preview_show', 'preview_open']); // preview_show/open: only its first start of a project's own command asks
 const MAX_ROUNDS = 10; // screen tasks: open the app, look, click, type, …
 const MAX_HISTORY = 40;
@@ -529,6 +530,14 @@ export class Agent {
       const { output } = await this._runTool({ id: `chg-${Date.now()}`, function: { name: change.tool, arguments: JSON.stringify(change.args) } }, { direct: true });
       return this._remember(text, output?.error || output?.note || 'Done.');
     }
+    // "Show me the X board" / "decision for X: …" (plugins/project-state), no AI.
+    const boardSaid = projectBoardCommand(text);
+    // "Plan X" only for a project Novi knows ("plan a trip to Goa" goes on to the AI).
+    const board = boardSaid && (boardSaid.tool !== 'project_plan' || this.memory?.findProject?.(boardSaid.args.project)) ? boardSaid : null;
+    if (board && this.tools.get(board.tool)) {
+      const { output } = await this._runTool({ id: `board-${Date.now()}`, function: { name: board.tool, arguments: JSON.stringify(board.args) } }, { direct: true });
+      return this._remember(text, output?.error || output?.note || 'Done.');
+    }
     // "Check it" / "is it done" / "fix it" (plugins/donecheck), no AI: the user's words are the yes.
     const check = doneCheckCommand(text);
     if (check && this.tools.get(check.tool)) {
@@ -829,6 +838,9 @@ ${LIVE_NOTE}` };
     if (activity && this.tools.get('claude_activity')) return { quick: null, calls: [{ name: 'claude_activity', args: {} }], reply: null, provider: 'direct' };
     const change = commitCommand(text) || aiSendCommand(text) || changesCommand(text) || claudeUsageCommand(text);
     if (change && this.tools.get(change.tool)) return { quick: null, calls: [{ name: change.tool, args: change.args }], reply: null, provider: 'direct' };
+    const boardSaid = projectBoardCommand(text);
+    const board = boardSaid && (boardSaid.tool !== 'project_plan' || this.memory?.findProject?.(boardSaid.args.project)) ? boardSaid : null;
+    if (board && this.tools.get(board.tool)) return { quick: null, calls: [{ name: board.tool, args: board.args }], reply: null, provider: 'direct' };
     const check = doneCheckCommand(text);
     if (check && this.tools.get(check.tool)) return { quick: null, calls: [{ name: check.tool, args: check.args }], reply: null, provider: 'direct' };
     const map = codemapCommand(text);
@@ -1441,7 +1453,7 @@ ${LIVE_NOTE}` };
     const cmd = openCommand(text);
     const known = cmd && this.tools.get(cmd.tool) && this.memory?.findProject?.(cmd.args.project);
     // Novi's own folder: "open Novi" must never start a second Novi as a "site".
-    if (!known || (cmd.tool === 'preview_open' && known.name === 'novi')) return null;
+    if (!known || (cmd.tool !== 'open_project' && known.name === 'novi')) return null;
     return cmd;
   }
 

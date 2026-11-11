@@ -37,9 +37,17 @@ const EDITOR = /^(.+?) (?:in|on|with|using) (?:the )?(vs ?code|visual studio cod
 const NOT_A_PROJECT = /\b(?:files?|folders?|pdfs?|docs?|documents?|sheets?|notes?|excel|slides?|ppt|and|it|that|this)\b/i;
 export function openCommand(text) {
   const t = clean(text).replace(/[.!?]+$/, '');
+  const name = (s) => s.replace(/^(?:the |my )?(?:project )?/i, '').replace(/ (?:project|site|website|web ?site|web app|app)$/i, '').trim();
+  // "Show me tip calculator" / "X dikhao" = the app itself: a picture and its link (user, 2026-11-11: it had
+  // shown the code). Code, files, boards and pages keep their own routes.
+  const shown = /^show(?: me)? (.+)$/i.exec(t) || /^(.+?) (?:dikhao|dikha do|dikhaao)$/i.exec(t);
+  if (shown) {
+    if (NOT_A_PROJECT.test(shown[1]) || /\b(?:code|board|tasks?|decisions?|page|section|screen|status|progress|changes?|diff|plan|map|graph|usage)\b/i.test(shown[1])) return null;
+    const project = name(shown[1]);
+    return project ? { tool: 'preview_show', args: { page: 'home', project } } : null;
+  }
   const m = /^open (?:up )?(.+)$/i.exec(t);
   if (!m || NOT_A_PROJECT.test(m[1])) return null;
-  const name = (s) => s.replace(/^(?:the |my )?(?:project )?/i, '').replace(/ (?:project|site|website|web ?site|web app|app)$/i, '').trim();
   const ed = EDITOR.exec(m[1]);
   if (ed) return { tool: 'open_project', args: { project: name(ed[1]), editor: ed[2].toLowerCase().replace(/\s+/g, ' ') } };
   const project = name(m[1].replace(/ (?:in|on) (?:the )?(?:browser|chrome|edge)$/i, ''));

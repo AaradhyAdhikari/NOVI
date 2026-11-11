@@ -63,3 +63,18 @@ describe('sections', () => {
     expect(previewCommand('ss of the projects part')).toEqual({ tool: 'preview_show', args: { page: 'projects' } });
   });
 });
+
+// User, 2026-11-11: "show me tip calculator" showed its code; it should show the app (picture + link) — for every project.
+describe('"show me <project>" shows the app', () => {
+  it('becomes the app preview with its link', () => {
+    expect(openCommand('Show me tip calculator')).toEqual({ tool: 'preview_show', args: { page: 'home', project: 'tip calculator' } });
+    expect(openCommand('show my portfolio app')).toEqual({ tool: 'preview_show', args: { page: 'home', project: 'portfolio' } });
+    expect(openCommand('show the tip calculator website')).toEqual({ tool: 'preview_show', args: { page: 'home', project: 'tip calculator' } });
+    expect(openCommand('tip calculator dikhao')).toEqual({ tool: 'preview_show', args: { page: 'home', project: 'tip calculator' } });
+  });
+  it('leaves code, files and other things alone', () => {
+    expect(openCommand('show me the code of tip calculator')).toBe(null);
+    expect(openCommand('show me my notes')).toBe(null);
+    expect(openCommand('show me the tip calculator board')).toBe(null);
+  });
+});
