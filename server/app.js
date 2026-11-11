@@ -73,6 +73,7 @@ import { hintNames, fixNames } from './voice/techWords.js';
 import { fixOpenWords, correctionOf, openTarget } from './voice/soundAlike.js';
 import { siteNames } from './brain/browseCommand.js';
 import { AppCatalog } from './laptop/apps.js';
+import { createFingerprints } from './fingerprint.js';
 import { createVoiceLog } from './voice/voiceLog.js';
 import { createWatchWindows } from './claude/watchWindow.js';
 import { createLagMeter } from './lag.js';
@@ -101,7 +102,7 @@ export function createNovi(config, overrides = {}) {
   const grants = overrides.grants || new PermissionGrants(path.join(config.dataDir, 'permissions.json'));
   // What a phone must prove to allow (voice PIN / passkey); the verifiers are filled in below.
   const proofs = {};
-  const trust = createRemoteTrust({ pin: (...a) => proofs.pin?.(...a), passkey: (...a) => proofs.passkey?.(...a), hasPasskey: (...a) => proofs.hasPasskey?.(...a), hasPin: () => proofs.hasPin?.() ?? false });
+  const trust = createRemoteTrust({ fingerprint: (...a) => proofs.fingerprint?.(...a), hasFingerprint: (...a) => proofs.hasFingerprint?.(...a), pin: (...a) => proofs.pin?.(...a), passkey: (...a) => proofs.passkey?.(...a), hasPasskey: (...a) => proofs.hasPasskey?.(...a), hasPin: () => proofs.hasPin?.() ?? false });
   const remotePin = overrides.remotePin || new RemotePin({ file: path.join(config.dataDir, 'remote-pin.json') });
   proofs.pin = (proof) => remotePin.check(proof.pin).ok;
   proofs.hasPin = () => remotePin.isSet();
@@ -109,6 +110,16 @@ export function createNovi(config, overrides = {}) {
   const tsName = overrides.tsName || null;
   const passkeys = overrides.passkeys || (tsName ? new Passkeys({ file: path.join(config.dataDir, 'passkeys.json'), rpId: tsName, origin: `https://${tsName}:${config.port || 3001}` }) : null);
   proofs.hasPasskey = (from) => Boolean(passkeys?.has(from.deviceId));
+  // The phone app's fingerprint key (server/fingerprint.js): stands in for the PIN on risky cards.
+  const fingerprints = overrides.fingerprints || createFingerprints({ file: path.join(config.dataDir, 'fingerprints.json') });
+  proofs.hasFingerprint = (from) => Boolean(from?.deviceId && fingerprints.has(from.deviceId));
+  // What a card says right now: a fingerprint approval counts only for the card as it was when signed.
+  const cardStamp = (id) => {
+    const a = approvals.pending().find((x) => x.id === id);
+    return a ? crypto.createHash('sha256').update(JSON.stringify([a.title, a.detail ?? null, a.changes ?? null, a.choices ?? null])).digest('base64url') : '';
+  };
+  const fingerprintNotice = (title, from) => notices.add({ key: 'fingerprint', title, body: `From ${pairing.listDevices().find((d) => d.id === from.deviceId)?.name || 'a phone'}. If this wasn't you, remove that phone in Settings.` });
+  proofs.fingerprint = (proof, from, approval) => proof.fingerprint?.verified === true && proof.fingerprint.approvalId === approval.id && proof.fingerprint.deviceId === from.deviceId;
   proofs.passkey = (proof, from, approval) => proof.passkey?.verified === true && proof.passkey.approvalId === approval.id && proof.passkey.deviceId === from.deviceId;
   const approvals = overrides.approvals || new ApprovalQueue({ grants, trust });
   if (!approvals.trust) approvals.trust = trust;
@@ -669,7 +680,7 @@ export function createNovi(config, overrides = {}) {
   // A notification's button (a phone's, through /api/card-answer, or the laptop's, through the
   // extension): approve / deny / 'opt:N' (Claude's question) / 'choice:ID'. Proof rules stay: a PIN or
   // fingerprint card isn't approved here — the caller opens Novi on it.
-  const NEED_WORDS = { pin: 'Needs your PIN', 'no-pin': 'Set a voice PIN in Settings first', passkey: 'Needs your fingerprint', laptop: 'Needs you at the laptop' };
+  const NEED_WORDS = { fingerprint: 'Needs your fingerprint', pin: 'Needs your PIN', 'no-pin': 'Set a voice PIN in Settings first', passkey: 'Needs your fingerprint', laptop: 'Needs you at the laptop' };
   function answerCard(id, action, from = 'local') {
     const card = approvals.pending().find((a) => a.id === id);
     if (!card) return { done: false, gone: true, text: 'Already answered' };
@@ -979,6 +990,34 @@ export function createNovi(config, overrides = {}) {
     refresh();
     res.status(ok ? 200 : 404).json({ ok });
   });
+  // Fingerprint setup from the phone app: the PIN once proves it is the owner (also after Android broke the
+  // old key because a new fingerprint was added). The laptop has no fingerprint here.
+  app.get('/api/fingerprint', (req, res) => res.json({ set: req.from !== 'local' && fingerprints.has(req.from.deviceId) }));
+  app.post('/api/fingerprint', (req, res) => {
+    if (req.from === 'local') return res.status(403).json({ error: 'Fingerprint is set up from the phone app.' });
+    if (!remotePin.isSet()) return res.status(400).json({ error: 'Set a voice PIN on the laptop first: it is the backup.' });
+    const pin = remotePin.check(String(req.body?.pin ?? ''));
+    if (!pin.ok) return res.status(403).json({ error: pin.locked ? 'Too many wrong PINs. Try again later.' : 'Wrong PIN.' });
+    const replaced = fingerprints.has(req.from.deviceId);
+    try { fingerprints.register(req.from.deviceId, String(req.body?.publicKey || '')); } catch (err) { return res.status(400).json({ error: err.message }); }
+    fingerprintNotice(replaced ? 'Fingerprint set up again on a phone' : 'Fingerprint set up for risky cards', req.from);
+    res.json({ set: true });
+  });
+  // Removing it needs the PIN too (security review: a thief must not quietly drop back to something weaker).
+  app.delete('/api/fingerprint', (req, res) => {
+    if (req.from === 'local') return res.status(403).json({ error: 'Remove it from the phone app, or remove the phone in Settings.' });
+    const pin = remotePin.check(String(req.body?.pin ?? ''));
+    if (!pin.ok) return res.status(403).json({ error: pin.locked ? 'Too many wrong PINs. Try again later.' : 'Wrong PIN.' });
+    fingerprints.remove(req.from.deviceId);
+    fingerprintNotice('Fingerprint removed from a phone', req.from);
+    res.json({ set: false });
+  });
+  app.get('/api/fingerprint/challenge', (req, res) => {
+    const id = String(req.query.id || '');
+    if (req.from === 'local' || !fingerprints.has(req.from.deviceId)) return res.status(403).json({ error: 'No fingerprint set up on this phone.' });
+    if (!approvals.pending().some((a) => a.id === id)) return res.status(404).json({ error: 'Already answered.' });
+    res.json({ nonce: fingerprints.challenge(req.from.deviceId, id, cardStamp(id)) });
+  });
   app.get('/api/remote-pin', (req, res) => res.json({ set: remotePin.isSet(), ...remotePin.getSettings(), lockedUntil: remotePin.lockedUntil || 0 }));
   app.post('/api/remote-pin', (req, res) => {
     if (!isLocal(req)) return res.status(403).json({ error: 'The PIN can only be set on the laptop.' });
@@ -1167,6 +1206,10 @@ export function createNovi(config, overrides = {}) {
     if (pin) proof.pin = pin;
     else if (typeof msg.pinSpoken === 'string' || (typedOk && typeof msg.pinTyped === 'string')) proof.pin = '';
     // The signature is checked here; the trust rules only ever see this server-made marker.
+    if (msg.fingerprint && typeof msg.fingerprint === 'object' && from !== 'local'
+      && fingerprints.verify(from.deviceId, msg.id, String(msg.fingerprint.nonce || ''), String(msg.fingerprint.sig || ''), cardStamp(msg.id))) {
+      proof.fingerprint = { verified: true, approvalId: msg.id, deviceId: from.deviceId };
+    }
     if (msg.passkey && typeof msg.passkey === 'object' && from !== 'local' && passkeys
       && await passkeys.verifyAuth(from.deviceId, msg.id, msg.passkey)) {
       proof.passkey = { verified: true, approvalId: msg.id, deviceId: from.deviceId };

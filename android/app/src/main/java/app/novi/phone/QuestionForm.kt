@@ -34,7 +34,23 @@ class QuestionForm(
     private lateinit var otherBox: LinearLayout
     private lateinit var edit: EditText
     private lateinit var submit: Button
+    private lateinit var questionView: TextView
+    private lateinit var hintView: TextView
+    private lateinit var backLink: TextView
     private var sent = false
+
+    /**
+     * Typing under "Other" (user, 2026-11-11: "I can't see what I'm typing"): the options go away and the
+     * question shrinks to 3 lines, so the box sits right under it at the top, above the keyboard.
+     */
+    private fun compact(on: Boolean) {
+        rows.forEach { it.visibility = if (on) View.GONE else View.VISIBLE }
+        otherRow.visibility = if (on) View.GONE else View.VISIBLE
+        hintView.visibility = if (on) View.GONE else View.VISIBLE
+        backLink.visibility = if (on) View.VISIBLE else View.GONE
+        questionView.maxLines = if (on) 3 else Int.MAX_VALUE
+        questionView.ellipsize = if (on) android.text.TextUtils.TruncateAt.END else null
+    }
 
     private val accent = Color.parseColor("#FF4F46E5")
     private val text = if (dark) Color.WHITE else Color.BLACK
@@ -83,19 +99,35 @@ class QuestionForm(
 
     val view: View = LinearLayout(ctx).apply {
         orientation = LinearLayout.VERTICAL
-        addView(TextView(ctx).apply {
+        questionView = TextView(ctx).apply {
             this.text = q.text
             setTextColor(this@QuestionForm.text)
             textSize = 18f
             setTypeface(typeface, Typeface.BOLD)
             setPadding(0, dp(4), 0, dp(2))
-        })
-        addView(TextView(ctx).apply {
+        }
+        addView(questionView)
+        hintView = TextView(ctx).apply {
             this.text = if (q.multiSelect) "Pick any, or write your own." else "Pick one, or write your own."
             setTextColor(soft)
             textSize = 13f
             setPadding(0, 0, 0, dp(10))
-        })
+        }
+        addView(hintView)
+        backLink = TextView(ctx).apply {
+            this.text = "Show the options"
+            setTextColor(soft)
+            textSize = 14f
+            setPadding(0, dp(6), 0, dp(8))
+            visibility = View.GONE
+            setOnClickListener {
+                otherOn = false
+                compact(false)
+                refresh()
+                onTyping(false)
+            }
+        }
+        addView(backLink)
         q.options.forEachIndexed { i, o ->
             val r = row("${i + 1}. ${o.label}", o.description) {
                 otherOn = false
@@ -115,6 +147,7 @@ class QuestionForm(
             otherOn = true
             if (!q.multiSelect) picked.clear()
             refresh()
+            compact(true)
             edit.requestFocus()
         }
         addView(otherRow)
@@ -128,7 +161,8 @@ class QuestionForm(
             setTextColor(this@QuestionForm.text)
             setHintTextColor(soft)
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
-            maxLines = 4
+            minLines = 3
+            maxLines = 6
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             setOnFocusChangeListener { _, has -> onTyping(has) }
         }

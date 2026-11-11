@@ -13,6 +13,9 @@ import { claudeAsk } from '../../server/claude/taskManager.js';
 // Sessions Novi started itself already send their questions to Novi: the hook script marks them.
 
 const WAIT_MS = 120_000;
+// Questions: 5 minutes for all of them together (a typed answer under "Other" takes longer than a tap; live
+// 2026-11-11 two questions each waited 2 minutes while the hook as a whole was cut at ~2, so the answers were lost).
+export const QUESTION_WAIT_MS = 300_000;
 const said = (text) => String(text || '').replace(/\s+/g, ' ').trim();
 const firstSentence = (text) => {
   const t = said(text).replace(/[*_`#>]/g, '');
@@ -116,10 +119,13 @@ export function createHookHandler({ ask, say, notice, worked = (cwd, card) => no
     const project = projectOf(h.cwd);
     const input = h.tool_input || {};
     const answers = {};
+    const until = now() + QUESTION_WAIT_MS;
     for (const q of [].concat(input.questions || [])) {
+      const left = until - now();
+      if (left < 5_000) { note(h, 'waiting', q.question); return {}; }
       note(h, 'asking', q.question);
       const d = await ask({
-        title: `Claude (${project}) asks: ${q.question}`, tier: 'medium', source: 'claude', timeoutMs: WAIT_MS,
+        title: `Claude (${project}) asks: ${q.question}`, tier: 'medium', source: 'claude', timeoutMs: left,
         question: { text: q.question, options: q.options || [], multiSelect: Boolean(q.multiSelect) },
       });
       if (!d?.allow || !d.answer) { note(h, 'waiting', q.question); return {}; } // not answered here: Claude's window asks

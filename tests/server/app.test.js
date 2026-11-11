@@ -674,6 +674,33 @@ describe('Novi server', () => {
     c.ws.close();
   });
 
+  // 2026-11-11: the phone app's fingerprint key instead of the PIN (server/fingerprint.js).
+  it('a phone sets up its fingerprint with the PIN once, then approves a high-risk card with it', async () => {
+    const crypto = await import('node:crypto');
+    const { approveMessage } = await import('../../server/fingerprint.js');
+    const env = await start({ isLocalAddress: () => false });
+    env.novi.remotePin.set('4829');
+    const { c, token } = await pairedPhone(env);
+    const auth = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
+    const { publicKey, privateKey } = crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' });
+    const spki = publicKey.export({ format: 'der', type: 'spki' }).toString('base64');
+    expect((await fetch(`${env.base}/api/fingerprint`, { method: 'POST', headers: auth, body: JSON.stringify({ publicKey: spki, pin: '0000' }) })).status).toBe(403);
+    expect((await (await fetch(`${env.base}/api/fingerprint`, { method: 'POST', headers: auth, body: JSON.stringify({ publicKey: spki, pin: '4829' }) })).json()).set).toBe(true);
+    const answer = env.novi.approvals.request({ title: 'Run a risky command', tier: 'high', source: 'test' });
+    const added = await c.waitFor((m) => m.type === 'approval_added');
+    c.ws.send(JSON.stringify({ type: 'approval', id: added.approval.id, allow: true }));
+    expect(await c.waitFor((m) => m.type === 'approval_needs_proof')).toMatchObject({ need: 'fingerprint' });
+    const { nonce } = await (await fetch(`${env.base}/api/fingerprint/challenge?id=${added.approval.id}`, { headers: auth })).json();
+    const sig = crypto.sign('sha256', Buffer.from(approveMessage(added.approval.id, nonce)), privateKey).toString('base64');
+    c.ws.send(JSON.stringify({ type: 'approval', id: added.approval.id, allow: true, fingerprint: { nonce, sig } }));
+    await expect(answer).resolves.toBe(true);
+    expect(env.novi.notices?.list?.().some((n) => n.key === 'fingerprint') ?? true).toBe(true);
+    // removing it needs the PIN (a thief must not quietly drop back to the PIN alone)
+    expect((await fetch(`${env.base}/api/fingerprint`, { method: 'DELETE', headers: auth, body: JSON.stringify({ pin: '0000' }) })).status).toBe(403);
+    expect((await (await fetch(`${env.base}/api/fingerprint`, { method: 'DELETE', headers: auth, body: JSON.stringify({ pin: '4829' }) })).json()).set).toBe(false);
+    c.ws.close();
+  });
+
   it('a phone without a passkey is told a delete needs the laptop, and a bad signature is refused', async () => {
     const passkeys = fakePasskeys();
     const env = await start({ isLocalAddress: () => false, passkeys });

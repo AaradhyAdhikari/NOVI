@@ -238,6 +238,7 @@ class NoviService : Service() {
             "approval_needs_proof" -> status(
                 msg.optString("id"),
                 when (msg.optString("need")) {
+                    "fingerprint" -> { askFingerprint(msg.optString("id")); "Touch the fingerprint sensor…" }
                     "pin" -> "PIN not accepted. Try again."
                     "no-pin" -> "Set a voice PIN in Novi Settings first."
                     "passkey" -> "This one needs your fingerprint: open Novi."
@@ -667,6 +668,7 @@ class NoviService : Service() {
                             main.postDelayed({ showTop() }, 1200)
                         }
                         r.optBoolean("done") -> status(card.id, r.optString("text"))
+                        r.optString("need") == "fingerprint" -> askFingerprint(card.id)
                         r.optString("need") == "pin" -> askPin(card)
                         else -> overlay.needsNovi(card.id, r.optString("text").ifEmpty { "Open Novi to answer." })
                     }
@@ -690,6 +692,22 @@ class NoviService : Service() {
             val typed = runCatching { n.get("/api/remote-pin").optString("pinInput") == "voice-or-typed" }.getOrDefault(false)
             main.post { overlay.showPin(card.id, typed) }
         }
+    }
+
+    // ---- fingerprint instead of the PIN (2026-11-11, FingerprintActivity) ----
+    fun netOrNull(): Net? = net
+
+    fun showStatus(cardId: String, text: String) = main.post { status(cardId, text) }
+
+    private fun askFingerprint(cardId: String) {
+        val title = cards.all().firstOrNull { it.id == cardId }?.title.orEmpty()
+        startActivity(Intent(this, FingerprintActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra("card", cardId).putExtra("title", title))
+    }
+
+    fun sendFingerprint(cardId: String, nonce: String, sig: String) {
+        val msg = JSONObject().put("type", "approval").put("id", cardId).put("allow", true)
+            .put("fingerprint", JSONObject().put("nonce", nonce).put("sig", sig))
+        main.post { status(cardId, if (socket?.send(msg.toString()) == true) "Checking your fingerprint…" else "Not connected to Novi.") }
     }
 
     fun sendPin(cardId: String, typed: String? = null, spoken: String? = null) {

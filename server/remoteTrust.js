@@ -25,6 +25,11 @@ export function createRemoteTrust(verifiers = {}) {
     check(approval, from, proof) {
       const need = requiredProof(approval, from, { hasPasskey: Boolean(from !== 'local' && verifiers.hasPasskey?.(from)) });
       if (!need) return { ok: true };
+      // The phone's fingerprint (server/fingerprint.js) stands in for the PIN, a passkey or "at the laptop"
+      // (2026-11-11). A phone with a key gives only its fingerprint: the PIN alone from it is refused (security
+      // review: an overheard PIN must not be enough). The PIN stays for the laptop and to set fingerprint up again.
+      const fingerprint = from !== 'local' && Boolean(verifiers.hasFingerprint?.(from));
+      if (fingerprint) return proof?.fingerprint !== undefined && verifiers.fingerprint?.(proof, from, approval) ? { ok: true } : { ok: false, need: 'fingerprint' };
       if (need === 'pin' && approval.pin && verifiers.hasPin && !verifiers.hasPin()) return { ok: false, need: 'no-pin' };
       if (need === 'pin' && proof?.pin !== undefined && verifiers.pin?.(proof, from)) return { ok: true };
       if (need === 'passkey' && proof?.passkey !== undefined && verifiers.passkey?.(proof, from, approval)) return { ok: true };

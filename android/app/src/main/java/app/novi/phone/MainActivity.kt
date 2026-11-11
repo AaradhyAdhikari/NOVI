@@ -79,6 +79,15 @@ class MainActivity : ComponentActivity() {
         }
 
         /** The remote view's voice (2026-11-08): the phone's own speech recognition, no upload. */
+        /** Fingerprint for risky cards is set up on this phone (2026-11-11): the page shows its button, not the PIN. */
+        @JavascriptInterface
+        fun hasFingerprint(): Boolean = Fingerprint.has()
+
+        @JavascriptInterface
+        fun fingerprint(id: String, title: String) {
+            startActivity(Intent(this@MainActivity, FingerprintActivity::class.java).putExtra("card", id).putExtra("title", title))
+        }
+
         @JavascriptInterface
         fun canRecognize(): Boolean = speech.available()
 

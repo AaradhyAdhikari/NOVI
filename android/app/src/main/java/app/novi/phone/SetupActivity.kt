@@ -179,6 +179,12 @@ class SetupActivity : ComponentActivity() {
         permission("Phone typing: Settings → Accessibility → Novi", NoviAccess.instance != null) {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }
+        // Fingerprint instead of the PIN on risky cards (2026-11-11); set up again after a new fingerprint is added.
+        if (Fingerprint.canUse(this)) {
+            permission("Fingerprint for risky cards", Fingerprint.has()) {
+                startActivity(Intent(this, FingerprintActivity::class.java).putExtra("setup", true))
+            }
+        }
         permission("Keep running (no battery limit)", pm.isIgnoringBatteryOptimizations(packageName)) {
             @SuppressLint("BatteryLife")
             val i = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName"))

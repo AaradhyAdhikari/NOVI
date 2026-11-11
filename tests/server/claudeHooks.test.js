@@ -179,3 +179,23 @@ describe('one card, not two', () => {
     expect(notices.length).toBe(1);
   });
 });
+
+// Live 2026-11-11: two questions in one AskUserQuestion, a paragraph typed under "Other": each card waited
+// 2 minutes on its own while the hook as a whole was cut at ~2 minutes, so the answers came too late.
+describe('several questions share one longer wait', () => {
+  it('the second card only gets the time that is left, and questions get 5 minutes in all', async () => {
+    let t = 0;
+    const asked = [];
+    const ask = async (card) => { asked.push(card); t += 100_000; return { allow: true, answer: 'my long answer' }; };
+    const handle = createHookHandler({ ask, say: () => {}, notice: () => {}, now: () => t });
+    const out = await handle({ hook_event_name: 'PreToolUse', tool_name: 'AskUserQuestion', cwd: 'C:/dev/NOVI', tool_input: { questions: [{ question: 'A?', options: [] }, { question: 'B?', options: [] }] } });
+    expect(asked[0].timeoutMs).toBe(300_000);
+    expect(asked[1].timeoutMs).toBe(200_000);
+    expect(out.hookSpecificOutput.updatedInput.answers).toEqual({ 'A?': 'my long answer', 'B?': 'my long answer' });
+  });
+  it('the hook client waits a little longer than that for questions, 2 minutes for the rest', async () => {
+    const { answerWaitMs } = await import('../../tools/claude-hook.mjs');
+    expect(answerWaitMs({ hook_event_name: 'PreToolUse', tool_name: 'AskUserQuestion' })).toBe(305_000);
+    expect(answerWaitMs({ hook_event_name: 'PermissionRequest' })).toBe(125_000);
+  });
+});

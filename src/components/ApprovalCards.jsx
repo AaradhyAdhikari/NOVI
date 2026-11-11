@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { foldDetail, togglePick, pickedAnswer, openedCard } from '../lib/approvalText.js';
 import { MessageCircleQuestion, ShieldAlert, ShieldQuestion } from 'lucide-react';
 import PinCapture from './PinCapture.jsx';
+import { proofKind, appFingerprint, askAppFingerprint } from '../lib/proofKind.js';
 import ChangeList from './ChangeList.jsx';
 
 // Claude's plan in short, so the card can be judged without opening the whole plan.
@@ -19,6 +20,7 @@ import { confirmWithPasskey } from '../lib/passkey.js';
 
 // Shown on a phone when an allow needs more proof (server/remoteTrust.js).
 const NEED_TEXT = {
+  fingerprint: 'This one needs your fingerprint.',
   pin: 'This one needs your voice PIN. Say it, or type it below.',
   'no-pin': 'This one needs a voice PIN. Set one in Settings first.',
   passkey: 'Confirm with your fingerprint or face.',
@@ -72,8 +74,8 @@ export default function ApprovalCards({ approvals, onAnswer, api, resolved = nul
 
 // A dangerous laptop command (a.pin) asks for the PIN from the start: no plain Allow that would only be refused.
 function ApprovalCard({ a, onAnswer, api }) {
-  const need = a.need || (a.pin ? 'pin' : null);
-  const pinOnly = need === 'pin' || need === 'no-pin';
+  const need = proofKind(a, appFingerprint());
+  const pinOnly = need === 'pin' || need === 'no-pin' || need === 'fingerprint';
   return (
         <div className={`approval ${a.tier}`}>
           <div className="approval-title">
@@ -86,6 +88,9 @@ function ApprovalCard({ a, onAnswer, api }) {
             : <p className="detail">{a.detail}</p>)}
           {a.tier === 'high' && <p className="warn">High risk — this needs your explicit confirmation.</p>}
           {need && <p className="warn">{NEED_TEXT[need]}</p>}
+          {need === 'fingerprint' && (
+            <button className="btn danger" onClick={() => askAppFingerprint(a.id, a.title)}>Approve with fingerprint</button>
+          )}
           {need === 'pin' && <PinCapture api={api} onPin={(pin) => onAnswer(a.id, true, null, { proof: pin })} />}
           {need === 'passkey' && (
             <button className="btn danger" onClick={async () => {
