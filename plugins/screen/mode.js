@@ -55,6 +55,18 @@ const RULES = [
   [re('(?:resume|continue|unpause) (?:the )?screen (?:control|mode)'), () => ({ do: 'resume' })],
   [re('what (?:did|have) you (?:just )?(?:do|done)|what was that|what did you just click'), () => ({ do: 'last' })],
   [re('undo(?: that| it| this| the last (?:one|thing|step))?'), () => ({ do: 'undo' })],
+  // editing what was typed (2026-11-11: "once typed in the box I can't edit it")
+  [re('(?:delete|erase|remove|clear|undo) (?:that|it|this|what i (?:just )?(?:typed|wrote|said)|the last (?:thing|sentence|line|part|bit|phrase))'), () => ({ do: 'erase' })],
+  [re('(?:delete|erase|remove) (?:the )?(?:last|previous) word'), () => ({ do: 'key', key: 'ctrl+backspace', times: 1, say: 'Deleted the last word.' })],
+  [re(`(?:delete|erase|remove) (?:the )?(?:last|previous) ${N} words`), (m) => ({ do: 'key', key: 'ctrl+backspace', times: num(m[1]), say: `Deleted the last ${num(m[1])} words.` })],
+  [re('(?:clear|empty) (?:the |this |my )?(?:box|text|field|message|search(?: box)?|everything|it all|all)|(?:delete|erase|remove) (?:everything|all(?: of it| the text)?|all text)'), () => ({ do: 'clear' })],
+  [re('(?:change|replace|correct) (.+?) (?:with|to|into|by) (.+)'), (m) => ({ do: 'replace', from: m[1].replace(/^["“]|["”]$/g, ''), to: m[2].replace(/^["“]|["”]$/g, '') })],
+  // editing what was typed (2026-11-11: "once typed in the box I can't edit it")
+  [re('(?:delete|erase|remove|clear|undo) (?:that|it|this|what i (?:just )?(?:typed|wrote|said)|the last (?:thing|sentence|line|part|bit|phrase))'), () => ({ do: 'erase' })],
+  [re('(?:delete|erase|remove) (?:the )?(?:last|previous) word'), () => ({ do: 'key', key: 'ctrl+backspace', times: 1, say: 'Deleted the last word.' })],
+  [re(`(?:delete|erase|remove) (?:the )?(?:last|previous) ${N} words`), (m) => ({ do: 'key', key: 'ctrl+backspace', times: num(m[1]), say: `Deleted the last ${num(m[1])} words.` })],
+  [re('(?:clear|empty) (?:the |this |my )?(?:box|text|field|message|search(?: box)?|everything|it all|all)|(?:delete|erase|remove) (?:everything|all(?: of it| the text)?|all text)'), () => ({ do: 'clear' })],
+  [re('(?:change|replace|correct) (.+?) (?:with|to|into|by) (.+)'), (m) => ({ do: 'replace', from: m[1].replace(/^["“]|["”]$/g, ''), to: m[2].replace(/^["“]|["”]$/g, '') })],
   [re("what(?:'s| is) on (?:the |my )?(?:laptop )?screen|what do you see|describe (?:the |my )?screen|what(?:'s| is) (?:open|in front)"), () => ({ do: 'look' })],
   [re('(?:list|read|show)(?: me)?(?: out)? (?:the |all (?:the )?)?(?:screen|buttons|links|items|options|things|everything|boxes|fields)(?: on (?:the |my )?screen)?|what can i (?:click|press|tap)(?: on)?'), () => ({ do: 'list' })],
   [re('show me (?:my |the )?(?:laptop )?screen|(?:take a )?screenshot'), () => ({ do: 'show' })],
@@ -112,9 +124,12 @@ const TIME_JUMP = /^(?:switch|go|jump|move|skip|seek) to (?:the )?(?:(?:timestam
 // Steps so clear they run with Screen Mode off. Everything else ("go back", "reload", "send it") could be
 // ordinary talk at the laptop; a phone has no other way to move the page, so it gets those too.
 const SAID_AS_STEP = /^\W*(?:(?:ok(?:ay)?|hey novi|novi|please)[, ]+)*(?:click|tap|press|hit)\b/i;
-export function isScreenStep(text, { phone = false } = {}) {
+export function isScreenStep(text, { phone = false, viewing = false } = {}) {
   const it = parseScreenCommand(text);
   if (!it) return false;
+  // Editing words only while the user watches the screen: elsewhere "delete that" is the file Novi made.
+  if (it.do === 'erase' || it.do === 'clear') return viewing;
+  if (it.do === 'replace') return viewing && !/\b(?:volume|brightness|sound|name of|project|folder|file)\b/i.test(it.from);
   if (it.do === 'scroll' || it.do === 'result' || it.do === 'list' || it.do === 'video') return true;
   if (it.do === 'zoom' || (it.do === 'key' && /^ctrl\+(?:plus|minus|0)$/.test(it.key))) return true;
   if (it.do === 'click') return SAID_AS_STEP.test(text) || /^\W*(?:ok(?:ay)?[, ]+)?open\b/i.test(text); // "open the pricing link"

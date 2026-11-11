@@ -1281,7 +1281,7 @@ ${LIVE_NOTE}` };
   // "search for X" → open_website) as { run, say }; "… and open the second result" comes back as `after`.
   async _screenCommand(text, from = 'local') {
     if (!this.tools.get('screen_command')) return null;
-    const anywhere = !this._screenMode && isScreenStep(text, { phone: from !== 'local' });
+    const anywhere = !this._screenMode && isScreenStep(text, { phone: from !== 'local', viewing: Boolean(this.liveViewing?.(from)) || this._screenMode });
     if (!this._screenMode && !anywhere && !isScreenModeStart(text)) return null;
     const run = async (name, args) => (await this._runTool({ id: `scr-${Date.now()}`, function: { name, arguments: JSON.stringify(args) } }, { direct: true })).output || {};
     const out = await run('screen_command', anywhere ? { text, anywhere: true } : { text });

@@ -70,6 +70,9 @@ import { readWavInt16 } from './voice/wakeword/detector.js';
 import { createVocabulary } from './voice/vocabulary.js';
 import { judgeHeard, voiceSlack, trustedByPin } from './voice/heardFilter.js';
 import { hintNames, fixNames } from './voice/techWords.js';
+import { fixOpenWords, correctionOf, openTarget } from './voice/soundAlike.js';
+import { siteNames } from './brain/browseCommand.js';
+import { AppCatalog } from './laptop/apps.js';
 import { createVoiceLog } from './voice/voiceLog.js';
 import { createWatchWindows } from './claude/watchWindow.js';
 import { createLagMeter } from './lag.js';
@@ -378,6 +381,16 @@ export function createNovi(config, overrides = {}) {
     try { hint = { at: Date.now(), words: hintNames(memory.listProjects(), plugins.runtime.claudeProjectNames?.() || []) }; } catch { hint = { at: Date.now(), words: [] }; }
     return hint.words;
   };
+  // Names an "open X" may mean: installed apps, known sites, projects (misheard names fixed, soundAlike.js).
+  let appNames = [];
+  if (process.platform === 'win32' && !process.env.VITEST) {
+    const catalog = new AppCatalog();
+    const refreshApps = () => catalog.all().then((apps) => { appNames = (apps || []).map((a) => a.name).filter(Boolean); }).catch(() => {});
+    setTimeout(refreshApps, 5000).unref?.();
+    setInterval(refreshApps, 30 * 60_000).unref?.();
+  }
+  const openNames = () => [...siteNames(), ...appNames, ...projectWords()];
+  let lastOpen = null; // { verb, target, at }: the last "open X" as heard, so "I meant Y" can teach the fix
   const voiceLog = createVoiceLog({ dir: path.join(config.dataDir, 'voice-log'), realDir: path.join(config.dataDir, 'voice-samples', 'real') });
   // Working step by step: the words she should expect, so "type" isn't heard as "Tai".
   const stepHint = (base) => (agent.stepsOn?.() ? `${base} Type. Enter. Send it. Open YouTube. Open Notepad.` : base);
@@ -1210,7 +1223,20 @@ export function createNovi(config, overrides = {}) {
 
   async function handleMessage(msg, from = 'local') {
     if (msg.type === 'user_message' && typeof msg.text === 'string' && msg.text.trim()) {
-      const text = msg.text.trim().slice(0, 4000);
+      let text = msg.text.trim().slice(0, 4000);
+      // Misheard names (live 2026-11-11: "open perplexity" heard as "open public City"): the phone's own
+      // recognizer can't take a word list, so the words are fixed here; "I meant X" teaches the fix.
+      if (msg.voice === true) text = fixNames(vocabulary.apply(text), projectWords());
+      const meant = lastOpen && Date.now() - lastOpen.at < 120_000 && !approvals.pending().length ? correctionOf(text) : null;
+      if (meant) {
+        try { vocabulary.addFix(lastOpen.target, meant); } catch { /* too many fixes: just this once */ }
+        text = `${lastOpen.verb}${meant}`;
+        lastOpen = null;
+      } else {
+        const said = openTarget(text);
+        if (said) lastOpen = { ...said, at: Date.now() };
+        text = fixOpenWords(text, openNames(), appNames.length ? {} : { min: 0.7 }); // apps not read yet: only near-certain fixes
+      }
       // The talk button and the laptop mic can both hear one sentence: it runs once.
       const said = text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
       if (from === 'local' && said === lastSaid.words && Date.now() - lastSaid.at < 3000) return '';

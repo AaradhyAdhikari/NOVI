@@ -16,8 +16,12 @@ const SITES = {
   'google docs': 'https://docs.google.com', 'google sheets': 'https://sheets.google.com', 'google maps': 'https://maps.google.com',
   maps: 'https://maps.google.com', 'google calendar': 'https://calendar.google.com', notion: 'https://www.notion.so',
   figma: 'https://www.figma.com', vercel: 'https://vercel.com', canva: 'https://www.canva.com', codeforces: 'https://codeforces.com',
+  perplexity: 'https://www.perplexity.ai', gamma: 'https://gamma.app', deepseek: 'https://chat.deepseek.com', grok: 'https://grok.com',
+  copilot: 'https://copilot.microsoft.com', kick: 'https://kick.com', twitch: 'https://www.twitch.tv', 'google ai studio': 'https://aistudio.google.com',
   geeksforgeeks: 'https://www.geeksforgeeks.org', 'geeks for geeks': 'https://www.geeksforgeeks.org', hackerrank: 'https://www.hackerrank.com',
 };
+// Every known site name (for fixing misheard names, server/voice/soundAlike.js).
+export const siteNames = () => Object.keys(SITES);
 const LEAD = /^(?:(?:ok(?:ay)?|hey|hi)[,\s]+)?(?:(?:hey )?novi[,\s]+)?(?:(?:can|could|would) you |please )?/i;
 const TAIL = /\s*(?:please|for me|right now|now)\s*$/i;
 const ON = /\s*(?:on|in) (?:my |the )?(laptop|computer|pc)\s*$|\s*laptop (?:pe|par|mein)\s*$/i;

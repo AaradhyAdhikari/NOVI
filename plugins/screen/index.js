@@ -282,6 +282,7 @@ export function createScreenPlugin({ driver = windowsDriver, now = Date.now, foc
       let offer = null; // "Spotify isn't open. Should I open it?" → { run, say } or { intent }, 60 s
       let lastDone = null; // { what, undo } for "what did you just do" / "undo that"
       let lastWin = { title: '', hwnd: null }; // the window the last step was in (log, undo)
+      let lastTyped = null; // { text, hwnd, title }: the words just typed, for "delete that"
       let typedIn = null; // the window the last words went into, Enter not pressed since
       const look = async (fresh = false) => {
         if (!fresh && seen && now() - seen.at < 60_000) return seen;
@@ -413,6 +414,43 @@ export function createScreenPlugin({ driver = windowsDriver, now = Date.now, foc
             const out = await clickAt({ ...spot, name: spot.name || intent.target }, s.title, level);
             return { ...out, vision: true };
           }
+          case 'erase': {
+            if (!lastTyped) return { note: "I haven't typed anything to delete. Say \"delete the last word\" or \"clear the box\"." };
+            const { text: gone, hwnd, title } = lastTyped;
+            if (!(await onTop(title, hwnd))) return { note: `I can't bring "${shortTitle(title)}" to the front, so I didn't delete anything.` };
+            for (let i = 0; i < gone.length; i++) await driver.key('backspace');
+            lastTyped = null;
+            typedIn = null;
+            stale();
+            return { note: `Deleted “${gone.trim().slice(0, 60)}”.` };
+          }
+          case 'clear': {
+            const s = await look();
+            if (sensitiveScreen(s.title, s.raw)) return { note: SENS };
+            if (!(await onTop(s.title))) return { note: `I can't bring "${shortTitle(s.title)}" to the front.` };
+            await driver.key('ctrl+a');
+            await driver.key('backspace');
+            lastTyped = null;
+            typedIn = null;
+            stale();
+            return { note: 'Cleared it.' };
+          }
+          case 'replace': {
+            const s = await look();
+            if (sensitiveScreen(s.title, s.raw)) return { note: SENS };
+            if (!(await onTop(s.title))) return { note: `I can't bring "${shortTitle(s.title)}" to the front.` };
+            const now = await copiedFromApp();
+            if (!now) return { note: "I couldn't read the text in that box." };
+            const at = now.toLowerCase().lastIndexOf(String(intent.from).toLowerCase());
+            if (at < 0) { await callTool('laptop_clipboard', { do: 'restore' }); return { note: `I don't see “${intent.from}” there.` }; }
+            const changed = now.slice(0, at) + intent.to + now.slice(at + String(intent.from).length);
+            await driver.key('ctrl+a');
+            await driver.type(changed.slice(0, 4000));
+            await callTool('laptop_clipboard', { do: 'restore' });
+            lastTyped = null;
+            stale();
+            return { note: `Changed “${intent.from}” to “${intent.to}”.` };
+          }
           case 'zoom': {
             // Click the picture (opens it big on most sites), then zoom in twice.
             const s = await look();
@@ -518,6 +556,7 @@ export function createScreenPlugin({ driver = windowsDriver, now = Date.now, foc
             await driver.type(joined + (search ? String(intent.text).replace(/\.$/, '') : String(intent.text)).slice(0, 2000)); // no speech full stop in a search
             const press = Boolean(intent.enter);
             typedIn = press ? null : s.hwnd;
+            lastTyped = press ? null : { text: joined + String(intent.text).slice(0, 2000), hwnd: s.hwnd, title: s.title };
             if (press) { await driver.key('enter'); stale(); lastList = null; }
             const note = !press ? "Typed it." : search ? `Searched for “${intent.text}”.` : chatApp(s.title) ? 'Sent.' : 'Typed it and pressed Enter.';
             return { note, target: box?.name || focusedName, done: { what: `typed “${String(intent.text).slice(0, 60)}” in ${shortTitle(s.title)}${press ? ' and pressed Enter' : ''}`, undo: press ? null : { key: 'ctrl+z' } } };

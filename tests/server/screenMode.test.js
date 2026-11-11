@@ -723,3 +723,37 @@ describe('these are screen steps any time (no Screen Mode needed)', () => {
     expect(isScreenStep('open Chrome')).toBe(false);
   });
 });
+
+// User, 2026-11-11: "once typed in the box I can't edit it, change it".
+describe('editing what was typed', () => {
+  it('reads the editing words', () => {
+    expect(parseScreenCommand('delete that')).toEqual({ do: 'erase' });
+    expect(parseScreenCommand('erase what I typed')).toEqual({ do: 'erase' });
+    expect(parseScreenCommand('delete the last word')).toEqual({ do: 'key', key: 'ctrl+backspace', times: 1, say: 'Deleted the last word.' });
+    expect(parseScreenCommand('delete the last three words')).toEqual({ do: 'key', key: 'ctrl+backspace', times: 3, say: 'Deleted the last 3 words.' });
+    expect(parseScreenCommand('clear the box')).toEqual({ do: 'clear' });
+    expect(parseScreenCommand('delete everything')).toEqual({ do: 'clear' });
+    expect(parseScreenCommand('change hello to hi there')).toEqual({ do: 'replace', from: 'hello', to: 'hi there' });
+    expect(parseScreenCommand('replace short with late')).toEqual({ do: 'replace', from: 'short', to: 'late' });
+  });
+  it('only while watching the screen (else "delete that" is the file Novi just made)', () => {
+    expect(isScreenStep('delete that', { phone: true, viewing: true })).toBe(true);
+    expect(isScreenStep('change hello to hi', { phone: true, viewing: true })).toBe(true);
+    expect(isScreenStep('delete that', { phone: true })).toBe(false);
+    expect(isScreenStep('delete that')).toBe(false);
+    expect(isScreenStep('change the volume to 50', { phone: true, viewing: true })).toBe(false);
+  });
+  it('"delete that" removes exactly what was just typed', async () => {
+    const s = await on(setup({ screen: { title: 'Untitled - Notepad', hwnd: 7, items: [{ type: 'Edit', name: 'Text editor', x: 300, y: 300 }] } }));
+    await s.say('type you are short');
+    s.actions.length = 0;
+    const out = await s.say('delete that');
+    expect(s.actions.filter((a) => a[0] === 'key' && a[1] === 'backspace')).toHaveLength('you are short'.length);
+    expect(out.note).toMatch(/deleted/i);
+  });
+  it('"clear the box" selects all and deletes', async () => {
+    const s = await on(setup({ screen: { title: 'Untitled - Notepad', items: [{ type: 'Edit', name: 'Text editor', x: 300, y: 300 }] } }));
+    await s.say('clear the box');
+    expect(s.actions.slice(-2)).toEqual([['key', 'ctrl+a'], ['key', 'backspace']]);
+  });
+});
