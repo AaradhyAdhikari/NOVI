@@ -100,7 +100,7 @@ describe('page.js numbering (fake page)', () => {
     expect(novi.textsOf({ selector: 'x', attrs: ['data-message-author-role', 'data-user-message-bubble'] }).items[0].attrs)
       .toEqual({ 'data-message-author-role': 'user', 'data-user-message-bubble': null });
     expect(read('background.js')).toMatch(/'textsOf'/);
-    expect(JSON.parse(read('manifest.json')).version).toBe('1.14.3');
+    expect(JSON.parse(read('manifest.json')).version).toBe('1.14.4');
   });
   // claude.ai's project list (2026-10-18): each card's name is its first line, its link the href.
   it('query: first line only and an attribute when asked; plain query as before', () => {
@@ -207,6 +207,7 @@ describe("background.js: Novi's own window (fake Chrome)", () => {
     const windows = new Map([[1, { id: 1 }]]); // the user's window
     tabs.set(1, { id: 1, windowId: 1, url: 'https://mail.google.com/', active: true }); // the user's own tab
     const marked = new Set(); // tabs whose page carries Novi's mark (sessionStorage __noviWork)
+    const sleeping = new Set(); // tabs Chrome put to sleep to save memory: no script runs in them
     for (const t of before) { tabs.set(t.id, { windowId: 1, active: false, ...t }); if (t.marked) marked.add(t.id); }
     const local = { code: 'c', ...(saved ? { noviWork: saved } : {}) };
     let nextTab = 10;
@@ -259,6 +260,7 @@ describe("background.js: Novi's own window (fake Chrome)", () => {
         executeScript: async (o) => {
           injected.push(o);
           if (!tabs.has(o.target.tabId)) throw new Error('No tab');
+          if (sleeping.has(o.target.tabId)) throw new Error('Cannot access contents of the page');
           if (o.func?.name === 'isNoviTab') return [{ result: marked.has(o.target.tabId) }];
           if (o.func?.name === 'stayAwake') marked.add(o.target.tabId);
           return [{ result: {} }];
@@ -281,7 +283,7 @@ describe("background.js: Novi's own window (fake Chrome)", () => {
       throw new Error(`no answer to ${cmd}`);
     };
     const start = async () => { await new Promise((r) => setTimeout(r, 0)); sockets[0].readyState = 1; sockets[0].onopen?.(); sockets[0].onmessage({ data: JSON.stringify({ type: 'welcome' }) }); };
-    return { ask, start, tabs, windows, created, focused, injected, session, local, moved, alarm: () => Promise.all(alarms.map((f) => f({ name: 'novi' }))), tick: (ms) => { clock += ms; } };
+    return { ask, start, tabs, windows, sleeping, created, focused, injected, session, local, moved, alarm: () => Promise.all(alarms.map((f) => f({ name: 'novi' }))), tick: (ms) => { clock += ms; } };
   }
 
   it('a job opens in one minimized Novi window, never in your window and never in front', async () => {
@@ -350,6 +352,31 @@ describe("background.js: Novi's own window (fake Chrome)", () => {
   // The list of Novi's tabs lasts through extension updates (session storage was wiped on every reload,
   // leaving Novi's old window behind). Chrome reuses tab numbers after a restart, so a tab is Novi's only
   // if its page carries Novi's mark — never your tab, whatever number it has.
+  // Live 2026-11-11: ~60 ChatGPT and claude.ai tabs piled up in the work window and Chrome shut itself
+  // (3.7 GB, 0.7 GB free). Chrome puts hidden tabs to sleep; the mark check could not run in them, so every
+  // job (the ChatGPT plan check, every 30 min) opened a new tab and never closed the old one.
+  it('a sleeping Novi tab in the work window is reused, not copied', async () => {
+    const c = workChrome();
+    await c.start();
+    const a = await c.ask('open', { url: 'https://chatgpt.com/share/x', slot: 'chatgpt-plan', background: true });
+    c.sleeping.add(a.tabId);
+    const b = await c.ask('open', { url: 'https://chatgpt.com/share/x', slot: 'chatgpt-plan', background: true });
+    expect(b.tabId).toBe(a.tabId);
+    expect([...c.tabs.values()].filter((t) => /chatgpt/.test(t.url))).toHaveLength(1);
+  });
+  it('tabs left over in the work window are closed; your own tabs elsewhere never are', async () => {
+    const c = workChrome({ before: [{ id: 5, url: 'https://chatgpt.com/c/mine' }] }); // your ChatGPT tab, your window
+    await c.start();
+    const a = await c.ask('open', { url: 'https://chatgpt.com/', slot: 'chatgpt-plan', background: true });
+    const home = c.tabs.get(a.tabId).windowId;
+    for (const id of [40, 41, 42]) c.tabs.set(id, { id, windowId: home, url: 'https://claude.ai/project/old', active: false });
+    c.sleeping.add(41);
+    await c.ask('open', { url: 'https://claude.ai/projects', slot: 'claude-link', background: true });
+    expect([40, 41, 42].some((id) => c.tabs.has(id))).toBe(false);
+    expect(c.tabs.has(a.tabId)).toBe(true);
+    expect(c.tabs.get(5).url).toBe('https://chatgpt.com/c/mine');
+  });
+
   it('after Chrome restarts, a saved tab number that is now your tab is never reused or closed', async () => {
     const c = workChrome({ saved: { noviWin: 1, slots: { 'claude-link': 1 }, used: { 1: 0 } } });
     await c.start();

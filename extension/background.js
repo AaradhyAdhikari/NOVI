@@ -119,12 +119,27 @@ chrome.tabs.onActivated?.addListener(async ({ tabId, windowId }) => {
   const [page] = await chrome.tabs.query({ url: WORK_PAGE, windowId }).catch(() => []);
   if (page && page.id !== tabId) chrome.tabs.update(page.id, { active: true }).catch(() => {});
 });
+// A tab in Novi's own work window is Novi's even while Chrome has it asleep to save memory (no script runs
+// in a sleeping tab, so the mark can't be read; live 2026-11-11 that made every job open a new tab and
+// ~60 piled up until Chrome shut itself). Your tabs are never in that window.
+async function inWork(tabId, home) {
+  const t = await chrome.tabs.get(tabId).catch(() => null);
+  return Boolean(t && t.windowId === home);
+}
+async function mine(tabId, home) { return (await inWork(tabId, home)) || ours(tabId); }
+// Job tabs left in the work window that no job holds any more: closed.
+async function sweep(home) {
+  const held = new Set(Object.values((await work()).slots));
+  for (const t of await chrome.tabs.query({ windowId: home })) {
+    if (!held.has(t.id) && WORK_SITES.test(t.url || '')) await chrome.tabs.remove(t.id).catch(() => {});
+  }
+}
 async function openJob(url, slot) {
   const w = await work();
   const home = await workWindow();
   const known = w.slots[slot];
   let tab = null;
-  if (known != null && (await ours(known))) {
+  if (known != null && (await mine(known, home))) {
     // A job tab left in another window (older versions) moves into the one work window.
     if ((await chrome.tabs.get(known)).windowId !== home) await chrome.tabs.move(known, { windowId: home, index: -1 });
     tab = await chrome.tabs.update(known, { url });
@@ -136,6 +151,7 @@ async function openJob(url, slot) {
   w.slots[slot] = tab.id;
   w.used[tab.id] = Date.now();
   await save(w);
+  await sweep(home);
   return tab;
 }
 // A command on one of Novi's work tabs: remember it was used, and keep the page awake (stayAwake also
@@ -153,7 +169,8 @@ async function closeIdle() {
   let changed = false;
   for (const [slot, id] of Object.entries(w.slots)) {
     if (Date.now() - (w.used[id] || 0) < IDLE_MS && (await exists(chrome.tabs.get(id)))) continue;
-    if (await ours(id)) await chrome.tabs.remove(id).catch(() => {});
+    const [page] = await chrome.tabs.query({ url: WORK_PAGE }).catch(() => []);
+    if (await mine(id, page?.windowId)) await chrome.tabs.remove(id).catch(() => {});
     delete w.slots[slot];
     delete w.used[id];
     changed = true;
@@ -171,14 +188,16 @@ async function closeOrphans() {
 // window) move into the one work window; the emptied windows close by themselves.
 async function tidyWork() {
   await closeOrphans();
-  const mine = [];
+  const jobTabs = [];
   for (const id of Object.values((await work()).slots)) {
     const t = await chrome.tabs.get(id).catch(() => null);
-    if (t && (await ours(id))) mine.push(t);
+    if (t && (await ours(id))) jobTabs.push(t);
   }
-  if (!mine.length) return;
+  const [page] = await chrome.tabs.query({ url: WORK_PAGE }).catch(() => []);
+  if (page) await sweep(page.windowId);
+  if (!jobTabs.length) return;
   const home = await workWindow();
-  for (const t of mine) if (t.windowId !== home) await chrome.tabs.move(t.id, { windowId: home, index: -1 }).catch(() => {});
+  for (const t of jobTabs) if (t.windowId !== home) await chrome.tabs.move(t.id, { windowId: home, index: -1 }).catch(() => {});
 }
 tidyWork().catch(() => {});
 
