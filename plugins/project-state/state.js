@@ -28,9 +28,15 @@ export function openProjectState(dir, { now = Date.now } = {}) {
   };
   // Novi's own record files stay out of git (code review: they hold your raw instructions, and every task
   // would otherwise put them on the commit card). run.json and checks.json are not touched.
-  const OWN = ['project.json', 'tasks.json', 'context.md', 'decisions.md', 'audit-log.jsonl', '*.broken-*', '*.tmp'];
+  const OWN = ['project.json', 'tasks.json', 'context.md', 'decisions.md', 'audit-log.jsonl', 'outputs/', '*.broken-*', '*.tmp'];
   const ignoreOwn = () => {
-    if (fs.existsSync(file('.gitignore'))) return;
+    // An older .gitignore gets the lines it lacks (outputs/ holds the agents' answers and task files: never in git).
+    if (fs.existsSync(file('.gitignore'))) {
+      const have = fs.readFileSync(file('.gitignore'), 'utf8');
+      const missing = OWN.filter((l) => !have.split(/\r?\n/).includes(l));
+      if (missing.length) fs.appendFileSync(file('.gitignore'), `${have.endsWith('\n') ? '' : '\n'}${missing.join('\n')}\n`);
+      return;
+    }
     fs.writeFileSync(file('.gitignore'), ["# Novi's project record (plugins/project-state): kept on this laptop, not in git.", ...OWN, ''].join('\n'));
   };
   const write = (name, text) => {

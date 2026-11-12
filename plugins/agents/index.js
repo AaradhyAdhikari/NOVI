@@ -15,6 +15,7 @@ import { agentWords } from './roles.js';
 import { setTeam } from './team.js';
 import { checkTask, reviewCard } from './review.js';
 import { createRecord } from './record.js';
+import { consentKey } from './opencode.js';
 
 const obj = (properties, required = []) => ({ type: 'object', properties, required, additionalProperties: false });
 const str = (description) => ({ type: 'string', description });
@@ -35,7 +36,8 @@ export function createAgentsPlugin({ exec = defaultExec, review: checkers = {} }
       const consented = (() => { try { return JSON.parse(fs.readFileSync(store('consent.json'), 'utf8')); } catch { return {}; } })();
       const consentAsks = new Map(); // project → the card already waiting (one card per project)
       const consent = async (project) => {
-        const k = String(project || '').toLowerCase();
+        // Kept per project folder (two projects called Foo are not one consent; security review 2026-11-12).
+        const k = consentKey(find(project) || { name: project });
         if (k in consented) return consented[k];
         if (!rt.ask) return false;
         if (!consentAsks.has(k)) {

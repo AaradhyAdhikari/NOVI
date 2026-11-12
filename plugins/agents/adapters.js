@@ -4,7 +4,7 @@
 // site in sites.json.
 import path from 'node:path';
 import { execFile, spawn } from 'node:child_process';
-import { opencodeAdapter } from './opencode.js';
+import { opencodeAdapter, findOpencode } from './opencode.js';
 import { SITES, createSiteDriver } from '../orchestrator/siteDriver.js';
 
 const TEXT = ['research', 'plan', 'review'];
@@ -17,12 +17,13 @@ export const plainError = (s) => String(s || '').replace(/\u001b\[[0-9;]*m/g, ''
 
 // Runs a program and gives back what it printed. env: only what's passed (callers build a minimal one).
 // On a timeout the whole process tree is ended (a shell's child would otherwise keep running on Windows).
-export function defaultExec(args, { cwd, input, env, timeoutMs = 20 * 60_000 } = {}) {
+// shell: false for a program given by its full path (no shell, no quoting needed); default: a shell on Windows.
+export function defaultExec(args, { cwd, input, env, timeoutMs = 20 * 60_000, shell = process.platform === 'win32' } = {}) {
   return new Promise((resolve, reject) => {
     const win = process.platform === 'win32';
-    const [cmd, ...rest] = shellArgs(args, win);
+    const [cmd, ...rest] = shell ? shellArgs(args, win) : args;
     // No input → stdin closed: OpenCode waits for piped text on an open stdin and never starts (live 2026-11-12).
-    const child = spawn(cmd, rest, { cwd, env: env || process.env, windowsHide: true, shell: win, stdio: [input != null ? 'pipe' : 'ignore', 'pipe', 'pipe'] });
+    const child = spawn(cmd, rest, { cwd, env: env || process.env, windowsHide: true, shell, stdio: [input != null ? 'pipe' : 'ignore', 'pipe', 'pipe'] });
     let stdout = '';
     let stderr = '';
     let done = false;
@@ -75,6 +76,7 @@ export function buildAdapters({ rt = {}, exec = defaultExec, sites = SITES, log 
     },
   });
 
+  const opencodeProgram = findOpencode();
   // Novi's own small coder (free, Groq): easy edits.
   out.push({
     id: 'novi-coder', name: 'Novi Coder', aliases: ['novi coder', 'own coder'], roles: ['build'], order: 4, levels: { easy: 30 },
@@ -92,7 +94,7 @@ export function buildAdapters({ rt = {}, exec = defaultExec, sites = SITES, log 
     { id: 'opencode-deepseek', name: 'OpenCode (DeepSeek)', aliases: ['deepseek', 'opencode deepseek'], model: 'opencode/deepseek-v4.1-flash-free', levels: { easy: 10, medium: 40 } },
     { id: 'opencode-glm', name: 'OpenCode (GLM)', aliases: ['glm', 'opencode glm'], model: 'opencode/glm-5.3-flash-free', levels: { easy: 15, medium: 45 } },
     { id: 'opencode-pickle', name: 'OpenCode (Big Pickle)', aliases: ['big pickle', 'opencode'], model: 'opencode/big-pickle', levels: { easy: 20, medium: 50 } },
-  ]) out.push(opencodeAdapter(spec, { exec, consent }));
+  ]) out.push(opencodeAdapter(spec, { exec, consent, program: opencodeProgram }));
 
   let driver = null;
   const getDriver = () => driver || (rt.browserRequest ? (driver = createSiteDriver({ request: rt.browserRequest, log })) : null);

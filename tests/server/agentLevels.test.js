@@ -80,9 +80,9 @@ describe('OpenCode as a team member', () => {
     expect(args.at(-1)).toMatch(/T-1.task.md$/);
     expect(opts.cwd).toBe(dir);
     const cfg = JSON.parse(opts.env.OPENCODE_CONFIG_CONTENT);
-    expect(cfg.permission.edit).toBe('allow');
+    expect(cfg.permission.edit['*']).toBe('allow');
     expect(cfg.permission.webfetch).toBe('deny');
-    expect(cfg.permission.bash['*']).toBe('deny');
+    expect(cfg.permission.bash).toBe('deny');
     expect(opts.env.GROQ_API_KEYS).toBeUndefined();
   });
   it('the OpenRouter key goes only to an OpenRouter model', () => {
@@ -130,5 +130,49 @@ describe('names with a dash', () => {
     const r = createRegistry();
     r.add({ id: 'opencode-pickle', name: 'OpenCode (Big Pickle)', roles: ['build'], levels: { easy: 20 }, run: async () => ({}) });
     expect(r.find('opencode-pickle')?.id).toBe('opencode-pickle');
+  });
+});
+
+// Security review 2026-11-12.
+describe('OpenCode security fixes', () => {
+  const cfgOf = (o = {}) => JSON.parse(opencodeConfig({ model: 'opencode/x', env: {}, ...o }).env.OPENCODE_CONFIG_CONTENT);
+  it('it cannot touch run settings, git, Novi\'s record or secrets; no shell, no web, nothing outside the folder', () => {
+    const p = cfgOf().permission;
+    expect(p.bash).toBe('deny');
+    expect(p.webfetch).toBe('deny');
+    expect(p.websearch).toBe('deny');
+    expect(p.external_directory).toBe('deny');
+    expect(p.edit['*']).toBe('allow');
+    for (const f of ['package.json', '**/package.json', 'package-lock.json', '*.config.*', '**/*.config.*', 'conftest.py', 'pytest.ini', 'pyproject.toml', '.npmrc', '.git/**', '.novi/**', '.env*', '**/.env*', 'node_modules/**', '.github/**']) expect(p.edit[f]).toBe('deny');
+    for (const f of ['*.env*', '**/*.env*', '*.pem', '*.key', '**/secrets*', '**/id_rsa*']) expect(p.read[f]).toBe('deny');
+  });
+  it('a package carrying other AIs\' text is never given to a free model (Claude takes it with its plan card)', async () => {
+    const a = opencodeAdapter({ id: 'opencode-x', name: 'OpenCode', model: 'opencode/x', levels: { easy: 10 } }, { exec: async () => { throw new Error('must not run'); }, consent: async () => true });
+    const out = await a.run('pkg', { ps: openProjectState(tmp()), task: { id: 'T-1' }, untrusted: true });
+    expect(out).toMatchObject({ ok: false });
+    expect(out.error).toMatch(/other AIs|websites/i);
+  });
+  it('git settings changed during the run = a failure, said plainly', async () => {
+    const dir = tmp();
+    fs.mkdirSync(path.join(dir, '.git'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.git', 'config'), '[core]\n');
+    const a = opencodeAdapter({ id: 'opencode-x', name: 'OpenCode', model: 'opencode/x', levels: { easy: 10 } }, {
+      exec: async () => { fs.writeFileSync(path.join(dir, '.git', 'config'), '[core]\n\tfsmonitor = node leak.js\n'); return '{"type":"text","part":{"text":"done"}}\n'; },
+      consent: async () => true,
+    });
+    const out = await a.run('pkg', { ps: openProjectState(dir), task: { id: 'T-1' } });
+    expect(out.ok).toBe(false);
+    expect(out.error).toMatch(/git/i);
+  });
+  it('runs the OpenCode program itself, not through a shell', async () => {
+    const calls = [];
+    const a = opencodeAdapter({ id: 'opencode-x', name: 'OpenCode', model: 'opencode/x', levels: { easy: 10 } }, { exec: async (args, o) => { calls.push({ args, o }); return '{"type":"text","part":{"text":"ok"}}\n'; }, consent: async () => true, program: 'C:\npm\opencode.exe' });
+    await a.run('pkg', { ps: openProjectState(tmp()), task: { id: 'T-1' } });
+    expect(calls[0].args[0]).toBe('C:\npm\opencode.exe');
+    expect(calls[0].o.shell).toBe(false);
+  });
+  it('free-model consent is kept per project folder, not per name', async () => {
+    const { consentKey } = await import('../../plugins/agents/opencode.js');
+    expect(consentKey({ name: 'Foo', path: 'C:\dev\Foo' })).not.toBe(consentKey({ name: 'Foo', path: 'D:\other\Foo' }));
   });
 });

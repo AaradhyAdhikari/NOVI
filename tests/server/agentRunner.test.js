@@ -218,3 +218,16 @@ describe('plugin review fixes', () => {
     expect(openProjectState(dir).tasks()[0]).toMatchObject({ status: 'review', owner: 'backup' });
   });
 });
+
+// Security review 2026-11-12.
+describe('an answer with a secret in it', () => {
+  it('the secret line is blanked before it is saved or passed on', async () => {
+    const key = 'sk-' + 'abcdefghijklmnopqrstuvwxyz0123456789ABCD';
+    const { ps, runner, dir } = setup({ agents: [agent('chatgpt', ['research'], { run: async () => ({ ok: true, output: `Found it.\nOPENAI_API_KEY=${key}\nDone.` }) })] });
+    planFromSteps(ps, ['Research tip apps']);
+    await runner.run(ps);
+    const saved = fs.readFileSync(path.join(dir, '.novi', 'outputs', 'T-001.md'), 'utf8');
+    expect(saved).not.toContain(key);
+    expect(saved).toMatch(/Found it\.[\s\S]*left out[\s\S]*Done\./);
+  });
+});

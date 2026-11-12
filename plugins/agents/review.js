@@ -42,7 +42,13 @@ export function parseReport(text) {
 // The project's own tests run with only what a shell needs: never Novi's keys (that code was just written by
 // an agent and runs before the user's yes; code review 2026-11-12).
 const KEEP = /^(?:PATH|PATHEXT|SYSTEMROOT|SYSTEMDRIVE|WINDIR|COMSPEC|TEMP|TMP|HOME|USERPROFILE|HOMEDRIVE|HOMEPATH|APPDATA|LOCALAPPDATA|PROGRAMDATA|PROGRAMFILES|PROGRAMFILES\(X86\)|COMMONPROGRAMFILES|NUMBER_OF_PROCESSORS|PROCESSOR_ARCHITECTURE|OS|LANG|USERNAME|NODE_ENV)$/i;
-export const testEnv = (env = process.env) => ({ ...Object.fromEntries(Object.entries(env).filter(([k]) => KEEP.test(k))), FORCE_COLOR: '0', CI: '1' });
+// NoDefaultCurrentDirectoryInExePath: Windows never runs a program from the project folder by name (a planted
+// npm.cmd or git.exe there would run instead; security review 2026-11-12).
+export const testEnv = (env = process.env) => ({ ...Object.fromEntries(Object.entries(env).filter(([k]) => KEEP.test(k))), FORCE_COLOR: '0', CI: '1', NoDefaultCurrentDirectoryInExePath: '1', GIT_CONFIG_NOSYSTEM: '1' });
+// git with the settings that can run a program switched off (a changed .git/config must never run code).
+export const gitArgs = (args) => ['-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=NUL', '-c', 'core.pager=cat', '-c', 'diff.external=', '--no-optional-locks', ...args];
+// Files that decide what "run the tests" runs. If the agent changed one, Novi doesn't run its tests for it.
+const RUN_SETUP = /(?:^|[\\/])(?:package\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|[^\\/]*\.config\.[cm]?[jt]s|conftest\.py|pytest\.ini|pyproject\.toml|setup\.py|setup\.cfg|tox\.ini|\.npmrc|\.yarnrc[^\\/]*|Makefile)$|(?:^|[\\/])\.git[\\/]/i;
 // Passed only when the run exited cleanly and no test failed (a suite that won't load exits 1 with "10 passed").
 export const testsOk = (result, code) => code === 0 && !(result && result.failed);
 const LIMIT = 200_000;
@@ -72,7 +78,7 @@ export async function defaultRunTests(dir) {
   const ok = testsOk(result, code);
   return { ran: true, ok, summary: ok || !result || result.failed ? testSummary(result, code, output) : `The tests reported ${result.passed} passed, but the run failed (exit code ${code}).` };
 }
-export const defaultChanges = (dir) => gitChanges(dir, { exec: (args) => new Promise((resolve, reject) => execFile('git', args, { cwd: dir, windowsHide: true }, (e, out) => (e ? reject(e) : resolve(String(out))))) });
+export const defaultChanges = (dir) => gitChanges(dir, { exec: (args) => new Promise((resolve, reject) => execFile('git', gitArgs(args), { cwd: dir, windowsHide: true, env: testEnv() }, (e, out) => (e ? reject(e) : resolve(String(out))))) });
 
 // What Novi found. build: the files that changed (never a private one) and the tests; text: a full answer.
 export async function checkTask({ task, dir, output = '', changes = defaultChanges, runTests = defaultRunTests }) {
@@ -85,8 +91,15 @@ export async function checkTask({ task, dir, output = '', changes = defaultChang
     files = list.map((c) => c.file).filter((f) => !/^\.novi(?:[\\/]|$)/.test(String(f))); // Novi's own record isn't the agent's work
     const bad = files.filter(isPrivateFile);
     if (bad.length) problems.push(`It changed private files: ${bad.join(', ')}.`);
-    tests = await runTests(dir).catch((err) => ({ ran: false, ok: false, summary: `The tests didn't run: ${err.message}` }));
-    if (!tests.ok) problems.push(`Tests: ${tests.summary}`);
+    const setup = files.filter((f) => RUN_SETUP.test(String(f)));
+    if (setup.length) {
+      // Running them would run whatever the agent put there, before your yes (security review 2026-11-12).
+      tests = { ran: false, ok: false, summary: 'not run' };
+      problems.push(`It changed ${setup.slice(0, 3).join(', ')}, which decide what the tests run, so I didn't run the tests. Look at that change before approving.`);
+    } else {
+      tests = await runTests(dir).catch((err) => ({ ran: false, ok: false, summary: `The tests didn't run: ${err.message}` }));
+      if (!tests.ok) problems.push(`Tests: ${tests.summary}`);
+    }
   } else {
     // Files and tests are only for building: a research/plan answer's own "Files changed"/"Tests" lines are not shown (live 2026-11-12).
     files = [];

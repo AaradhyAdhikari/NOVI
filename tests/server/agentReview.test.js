@@ -219,3 +219,22 @@ describe("Novi's own record is not the agent's work", () => {
     expect(check.files).toEqual(['index.html']);
   });
 });
+
+// Security review 2026-11-12: an agent that changed the test setup must not get its code run by Novi.
+describe('Novi never runs tests the agent rewired', () => {
+  it('changed package.json / test config / git settings: tests are not run, and the card says why', async () => {
+    let ran = 0;
+    const check = await checkTask({ task: { id: 'T-1', role: 'build' }, dir: tmp(), changes: async () => [{ file: 'src/a.js' }, { file: 'package.json' }], runTests: async () => { ran += 1; return { ran: true, ok: true, summary: 'All passed.' }; } });
+    expect(ran).toBe(0);
+    expect(check.ok).toBe(false);
+    expect(check.problems.join(' ')).toMatch(/package\.json.*didn't run the tests/i);
+  });
+  it('git runs with no keys and with its risky settings off', async () => {
+    const { gitArgs } = await import('../../plugins/agents/review.js');
+    expect(gitArgs(['status', '--porcelain'])).toEqual(['-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=NUL', '-c', 'core.pager=cat', '-c', 'diff.external=', '--no-optional-locks', 'status', '--porcelain']);
+  });
+  it('programs are never looked up in the project folder first', async () => {
+    const { testEnv } = await import('../../plugins/agents/review.js');
+    expect(testEnv({ PATH: 'p' }).NoDefaultCurrentDirectoryInExePath).toBe('1');
+  });
+});
