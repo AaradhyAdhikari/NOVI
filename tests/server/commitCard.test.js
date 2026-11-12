@@ -645,8 +645,8 @@ describe('the card after work', () => {
     const { dir } = repo();
     const s = setup(dir);
     s.tasks.emit('task', { id: 't9', status: 'done', project: 'Shop', path: dir });
-    await new Promise((r) => { setTimeout(r, 400); });
-    expect(s.notices).toEqual([{ key: 'claude', title: 'Claude finished in Shop' }]);
+    // Real git answers slowly when the whole suite runs at once (a fixed 0.4 s wait failed): wait for the card.
+    await vi.waitFor(() => expect(s.notices).toEqual([{ key: 'claude', title: 'Claude finished in Shop' }]), { timeout: 10_000, interval: 100 });
   });
 });
 

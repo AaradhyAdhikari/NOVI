@@ -14,7 +14,7 @@ import { looksSecret } from '../wiki/vault.js';
 export const TASK_STATES = ['planned', 'assigned', 'waiting_approval', 'review', 'changes_requested', 'approved', 'merged', 'failed', 'blocked', 'cancelled'];
 const OPEN = new Set(['planned', 'assigned', 'waiting_approval', 'review', 'changes_requested', 'approved', 'blocked']);
 const MAX_TASKS = 500;
-const FIELDS = ['title', 'role', 'owner', 'summary', 'note', 'agent_run', 'depends_on', 'acceptance_criteria', 'source', 'output'];
+const FIELDS = ['title', 'role', 'owner', 'summary', 'note', 'agent_run', 'depends_on', 'acceptance_criteria', 'source', 'output', 'feedback'];
 const clip = (s, n) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
 
 export function openProjectState(dir, { now = Date.now } = {}) {
@@ -127,7 +127,7 @@ export function openProjectState(dir, { now = Date.now } = {}) {
       const change = { ...input };
       if (!change.id) throw new Error('A task needs an id.');
       if (change.status && !TASK_STATES.includes(change.status)) throw new Error(`"${change.status}" is not a task state. States: ${TASK_STATES.join(', ')}.`);
-      if (redact) { for (const k of ['title', 'summary', 'note']) if (looksSecret(change[k])) change[k] = '(left out: it looked private)'; }
+      if (redact) { for (const k of ['title', 'summary', 'note', 'feedback']) if (looksSecret(change[k])) change[k] = '(left out: it looked private)'; }
       noSecrets(change.title, change.summary, change.note);
       const list = tasks();
       const i = list.findIndex((t) => t.id === change.id);

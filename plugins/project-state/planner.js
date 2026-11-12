@@ -76,10 +76,12 @@ export function planFromSteps(ps, steps, { doneWhen = [], agent = null, can = {}
   return { added, skipped };
 }
 
-// Planned tasks whose every dependency is finished.
+// Planned tasks whose every dependency the user approved (Phase 4: a task in review waits for the user's
+// yes; nothing after it starts until then).
+const PASSED = new Set(['approved', 'merged']);
 export function readyTasks(tasks) {
   const byId = new Map((tasks || []).map((t) => [t.id, t]));
-  return (tasks || []).filter((t) => t.status === 'planned' && (t.depends_on || []).every((d) => FINISHED.has(byId.get(d)?.status) || byId.get(d)?.status === 'merged'));
+  return (tasks || []).filter((t) => t.status === 'planned' && (t.depends_on || []).every((d) => PASSED.has(byId.get(d)?.status)));
 }
 
 // What one agent is given for one task (spec: "never send a vague instruction").
@@ -117,6 +119,6 @@ export function taskPackage(ps, taskId, { allowed = [], forbidden = ['.env', '.e
     '- Do not commit or push; Novi asks the user.',
     '- Do not read or print secrets (.env, keys, tokens).',
     '- If anything is unclear, ask instead of guessing.',
-    '- When done, report: what you changed (file list), the tests you ran and their result, and any risks.',
+    '- End your answer with this report, these exact headings: "Files changed:" (a list, or none), "Tests:" (what you ran and the result, or none), "Risks:" (a list, or none), "Questions:" (a list, or none).',
   ].filter((l) => l !== '').join('\n');
 }

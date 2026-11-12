@@ -13,12 +13,14 @@ import { createRunner } from './runner.js';
 import { buildAdapters, defaultExec } from './adapters.js';
 import { agentWords } from './roles.js';
 import { setTeam } from './team.js';
+import { checkTask, reviewCard } from './review.js';
 
 const obj = (properties, required = []) => ({ type: 'object', properties, required, additionalProperties: false });
 const str = (description) => ({ type: 'string', description });
 const reply = (text, details = {}) => ({ content: [{ type: 'text', text }], details });
 
-export function createAgentsPlugin({ exec = defaultExec } = {}) {
+// review: { changes, runTests } for tests (defaults read git and run the project's own tests).
+export function createAgentsPlugin({ exec = defaultExec, review: checkers = {} } = {}) {
   return definePluginEntry({
     id: 'agents',
     name: 'The team',
@@ -52,6 +54,42 @@ export function createAgentsPlugin({ exec = defaultExec } = {}) {
       };
       const teamLine = () => registry.list().map((a) => a.name).join(', ');
 
+      // Phase 4: a finished task is checked by Novi, then one card asks the user. Approve → the next tasks run;
+      // "change X" → the same task runs again with X; no → it waits for changes and nothing after it starts.
+      const asking = new Set(); // "<project key>:<task id>" while its card waits
+      const own = (ps, file) => Boolean(file) && path.resolve(file).toLowerCase().startsWith(path.join(ps.dir, 'outputs').toLowerCase() + path.sep);
+      const reviewProject = async (p, opts) => {
+        const ps = openProjectState(p.path);
+        const waiting = ps.tasks().filter((t) => t.status === 'review' && t.role && !asking.has(`${key(p.path)}:${t.id}`)).sort((a, b) => a.id.localeCompare(b.id));
+        if (!waiting.length || !rt.ask) return false;
+        const t = waiting[0];
+        const tag = `${key(p.path)}:${t.id}`;
+        asking.add(tag);
+        try {
+          const output = own(ps, t.output) && fs.existsSync(t.output) ? fs.readFileSync(t.output, 'utf8') : '';
+          const check = await checkTask({ task: t, dir: p.path, output, ...checkers });
+          const agentName = registry.find(t.owner)?.name || t.owner || 'The agent';
+          const d = await rt.ask(reviewCard({ project: p.name, task: t, agentName, check, output }));
+          asking.delete(tag); // answered: a re-run of this task gets its own card
+          if (d?.allow) {
+            ps.upsertTask({ id: t.id, status: 'approved', feedback: '' });
+            log(`[agents] ${p.name}: ${t.id} approved`);
+            await runProject(p, opts);
+          } else if (d?.change) {
+            ps.upsertTask({ id: t.id, status: 'planned', feedback: d.change }, { redact: true });
+            rt.say?.(`Okay, sending ${t.id} back to ${agentName}: ${d.change}`, { kind: null });
+            await runProject(p, opts);
+          } else if (d?.closed || d?.timedOut) {
+            // Novi closed the card (not the user's no): the task stays in review; "run" brings the card back.
+            log(`[agents] ${p.name}: ${t.id} card closed without an answer`);
+          } else {
+            ps.upsertTask({ id: t.id, status: 'changes_requested' });
+            rt.say?.(`Okay, ${t.id} waits. Tell me what to change ("change …"), or say "run the ${p.name} tasks" to try it again.`, { kind: null });
+          }
+          return true;
+        } finally { asking.delete(tag); }
+      };
+
       const runProject = async (p, opts) => {
         const ps = openProjectState(p.path);
         const k = key(p.path);
@@ -61,11 +99,13 @@ export function createAgentsPlugin({ exec = defaultExec } = {}) {
           if (out.started) {
             const runId = ps.tasks().find((t) => t.id === out.started.id)?.agent_run || null;
             running.set(k, { opts, busy: false, runId });
-          } else running.delete(k);
-          if (!out.started && !out.blocked) {
-            const left = ps.tasks().filter((t) => ['planned', 'assigned'].includes(t.status)).length;
-            rt.notice?.({ key: `agents-${p.name}`, title: `${p.name}: ${out.done.length} task${out.done.length === 1 ? '' : 's'} done`, body: left ? `${left} waiting.` : 'Nothing left on the board.' });
+            return out;
           }
+          running.delete(k);
+          if (out.blocked) return out;
+          if (await reviewProject(p, opts)) return out;
+          const left = ps.tasks().filter((t) => ['planned', 'assigned', 'review', 'changes_requested'].includes(t.status)).length;
+          rt.notice?.({ key: `agents-${p.name}`, title: `${p.name}: the team is done for now`, body: left ? `${left} still on the board.` : 'Everything on the board is approved.' });
           return out;
         } catch (err) {
           running.delete(k);
@@ -100,8 +140,14 @@ export function createAgentsPlugin({ exec = defaultExec } = {}) {
           if (running.has(p.path) || running.has(key(p.path))) return reply('', { note: `${p.name} is already running${running.get(key(p.path))?.runId ? ': a build step is with the coder. I\'ll carry on when it finishes' : ''}.` });
           const ps = openProjectState(p.path);
           // "Run" is the user's retry: tasks blocked earlier (no agent, Chrome off…) get another go.
-          for (const t of ps.tasks()) if (t.status === 'blocked') ps.upsertTask({ id: t.id, status: 'planned', note: '' });
+          for (const t of ps.tasks()) if (['blocked', 'changes_requested', 'failed'].includes(t.status)) ps.upsertTask({ id: t.id, status: 'planned', note: '' });
           const ready = readyTasks(ps.tasks()).sort((a, b) => a.id.localeCompare(b.id));
+          // A task still waiting for the user's yes (its card was lost to a restart or closed): ask again.
+          const owed = ps.tasks().filter((t) => t.status === 'review' && t.role);
+          if (!ready.length && owed.length) {
+            reviewProject(p, { prefer: opts.prefer, avoid: opts.avoid }).catch((err) => log(`[agents] ${p.name}: review card: ${err.message}`));
+            return reply('', { note: `${owed[0].id} on ${p.name} is waiting for your yes. I'll show you its card.` });
+          }
           if (!ready.length) {
             const blocked = ps.tasks().filter((t) => t.status === 'blocked');
             return reply('', { note: blocked.length ? `Nothing is ready on ${p.name}: ${blocked.length} blocked (${blocked[0].note || blocked[0].title}).` : `Nothing is ready to run on ${p.name}.` });
