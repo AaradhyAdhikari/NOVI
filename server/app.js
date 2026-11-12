@@ -256,8 +256,9 @@ export function createNovi(config, overrides = {}) {
       // claude.ai project for them).
       // A message to the Claude task already running (plugins/ai-cards).
       tellCoder: (text) => tasks.send(text),
-      startCoding: async ({ project, instruction, planFirst = false }) => {
-        const params = { project, instruction, agent: 'claude', ...(planFirst ? {} : { $planFirst: false }) };
+      // agent: 'claude' (default) or 'novi-coder' (the team's easy-edit member, plugins/agents).
+      startCoding: async ({ project, instruction, planFirst = false, agent = 'claude' }) => {
+        const params = { project, instruction, agent: agent === 'novi-coder' ? 'novi-coder' : 'claude', ...(planFirst ? {} : { $planFirst: false }) };
         const result = await plugins.get('code_start_task').run(params);
         plugins.afterToolCall({ toolName: 'code_start_task', params, result }).catch(() => {});
         return result;

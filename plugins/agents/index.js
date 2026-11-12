@@ -14,6 +14,7 @@ import { buildAdapters, defaultExec } from './adapters.js';
 import { agentWords } from './roles.js';
 import { setTeam } from './team.js';
 import { checkTask, reviewCard } from './review.js';
+import { createRecord } from './record.js';
 
 const obj = (properties, required = []) => ({ type: 'object', properties, required, additionalProperties: false });
 const str = (description) => ({ type: 'string', description });
@@ -28,11 +29,32 @@ export function createAgentsPlugin({ exec = defaultExec, review: checkers = {} }
     register(api) {
       const rt = api.runtime || {};
       const log = (m) => api.logger?.info?.(m);
-      const registry = createRegistry();
-      for (const a of buildAdapters({ rt, exec, log })) registry.add(a);
+      const store = (name) => (rt.dataDir ? path.join(rt.dataDir, 'agents', name) : null);
+      // The team's track record (your approvals per coder and difficulty) and your yes/no to free models per project.
+      const record = createRecord({ file: store('record.json') });
+      const consented = (() => { try { return JSON.parse(fs.readFileSync(store('consent.json'), 'utf8')); } catch { return {}; } })();
+      const consentAsks = new Map(); // project → the card already waiting (one card per project)
+      const consent = async (project) => {
+        const k = String(project || '').toLowerCase();
+        if (k in consented) return consented[k];
+        if (!rt.ask) return false;
+        if (!consentAsks.has(k)) {
+          consentAsks.set(k, (async () => {
+            const title = `Use free AI models on ${project}?`;
+            const d = await rt.ask({ title, prompt: `Free coding models may learn from ${project}'s code. Use them for the easy tasks on ${project}?`, detail: 'Free models (OpenCode: DeepSeek, GLM…) do the easy work so Claude\'s usage goes to the hard parts. Their providers may use what they see to improve their models. Your answer is remembered for this project.', source: 'agents' });
+            if (d?.closed || d?.timedOut) return false; // not answered: asked again next time
+            consented[k] = Boolean(d?.allow);
+            try { fs.mkdirSync(path.dirname(store('consent.json')), { recursive: true }); fs.writeFileSync(store('consent.json'), `${JSON.stringify(consented, null, 2)}\n`); } catch { /* remembered for this run */ }
+            return consented[k];
+          })().finally(() => consentAsks.delete(k)));
+        }
+        return consentAsks.get(k);
+      };
+      const registry = createRegistry({ record });
+      for (const a of buildAdapters({ rt, exec, log, consent })) registry.add(a);
       setTeam(registry);
       const gaps = rt.gaps || (rt.dataDir ? createGaps({ file: path.join(rt.dataDir, 'gaps', 'gaps.jsonl') }) : null);
-      const runner = createRunner({ registry, say: (t) => rt.say?.(t, { kind: null }), gaps, log, tasks: rt.tasks });
+      const runner = createRunner({ registry, say: (t) => rt.say?.(t, { kind: null }), gaps, log, tasks: rt.tasks, record });
       const find = (name) => rt.codingProject?.(name) || (rt.projects?.list?.() || []).find((p) => String(p.name).toLowerCase() === String(name || '').toLowerCase()) || null;
       const there = (p) => Boolean(p?.path && fs.existsSync(p.path) && fs.existsSync(path.join(p.path, '.novi', 'tasks.json')));
       const key = (p) => path.resolve(String(p || '')).toLowerCase();
@@ -72,10 +94,12 @@ export function createAgentsPlugin({ exec = defaultExec, review: checkers = {} }
           const d = await rt.ask(reviewCard({ project: p.name, task: t, agentName, check, output }));
           asking.delete(tag); // answered: a re-run of this task gets its own card
           if (d?.allow) {
+            record.note(t.owner, t.level, 'pass');
             ps.upsertTask({ id: t.id, status: 'approved', feedback: '' });
             log(`[agents] ${p.name}: ${t.id} approved`);
             await runProject(p, opts);
           } else if (d?.change) {
+            record.note(t.owner, t.level, 'back');
             ps.upsertTask({ id: t.id, status: 'planned', feedback: d.change }, { redact: true });
             rt.say?.(`Okay, sending ${t.id} back to ${agentName}: ${d.change}`, { kind: null });
             await runProject(p, opts);
@@ -83,6 +107,7 @@ export function createAgentsPlugin({ exec = defaultExec, review: checkers = {} }
             // Novi closed the card (not the user's no): the task stays in review; "run" brings the card back.
             log(`[agents] ${p.name}: ${t.id} card closed without an answer`);
           } else {
+            record.note(t.owner, t.level, 'back');
             ps.upsertTask({ id: t.id, status: 'changes_requested' });
             rt.say?.(`Okay, ${t.id} waits. Tell me what to change ("change …"), or say "run the ${p.name} tasks" to try it again.`, { kind: null });
           }
@@ -153,7 +178,7 @@ export function createAgentsPlugin({ exec = defaultExec, review: checkers = {} }
             return reply('', { note: blocked.length ? `Nothing is ready on ${p.name}: ${blocked.length} blocked (${blocked[0].note || blocked[0].title}).` : `Nothing is ready to run on ${p.name}.` });
           }
           const first = ready[0];
-          const picked = await registry.pick(first.role || 'build', { prefer: first.owner ? [...opts.prefer, first.owner] : opts.prefer, avoid: opts.avoid });
+          const picked = await registry.pick(first.role || 'build', { prefer: first.owner ? [...opts.prefer, first.owner] : opts.prefer, avoid: opts.avoid, level: first.level, project: p.name });
           if (!picked.agent) return reply('', { error: `I can't find an agent for ${first.role} on ${p.name}: ${picked.gap}. The team: ${teamLine()}.` });
           runProject(p, { prefer: opts.prefer, avoid: opts.avoid }).catch(() => {});
           return reply('', { note: `Starting ${first.id} (${first.role}) with ${picked.agent.name}${ready.length > 1 ? `, then ${ready.length - 1} more` : ''}. I'll tell you as each one finishes.`, started: first.id, agent: picked.agent.id });

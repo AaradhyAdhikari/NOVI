@@ -82,7 +82,7 @@ export async function checkTask({ task, dir, output = '', changes = defaultChang
   let tests = report.tests ? { ran: true, ok: !/\b[1-9]\d* failed/i.test(report.tests), summary: report.tests } : null;
   if (task.role === 'build') {
     const list = (await changes(dir).catch(() => null)) || [];
-    files = list.map((c) => c.file);
+    files = list.map((c) => c.file).filter((f) => !/^\.novi(?:[\\/]|$)/.test(String(f))); // Novi's own record isn't the agent's work
     const bad = files.filter(isPrivateFile);
     if (bad.length) problems.push(`It changed private files: ${bad.join(', ')}.`);
     tests = await runTests(dir).catch((err) => ({ ran: false, ok: false, summary: `The tests didn't run: ${err.message}` }));

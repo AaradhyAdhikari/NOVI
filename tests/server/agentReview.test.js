@@ -211,3 +211,11 @@ describe('a text task card shows no files or tests', () => {
     expect(card.prompt).toBe('ChatGPT finished T-1 for Tip. Approve?');
   });
 });
+
+// Live 2026-11-12: "2 files changed" counted Novi's own .novi folder.
+describe("Novi's own record is not the agent's work", () => {
+  it('.novi files are left out of the changed files', async () => {
+    const check = await checkTask({ task: { id: 'T-1', role: 'build' }, dir: tmp(), changes: async () => [{ file: 'index.html' }, { file: '.novi/' }, { file: '.novi/tasks.json' }], runTests: async () => ({ ran: false, ok: true, summary: 'No tests.' }) });
+    expect(check.files).toEqual(['index.html']);
+  });
+});

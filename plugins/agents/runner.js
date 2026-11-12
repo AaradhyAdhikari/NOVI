@@ -11,7 +11,7 @@ import { roleVerb } from './roles.js';
 const TRIES = 3;
 const firstLine = (s, n = 200) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
 
-export function createRunner({ registry, say = () => {}, gaps = null, log = () => {}, tasks = null, now = () => new Date() } = {}) {
+export function createRunner({ registry, say = () => {}, gaps = null, log = () => {}, tasks = null, now = () => new Date(), record = null } = {}) {
   const byId = (list) => [...list].sort((a, b) => a.id.localeCompare(b.id));
   // Only files the runner wrote itself (<project>/.novi/outputs) are read back; a path written anywhere
   // else into tasks.json is ignored (code review: never read an arbitrary file into a prompt).
@@ -56,7 +56,7 @@ export function createRunner({ registry, say = () => {}, gaps = null, log = () =
         let finished = false;
         for (let attempt = 0; attempt < TRIES && !finished; attempt++) {
           // The user's words first, then the agent already on the task (code review: a named agent must win).
-          const picked = await registry.pick(role, { prefer: task.owner ? [...prefer, task.owner] : prefer, avoid: [...avoid, ...failed] });
+          const picked = await registry.pick(role, { prefer: task.owner ? [...prefer, task.owner] : prefer, avoid: [...avoid, ...failed], level: task.level, project });
           if (!picked.agent) {
             const why = picked.gap;
             ps.upsertTask({ id: task.id, status: 'blocked', note: `No agent for ${role}: ${why}` }, { redact: true });
@@ -87,6 +87,7 @@ export function createRunner({ registry, say = () => {}, gaps = null, log = () =
           } else {
             const error = firstLine(res?.error || 'no answer', 160);
             failed.push(agent.id);
+            record?.note?.(agent.id, task.level, 'fail');
             if (!broken.includes(agent.id)) broken.push(agent.id);
             ps.upsertTask({ id: task.id, note: `${agent.name}: ${error}` }, { redact: true });
             log(`[agents] ${project}: ${task.id} ${agent.name} failed: ${error}`);

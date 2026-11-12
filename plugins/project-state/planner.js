@@ -5,7 +5,7 @@
 // is reported and never planned again ("do not rebuild completed work"). taskPackage() is what an agent is
 // given: only the context its task needs.
 import { sections } from '../orchestrator/brief.js';
-import { roleFor, ROLES } from '../agents/roles.js';
+import { roleFor, levelFor, ROLES } from '../agents/roles.js';
 
 const FINISHED = new Set(['merged', 'review', 'approved']);
 // Finished enough to skip a step: merged/approved, or a planned step whose run is in review. A bare coder
@@ -67,7 +67,7 @@ export function planFromSteps(ps, steps, { doneWhen = [], agent = null, can = {}
     k += 1;
     const role = roleFor(step);
     const owner = agent && (!can[agent] || can[agent].includes(role)) ? agent : null;
-    const task = { id: id(k), title: step, role, owner, status: 'planned', depends_on: prev ? [prev] : [], source };
+    const task = { id: id(k), title: step, role, ...(role === 'build' ? { level: levelFor(step) } : {}), owner, status: 'planned', depends_on: prev ? [prev] : [], source };
     added.push(task);
     prev = task.id;
   }

@@ -28,6 +28,18 @@ export function roleFor(step) {
   return 'build';
 }
 
+// How hard a build step is (2026-11-12): easy = small, local, visual; hard = security, money, data, many
+// places at once; everything else medium. The track record does the rest.
+export const LEVELS = ['easy', 'medium', 'hard'];
+const HARD = /\b(?:auth\w*|log ?in|sign ?(?:in|up)|password|security|secure|encrypt\w*|payment\w*|checkout|billing|database|migrat\w*|schema|deploy\w*|architect\w*|refactor\w*|across|whole app|real-?time|websocket|concurren\w*|performance|scal\w*|api key|token)\b/i;
+const EASY = /\b(?:typo|text|copy|wording|label|title|colou?r|font|spacing|margin|padding|icon|rename|readme|comment|small|tweak|button text|placeholder|blue|red|green|bold|align\w*|link text)\b/i;
+export function levelFor(step) {
+  const s = String(step || '');
+  if (HARD.test(s)) return 'hard';
+  if (EASY.test(s) && s.split(/\s+/).length <= 10) return 'easy';
+  return 'medium';
+}
+
 const STOP = new Set('the a an it this that them my our your its me us him her one some any all for to of and or but so then now please'.split(' '));
 const AVOID_BEFORE = /(?:don'?t|do not|never|without|not|no|avoid|skip|except|instead of)\s+(?:use\s+|using\s+|in\s+|on\s+|with\s+)?$/i;
 const PREFER_BEFORE = /(?:use|using|with|via|through|in|on|to|prefer|ask|tell|let)\s+$/i;
