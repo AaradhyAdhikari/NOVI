@@ -4,7 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
 import { openProjectState } from '../../plugins/project-state/state.js';
-import { stepsFromBrief, ownerFor, planFromSteps, readyTasks, taskPackage, similarDone } from '../../plugins/project-state/planner.js';
+import { stepsFromBrief, planFromSteps, readyTasks, taskPackage, similarDone } from '../../plugins/project-state/planner.js';
+import { roleFor } from '../../plugins/agents/roles.js';
 import { PluginHost } from '../../server/plugins/host.js';
 import { createProjectStatePlugin } from '../../plugins/project-state/index.js';
 
@@ -28,16 +29,18 @@ describe('steps from the brief', () => {
   });
 });
 
-describe('who owns a step (the spec\'s roles)', () => {
-  it('research to Perplexity, planning to ChatGPT, review to Gemini, building to Claude', () => {
-    expect(ownerFor('Research tip calculator apps for ideas')).toBe('perplexity');
-    expect(ownerFor('Write the product spec and user flows')).toBe('chatgpt');
-    expect(ownerFor('Review the security of the inputs')).toBe('gemini');
-    expect(ownerFor('Build the bill and tip inputs')).toBe('claude');
-    expect(ownerFor('Write tests for the tip maths')).toBe('claude');
+// Phase 3 (user: agents may change, the flow must not): a step has a ROLE, never an agent. The owner is
+// filled in when an agent takes it, or at planning time when the user named one.
+describe('the role of a step', () => {
+  it('research, plan, review, build', () => {
+    expect(roleFor('Research tip calculator apps for ideas')).toBe('research');
+    expect(roleFor('Review the security of the inputs')).toBe('review');
+    expect(roleFor('Build the bill and tip inputs')).toBe('build');
   });
-  it('the user\'s own choice wins', () => {
-    expect(ownerFor('Build the frontend', { frontend: 'codex' })).toBe('codex');
+  it('the user\'s named agent is written on the steps it can take', () => {
+    const ps = openProjectState(tmp());
+    const out = planFromSteps(ps, ['Research tip apps', 'Build the frontend'], { agent: 'codex', can: { codex: ['build'] } });
+    expect(out.added.map((t) => [t.role, t.owner])).toEqual([['research', null], ['build', 'codex']]);
   });
 });
 
@@ -48,7 +51,7 @@ describe('planning onto the board', () => {
     const out = planFromSteps(ps, steps, { doneWhen });
     expect(out.added).toHaveLength(5);
     const t = ps.tasks().reverse();
-    expect(t.map((x) => [x.id, x.owner, x.status])).toEqual([['T-001', 'perplexity', 'planned'], ['T-002', 'claude', 'planned'], ['T-003', 'claude', 'planned'], ['T-004', 'claude', 'planned'], ['T-005', 'gemini', 'planned']]);
+    expect(t.map((x) => [x.id, x.role, x.owner, x.status])).toEqual([['T-001', 'research', null, 'planned'], ['T-002', 'build', null, 'planned'], ['T-003', 'build', null, 'planned'], ['T-004', 'build', null, 'planned'], ['T-005', 'review', null, 'planned']]);
     expect(t[1].depends_on).toEqual(['T-001']);
     expect(t[2].depends_on).toEqual(['T-002']);
     expect(t[4].acceptance_criteria).toEqual(['Typing a bill shows the tip', 'Dark mode works']);
@@ -114,7 +117,7 @@ describe('the plugin plans an approved brief', () => {
     const dir = tmp();
     const { host } = setup([{ name: 'Tip', path: dir }]);
     const out = await host.get('project_plan').run({ project: 'Tip' });
-    expect(out.note).toMatch(/Planned 5 tasks for Tip/);
+    expect(out.note).toMatch(/Planned 5 tasks for Tip \(1 research, 3 build, 1 review\)/);
     expect(openProjectState(dir).tasks()).toHaveLength(5);
   });
   it('a brief-approved Claude run moves the planned building tasks with it', async () => {
@@ -126,10 +129,10 @@ describe('the plugin plans an approved brief', () => {
     tasks.emit('task', { active: true, id: 'run1', project: 'Tip', path: dir, instruction, status: 'done', agent: 'Claude Code' });
     await new Promise((r) => setTimeout(r, 20));
     const board = openProjectState(dir).tasks();
-    const claudeSteps = board.filter((t) => t.owner === 'claude' && t.id.startsWith('T-'));
+    const claudeSteps = board.filter((t) => t.role === 'build' && t.id.startsWith('T-'));
     expect(claudeSteps.length).toBe(3);
     expect(claudeSteps.every((t) => t.status === 'review' && t.agent_run === 'run1')).toBe(true);
-    expect(board.find((t) => t.owner === 'perplexity').status).toBe('planned'); // not Claude's step: untouched
+    expect(board.find((t) => t.role === 'research').status).toBe('planned'); // not a build step: untouched
   });
 });
 
@@ -138,7 +141,7 @@ describe('planner review fixes', () => {
   const brief = () => 'Follow this brief (made by Novi with ChatGPT and Gemini):\n' + BRIEF;
   it('an old plan that never ran is not moved by a new brief run', () => {
     const dir = tmp();
-    openProjectState(dir).upsertTask({ id: 'T-001', title: 'Old step from yesterday', owner: 'claude', status: 'planned', source: 'brief' });
+    openProjectState(dir).upsertTask({ id: 'T-001', title: 'Old step from yesterday', role: 'build', status: 'planned', source: 'brief' });
     const tasks = new EventEmitter();
     const host = new PluginHost({ runtime: { tasks, projects: { list: () => [{ name: 'Tip', path: dir }] }, codingProject: () => ({ name: 'Tip', path: dir }) }, env: {}, logger: { warn() {}, info() {} } });
     host.register(createProjectStatePlugin({ exec: () => '' }));
@@ -150,7 +153,7 @@ describe('planner review fixes', () => {
   });
   it('the link is kept on the board, so the run moves its steps even after a Novi restart', () => {
     const dir = tmp();
-    openProjectState(dir).upsertTask({ id: 'T-003', title: 'Add dark mode', owner: 'claude', status: 'assigned', source: 'brief', agent_run: 'run9' });
+    openProjectState(dir).upsertTask({ id: 'T-003', title: 'Add dark mode', role: 'build', owner: 'claude', status: 'assigned', source: 'brief', agent_run: 'run9' });
     const tasks = new EventEmitter();
     const host = new PluginHost({ runtime: { tasks, projects: { list: () => [] } }, env: {}, logger: { warn() {}, info() {} } });
     host.register(createProjectStatePlugin({ exec: () => '' }));

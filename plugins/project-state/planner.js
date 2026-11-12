@@ -5,6 +5,7 @@
 // is reported and never planned again ("do not rebuild completed work"). taskPackage() is what an agent is
 // given: only the context its task needs.
 import { sections } from '../orchestrator/brief.js';
+import { roleFor, ROLES } from '../agents/roles.js';
 
 const FINISHED = new Set(['merged', 'review', 'approved']);
 // Finished enough to skip a step: merged/approved, or a planned step whose run is in review. A bare coder
@@ -22,19 +23,9 @@ export function stepsFromBrief(brief) {
   return { steps: listItems(s.Steps).slice(0, 30), doneWhen: listItems(s['Done when']).slice(0, 20) };
 }
 
-const ROLES = [
-  ['perplexity', /\b(?:research|look up|find (?:out|examples|similar)|compare|survey|investigate|sources?)\b/i],
-  ['gemini', /\b(?:security|audit|review|cross-?check|threat|vulnerab)/i],
-  ['chatgpt', /\b(?:spec|specification|plan|user flows?|ux|wireframe|copy|requirements|outline|break (?:it )?down)\b/i],
-];
-// `chosen`: the user's own split, e.g. { frontend: 'codex', backend: 'claude' } (a word in the step → that agent).
-export function ownerFor(step, chosen = {}) {
-  const s = String(step || '');
-  for (const [word, agent] of Object.entries(chosen || {})) if (new RegExp(`\\b${word}\\b`, 'i').test(s)) return agent;
-  if (/\btests?\b/i.test(s) && !/\breview\b/i.test(s)) return 'claude';
-  for (const [agent, re] of ROLES) if (re.test(s)) return agent;
-  return 'claude';
-}
+// Phase 3: a step has a ROLE (plugins/agents/roles.js), never an agent. The owner is filled in when an
+// agent takes the task, or now when the user named one ("plan X with Codex") for the roles it can do.
+export const roleCounts = (tasks) => ROLES.map((r) => [r, tasks.filter((t) => t.role === r).length]).filter(([, n]) => n).map(([r, n]) => `${n} ${r}`).join(', ');
 
 const words = (s) => String(s || '').toLowerCase().match(/[a-z0-9]+/g)?.filter((w) => !STOP.has(w) && w.length > 1) || [];
 // A finished task that already covers this step: the two titles share most of their meaningful words, both
@@ -60,7 +51,8 @@ const nextId = (tasks) => {
 
 // Steps → planned tasks. A step that is finished on the board, or already planned with the same title, is
 // not added again. Each new task depends on the one before it.
-export function planFromSteps(ps, steps, { doneWhen = [], chosen = {}, source = 'brief' } = {}) {
+// agent: the user's named agent; can: { agentId: [roles] } from the team, so it only goes on steps it can do.
+export function planFromSteps(ps, steps, { doneWhen = [], agent = null, can = {}, source = 'brief' } = {}) {
   const board = ps.tasks();
   const id = nextId(board);
   const added = [];
@@ -73,7 +65,9 @@ export function planFromSteps(ps, steps, { doneWhen = [], chosen = {}, source = 
     const same = board.find((t) => String(t.title).toLowerCase() === String(step).toLowerCase() && !['cancelled', 'failed'].includes(t.status));
     if (same) { prev = same.id; continue; }
     k += 1;
-    const task = { id: id(k), title: step, owner: ownerFor(step, chosen), status: 'planned', depends_on: prev ? [prev] : [], source };
+    const role = roleFor(step);
+    const owner = agent && (!can[agent] || can[agent].includes(role)) ? agent : null;
+    const task = { id: id(k), title: step, role, owner, status: 'planned', depends_on: prev ? [prev] : [], source };
     added.push(task);
     prev = task.id;
   }
@@ -110,7 +104,7 @@ export function taskPackage(ps, taskId, { allowed = [], forbidden = ['.env', '.e
     'TASK',
     `- Task ID: ${t.id}`,
     `- Title: ${t.title}`,
-    `- Owner: ${t.owner || 'unassigned'}`,
+    `- Role: ${t.role || 'build'}${t.owner ? ` (${t.owner})` : ''}`,
     t.depends_on?.length ? `- Depends on: ${t.depends_on.join(', ')}` : '',
     `- Acceptance criteria:${t.acceptance_criteria?.length ? '' : ' the step works and its tests pass'}`,
     ...(t.acceptance_criteria || []).map((c) => `  - ${c}`),

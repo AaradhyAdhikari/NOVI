@@ -45,12 +45,12 @@ describe('Novi Chrome extension (static checks; it runs only in Chrome)', () => 
 describe('page.js numbering (fake page)', () => {
   function fakePage(els) {
     const document = {
-      title: 'T', body: { innerText: '' }, activeElement: null,
+      title: 'T', body: { innerText: '' }, activeElement: null, execCommand: () => true,
       querySelectorAll: (sel) => (sel === 'iframe' ? [] : sel === '[data-novi-n]' ? els.filter((e) => e.attrs['data-novi-n']) : els.filter((e) => e.inDom)),
       querySelector: (sel) => { const m = /data-novi-n="(\d+)"/.exec(sel); return els.find((e) => e.attrs['data-novi-n'] === m?.[1]) || null; },
     };
     const window = {};
-    const ctx = { window, document, location: { href: 'https://x.test/' }, getComputedStyle: () => ({ visibility: 'visible' }), Event: class {} };
+    const ctx = { window, document, location: { href: 'https://x.test/' }, getComputedStyle: () => ({ visibility: 'visible' }), Event: class {}, InputEvent: class { constructor(type, o = {}) { Object.assign(this, { type }, o); } }, setTimeout };
     vm.runInNewContext(read('page.js'), ctx);
     return window.__novi;
   }
@@ -63,6 +63,19 @@ describe('page.js numbering (fake page)', () => {
     scrollIntoView() {}, click() { this.clicked += 1; },
   });
 
+  // Live 2026-11-12: Perplexity's editor (Lexical) ignores execCommand insertText, so the team's
+  // Perplexity step never typed anything. A typed-input event (beforeinput) is what such editors take.
+  it('typeSel: an editor that ignores execCommand still gets the words, through a beforeinput event', () => {
+    const box = el('');
+    Object.assign(box, { isContentEditable: true, innerText: '', events: [], focus() {}, dispatchEvent(e) { this.events.push(e); if (e.type === 'beforeinput' && e.inputType === 'insertText') this.innerText = e.data; return true; } });
+    const novi = fakePage([box]);
+    const doc = { execCommand: () => true };
+    // the page's document.execCommand does nothing to this editor
+    novi.__setDoc?.(doc);
+    expect(novi.typeSel({ selector: 'div', text: 'Research quote APIs' })).toEqual({});
+    expect(box.innerText).toBe('Research quote APIs');
+    expect(box.events.map((e) => e.type)).toContain('beforeinput');
+  });
   it('a re-read clears old numbers, so a click hits the item Novi just read', () => {
     const submit = el('Create account');
     const help = el('Help');
@@ -100,7 +113,7 @@ describe('page.js numbering (fake page)', () => {
     expect(novi.textsOf({ selector: 'x', attrs: ['data-message-author-role', 'data-user-message-bubble'] }).items[0].attrs)
       .toEqual({ 'data-message-author-role': 'user', 'data-user-message-bubble': null });
     expect(read('background.js')).toMatch(/'textsOf'/);
-    expect(JSON.parse(read('manifest.json')).version).toBe('1.14.4');
+    expect(JSON.parse(read('manifest.json')).version).toBe('1.14.6');
   });
   // claude.ai's project list (2026-10-18): each card's name is its first line, its link the href.
   it('query: first line only and an attribute when asked; plain query as before', () => {

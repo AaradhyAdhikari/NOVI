@@ -54,8 +54,21 @@ export function createSiteDriver({ request: raw, sites = SITES, sleep = (ms) => 
     const before = (await request('textOf', { selector: site.answer, tabId })).count || 0;
     const type = async () => {
       await request('typeSel', { selector: site.input, text, tabId });
-      const shown = ((await request('query', { selector: site.input, tabId })).texts || [])[0] || '';
-      return shown.includes(text.replace(/\s+/g, ' ').trim().slice(0, 20));
+      // Some editors (Perplexity's) draw the words a moment later, slower still in a hidden tab: look a few times.
+      // Landed = the box holds an unbroken piece of what was typed, spaces and line breaks ignored
+      // (live 2026-11-12: Perplexity's editor dropped the first line and the line breaks, yet the words were in).
+      const bare = (s) => String(s || '').replace(/…$/, '').replace(/\s+/g, '');
+      const all = bare(text);
+      const landed = (shown) => { const b = bare(shown).slice(0, 60); return b.length >= Math.min(15, all.length) && all.includes(b); };
+      let texts = [];
+      for (let i = 0; i < 4; i++) {
+        texts = (await request('query', { selector: site.input, tabId })).texts || [];
+        if (landed(texts[0])) return true;
+        if (i < 3) await sleep(600);
+      }
+      // What the box showed instead (length + start only), so a site that changed can be fixed in sites.json.
+      log(`[orchestrator] ${site.name}: box shows ${texts.length} match(es), first ${String(texts[0] || '').length} chars: "${String(texts[0] || '').slice(0, 40)}"`);
+      return false;
     };
     if (!(await type())) {
       log(`[orchestrator] ${site.name}: typing in the background did not land, trying once more`);

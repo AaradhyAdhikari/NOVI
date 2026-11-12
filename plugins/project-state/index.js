@@ -6,8 +6,9 @@ import fs from 'node:fs';
 import { definePluginEntry } from '#plugin-sdk';
 import { openProjectState, taskFromCoder } from './state.js';
 import { projectFacts } from './facts.js';
-import { stepsFromBrief, planFromSteps, readyTasks } from './planner.js';
+import { stepsFromBrief, planFromSteps, readyTasks, roleCounts } from './planner.js';
 import { briefFrom } from '../donecheck/report.js';
+import { rolesOf, team } from '../agents/team.js';
 
 const obj = (properties, required = []) => ({ type: 'object', properties, required, additionalProperties: false });
 const str = (description) => ({ type: 'string', description });
@@ -38,11 +39,13 @@ export function createProjectStatePlugin({ exec } = {}) {
       // the board (agent_run), so the steps keep moving with the run even after a Novi restart (code review:
       // the run's first event comes before any tool hook, and an old unrun plan must never be touched).
       const planned = new Set(); // run ids already planned
-      const planBrief = (p, brief) => {
+      const planBrief = (p, brief, opts = {}) => {
         const { steps, doneWhen } = stepsFromBrief(brief);
         if (!steps.length) return null;
-        return planFromSteps(stateOf(p), steps, { doneWhen });
+        return planFromSteps(stateOf(p), steps, { doneWhen, ...opts });
       };
+      // The team's roles (plugins/agents), so a named agent only lands on steps it can do.
+      const can = () => rolesOf();
 
       // The coder's task moves → the board. Facts are refreshed once per task, not on every move.
       const fresh = new Set();
@@ -58,7 +61,7 @@ export function createProjectStatePlugin({ exec } = {}) {
           if (brief && !planned.has(t.id) && !ps.tasks().some((x) => x.agent_run === t.id)) {
             planned.add(t.id);
             const out = planBrief(p, brief);
-            for (const st of (out?.added || []).filter((x) => x.owner === 'claude')) ps.upsertTask({ id: st.id, agent_run: t.id });
+            for (const st of (out?.added || []).filter((x) => x.role === 'build')) ps.upsertTask({ id: st.id, owner: 'claude', agent_run: t.id });
           }
           for (const st of ps.tasks().filter((x) => x.agent_run === t.id && x.id !== t.id)) ps.upsertTask({ id: st.id, status: task.status });
         } catch (err) { warn(`[project-state] ${t.project}: ${err.message}`); }
@@ -97,8 +100,8 @@ export function createProjectStatePlugin({ exec } = {}) {
           const ready = readyTasks(tasks);
           const lines = [
             `${p.name}: ${open.length} open task${open.length === 1 ? '' : 's'}, ${done.length} finished, ${dec.length} decision${dec.length === 1 ? '' : 's'}.`,
-            ...open.slice(0, 5).map((t) => `- ${short(t.title)} (${t.status}, ${t.owner || 'unassigned'})`),
-            ...(ready.length ? [`Ready to start: ${ready.slice(0, 3).map((t) => `${short(t.title)} (${t.owner})`).join('; ')}.`] : []),
+            ...open.slice(0, 5).map((t) => `- ${short(t.title)} (${t.status}, ${t.owner || t.role || 'unassigned'})`),
+            ...(ready.length ? [`Ready to start: ${ready.slice(0, 3).map((t) => `${short(t.title)} (${t.owner || t.role})`).join('; ')}. Say "run the ${p.name} tasks".`] : []),
             ...(dec.length ? [`Latest decision: ${dec.at(-1).title}: ${dec.at(-1).decision}.`] : []),
           ];
           return reply('', { note: lines.join('\n'), tasks: tasks.slice(0, 20), decisions: dec.slice(-10), project: ps.project() });
@@ -108,22 +111,28 @@ export function createProjectStatePlugin({ exec } = {}) {
       api.registerTool({
         name: 'project_plan',
         description: "Plan a project from its latest brief (the Novi Memory note \"<Project> brief\"), or from steps given: tasks with owners, dependencies and done-when on the project's board. Steps already finished are not planned again.",
-        parameters: obj({ project: str('Project name'), steps: { type: 'array', items: { type: 'string' }, description: 'Optional: the steps, when there is no brief' } }, ['project']),
-        async execute(_id, { project, steps } = {}) {
+        parameters: obj({ project: str('Project name'), steps: { type: 'array', items: { type: 'string' }, description: 'Optional: the steps, when there is no brief' }, agent: str('Agent the user named for the work, e.g. codex') }, ['project']),
+        async execute(_id, { project, steps, agent } = {}) {
           const p = find(project);
           if (!there(p)) return reply('', { error: `I don't know a project called "${project}" with a folder.` });
           try {
+            let opts = {};
+            if (agent) {
+              const a = team()?.find?.(agent);
+              if (!a) return reply('', { error: `I don't have an agent called ${agent}.${team() ? ` The team: ${team().list().map((x) => x.name).join(', ')}.` : ''}` });
+              opts = { agent: a.id, can: can() };
+            }
             let out;
-            if (Array.isArray(steps) && steps.length) out = planFromSteps(stateOf(p), steps.map(String), { source: 'user' });
+            if (Array.isArray(steps) && steps.length) out = planFromSteps(stateOf(p), steps.map(String), { source: 'user', ...opts });
             else {
               const brief = rt.wikiRead?.(`${p.name} brief`);
               if (!brief) return reply('', { error: `${p.name} has no brief yet. Say "let's work on ${p.name}" to make one, or tell me the steps.` });
-              out = planBrief(p, brief);
+              out = planBrief(p, brief, opts);
               if (!out) return reply('', { error: `The ${p.name} brief has no steps I can plan from.` });
             }
-            const who = [...new Set(out.added.map((t) => t.owner))].join(', ');
+            const roles = roleCounts(out.added);
             const note = [
-              out.added.length ? `Planned ${out.added.length} task${out.added.length === 1 ? '' : 's'} for ${p.name}${who ? ` (${who})` : ''}.` : `Nothing new to plan for ${p.name}.`,
+              out.added.length ? `Planned ${out.added.length} task${out.added.length === 1 ? '' : 's'} for ${p.name}${roles ? ` (${roles})` : ''}${agent ? `, ${agent} on the steps it can do` : ''}.` : `Nothing new to plan for ${p.name}.`,
               out.skipped.length ? `Already done, so not planned again: ${out.skipped.map((s) => s.step).join('; ')}.` : '',
             ].filter(Boolean).join(' ');
             return reply('', { note, added: out.added, skipped: out.skipped });

@@ -194,6 +194,18 @@ describe('the board and decisions by voice (no AI)', async () => {
     expect(projectBoardCommand('decision for Tip calculator: use React because it is simple')).toEqual({ tool: 'project_decision', args: { project: 'Tip calculator', title: 'use React', decision: 'use React', reason: 'it is simple' } });
     expect(projectBoardCommand('note a decision for novi: database is SQLite')).toEqual({ tool: 'project_decision', args: { project: 'novi', title: 'database is SQLite', decision: 'database is SQLite', reason: '' } });
   });
+  // Phase 3: the team by voice. The agent you name wins; 'without X' avoids X.
+  it('runs the tasks, with or without a named agent', () => {
+    expect(projectBoardCommand('run the tip calculator tasks')).toEqual({ tool: 'project_run', args: { project: 'tip calculator' } });
+    expect(projectBoardCommand('start the next task on novi with codex')).toEqual({ tool: 'project_run', args: { project: 'novi', agent: 'codex' } });
+    expect(projectBoardCommand('continue the tip calculator project without chatgpt')).toEqual({ tool: 'project_run', args: { project: 'tip calculator', avoid: 'chatgpt' } });
+    expect(projectBoardCommand("run the novi tasks, don't use chatgpt, use perplexity")).toEqual({ tool: 'project_run', args: { project: 'novi', agent: 'perplexity', avoid: 'chatgpt' } });
+    expect(projectBoardCommand('which agents do you have')).toEqual({ tool: 'project_agents', args: {} });
+    expect(projectBoardCommand('who can you use for coding')).toEqual({ tool: 'project_agents', args: {} });
+  });
+  it('plans with a named builder', () => {
+    expect(projectBoardCommand('plan the tip calculator project with codex')).toEqual({ tool: 'project_plan', args: { project: 'tip calculator', agent: 'codex' } });
+  });
   it('leaves other sentences alone', () => {
     expect(projectBoardCommand('what is the status of novi')).toBe(null);
     expect(projectBoardCommand('board the plane')).toBe(null);

@@ -16,5 +16,23 @@
     "busy": "button[aria-label*=\"Stop response\"], button.stop",
     "answer": "model-response",
     "login": "a[href*=\"accounts.google.com/ServiceLogin\"], a[aria-label=\"Sign in\"]"
+  },
+  "perplexity": {
+    "name": "Perplexity",
+    "url": "https://www.perplexity.ai/",
+    "input": "textarea[placeholder*=\"Ask\"], div[contenteditable=\"true\"][role=\"textbox\"], #ask-input",
+    "send": "button[aria-label*=\"Submit\"], button[aria-label*=\"Send\"]",
+    "busy": "button[aria-label*=\"Stop\"]",
+    "answer": "[id^=\"markdown-content\"], .prose",
+    "login": "a[href*=\"/login\"], button[data-testid*=\"login\"]"
+  },
+  "deepseek": {
+    "name": "DeepSeek",
+    "url": "https://chat.deepseek.com/",
+    "input": "textarea#chat-input, textarea",
+    "send": "div[role=\"button\"][aria-disabled=\"false\"]:has(svg), button[type=\"submit\"]",
+    "busy": "div[class*=\"stop\"], button[aria-label*=\"Stop\"]",
+    "answer": ".ds-markdown, [class*=\"markdown\"]",
+    "login": "div[class*=\"login\"] input[type=\"password\"], a[href*=\"sign_in\"]"
   }
 }

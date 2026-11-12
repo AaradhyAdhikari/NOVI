@@ -3,12 +3,15 @@ import { createSiteDriver, SITES } from '../../plugins/orchestrator/siteDriver.j
 
 // A fake chat site behind the Novi extension: the answer streams in over a few polls, then the
 // "stop" button goes away. No real site is ever touched in tests.
-function fakeSite({ site = SITES.chatgpt, loads = true, login = false, answer = ['Goal', 'Goal\n1. Build', 'Goal\n1. Build\n2. Test'], startsAfterForward = false, typing = true, tabs = [] } = {}) {
+// drawsAfter: the box shows the words only after that many looks; eats: the editor drops the first line and
+// the line breaks (both Perplexity, live 2026-11-12).
+function fakeSite({ site = SITES.chatgpt, loads = true, login = false, answer = ['Goal', 'Goal\n1. Build', 'Goal\n1. Build\n2. Test'], startsAfterForward = false, typing = true, tabs = [], drawsAfter = 0, eats = false } = {}) {
   const calls = [];
   let sent = 0;
   let polls = 0;
   let forwarded = false;
   let typed = '';
+  let looks = 0;
   const old = 1; // one answer already on the page (an older chat)
   const request = async (cmd, args = {}, opts) => {
     calls.push([cmd, args, ...(opts ? [opts] : [])]);
@@ -18,7 +21,11 @@ function fakeSite({ site = SITES.chatgpt, loads = true, login = false, answer = 
     if (cmd === 'waitFor') return { found: loads };
     if (cmd === 'has' && args.selector === site.login) return { found: login };
     if (cmd === 'typeSel') { if (typing || forwarded) typed = args.text; return {}; }
-    if (cmd === 'query' && args.selector === site.input) return { texts: [typed.replace(/\s+/g, ' ').slice(0, 80)] };
+    if (cmd === 'query' && args.selector === site.input) {
+      looks += 1;
+      const box = eats ? typed.split('\n').slice(1).join('') : typed;
+      return { texts: [looks > drawsAfter ? box.replace(/\s+/g, ' ').slice(0, 80) : ''] };
+    }
     if (cmd === 'clickSel') { sent += 1; return {}; }
     const going = sent > 0 && (!startsAfterForward || forwarded);
     if (cmd === 'has' && args.selector === site.busy) return { found: going && polls < answer.length };
@@ -35,6 +42,20 @@ let t = 0;
 const fast = { sleep: async () => { t += 1000; }, now: () => t };
 
 describe('AI site driver (ChatGPT / Gemini through the Novi extension)', () => {
+  it('an editor that drops the first line and the line breaks still counts as typed (live Perplexity)', async () => {
+    const f = fakeSite({ site: SITES.perplexity, eats: true });
+    const d = createSiteDriver({ request: f.request, sites: SITES, ...fast });
+    const r = await d.ask('perplexity', 'PROJECT CONTEXT\n- Project: team test (team-test)\n- Goal: a quote page\nTASK');
+    expect(r.error).toBeUndefined();
+    expect(f.calls.filter(([c]) => c === 'typeSel')).toHaveLength(1);
+  });
+  it('an editor that draws the words late still counts as typed (looked at a few times, typed once)', async () => {
+    const f = fakeSite({ site: SITES.perplexity, drawsAfter: 2 });
+    const d = createSiteDriver({ request: f.request, sites: SITES, ...fast });
+    const r = await d.ask('perplexity', 'Research three free quote APIs');
+    expect(r.error).toBeUndefined();
+    expect(f.calls.filter(([c]) => c === 'typeSel')).toHaveLength(1);
+  });
   it('fresh chat in a background tab, prompt typed and sent, the whole finished answer read back', async () => {
     const { request, calls } = fakeSite();
     const d = createSiteDriver({ request, ...fast });

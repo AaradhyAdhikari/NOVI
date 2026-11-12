@@ -1,0 +1,9 @@
+{
+  "id": "agents",
+  "name": "The team",
+  "description": "The agents Novi can give work to, by role (research, plan, build, review): Claude, Codex, the AI websites in Novi's hidden Chrome window, the backup AI. project_run sends a project's ready tasks to them; project_agents lists the team.",
+  "categories": ["other"],
+  "contracts": { "tools": ["project_run", "project_agents"] },
+  "activation": { "onStartup": true },
+  "configSchema": { "type": "object", "additionalProperties": false, "properties": {} }
+}

@@ -319,3 +319,11 @@ Enable the Calendar, Tasks, Drive and Sheets APIs in Google Cloud Console, then 
 - In the Novi app tap the Monitor button (or say "control my laptop"), give the PIN.
 - Expect: the laptop screen as smooth video within a few seconds (not pictures that jump). Taps still click, swipes still scroll, typing still works.
 - If it stays on "Connecting" for 25 s it falls back to the old pictures: say so, and Novi's log has `[live] video stream failed` with the reason.
+
+## The team (orchestrator Phase 3, 2026-11-11) — not tried live yet
+- "which agents do you have" → the list with roles and who is ready (Codex: not installed; sites need Chrome).
+- "plan the tip calculator project" then "run the tip calculator tasks" → "Starting T-00N (research) with ChatGPT…", then one spoken line per finished task; the answer in `<project>/.novi/outputs/`.
+- "run the tip calculator tasks with perplexity" / "… without chatgpt" / "…, don't use chatgpt, use deepseek" → the named one takes the steps it can do; what it can't do goes to the next, said.
+- With Chrome closed → every text step goes to the backup AI, said as such.
+- A build step: Claude starts, "Claude is building T-00N…", and after it finishes the next tasks run by themselves.
+- Known: Perplexity/DeepSeek selectors in sites.json are guesses until the first real run.

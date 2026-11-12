@@ -126,7 +126,17 @@
       if (!el) return { error: 'I could not find the box to type in.' };
       if ((el.getAttribute('type') || '').toLowerCase() === 'password') return { error: "I don't type passwords. Type it on the laptop and say done." };
       el.focus();
-      if (el.isContentEditable) { document.execCommand('selectAll', false); if (text) document.execCommand('insertText', false, text); else document.execCommand('delete', false); } else setValue(el, text);
+      if (el.isContentEditable) {
+        document.execCommand('selectAll', false);
+        if (text) document.execCommand('insertText', false, text); else document.execCommand('delete', false);
+        // Editors like Lexical (Perplexity) ignore execCommand; they take a typed-input event (live 2026-11-12).
+        const has = () => String(el.innerText || '').replace(/\s+/g, ' ').trim().includes(String(text).replace(/\s+/g, ' ').trim().slice(0, 20));
+        // The whole box selected first, so the words replace what's there (without it the editor dropped line breaks).
+        if (text && !has()) {
+          try { const sel = window.getSelection?.(); const r = document.createRange?.(); if (sel && r) { r.selectNodeContents(el); sel.removeAllRanges(); sel.addRange(r); } } catch { /* no selection API: the event alone */ }
+          el.dispatchEvent(new InputEvent('beforeinput', { inputType: 'insertText', data: text, bubbles: true, cancelable: true }));
+        }
+      } else setValue(el, text);
       return {};
     },
     scroll({ dir }) { window.scrollBy(0, (dir === 'up' ? -0.8 : 0.8) * innerHeight); return {}; },

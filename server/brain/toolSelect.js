@@ -7,7 +7,7 @@ const GROUP = {
   play_youtube: 'youtube', youtube_search: 'youtube',
   open_project: 'ide', list_projects: 'projects', remember_project: 'projects', forget_project: 'projects',
   timer_set: 'reminder', conversation_history: 'memory',
-  project_next: 'projects', rename_project: 'projects', project_about: 'projects', project_status: 'projects', project_board: 'projects', project_decision: 'projects', study_log: 'sheets', sheets_log_link: 'sheets',
+  project_next: 'projects', rename_project: 'projects', project_about: 'projects', project_status: 'projects', project_board: 'projects', project_decision: 'projects', project_run: 'projects', project_agents: 'projects', study_log: 'sheets', sheets_log_link: 'sheets',
   note_write: 'wiki', notes_ask: 'wiki', note_open: 'wiki', notes_list: 'wiki', wiki_recent: 'wiki',
   laptop_run: 'commands', commands_history: 'commands', laptop_disk: 'commands',
   whatsapp_prepare: 'whatsapp', whatsapp_send: 'whatsapp',
@@ -24,7 +24,7 @@ const WORDS = {
   reminder: 'remind reminder reminders timer timers alarm alarms wake utha uthana uthade jaga jagana jagade yaad',
   github: 'github repo repos repository issue issues pr prs pull notification notifications commit commits contribution contributions',
   ide: 'cursor vscode antigravity kiro editor ide claude',
-  projects: 'project projects folder leave left progress far continue rename app apps repo about board decision decided tasks',
+  projects: 'project projects folder leave left progress far continue rename app apps repo about board decision decided tasks run agents team codex perplexity chatgpt gemini deepseek',
   // "claude" is in both ide and code: "open X in Claude and do Y" may open it and start a task.
   code: 'commit push pull git code html css javascript jsx fix bug bugs build implement refactor tests coding coder feature claude back takeover sambhal add bana banao karwa karwao change mode page button',
   memory: 'remember forget memory memories told yesterday earlier talked said ago',
