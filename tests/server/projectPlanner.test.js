@@ -53,7 +53,8 @@ describe('planning onto the board', () => {
     const t = ps.tasks().reverse();
     expect(t.map((x) => [x.id, x.role, x.owner, x.status])).toEqual([['T-001', 'research', null, 'planned'], ['T-002', 'build', null, 'planned'], ['T-003', 'build', null, 'planned'], ['T-004', 'build', null, 'planned'], ['T-005', 'review', null, 'planned']]);
     expect(t[1].depends_on).toEqual(['T-001']);
-    expect(t[2].depends_on).toEqual(['T-002']);
+    expect(t[2].depends_on).toEqual(['T-001']); // dark mode doesn't need the inputs: both can be built at once (Phase 5)
+    expect(t[3].depends_on).toEqual(['T-003']); // tests wait for what comes before
     expect(t[4].acceptance_criteria).toEqual(['Typing a bill shows the tip', 'Dark mode works']);
   });
   it('a step already finished on the board is not added again, and says so', () => {
@@ -167,5 +168,26 @@ describe('planner review fixes', () => {
   });
   it('a coder run that only ended (review, no plan source) never counts as finished work', () => {
     expect(similarDone('Add the login page', [{ id: 'run', title: 'add the login page with email', status: 'review' }])).toBe(null);
+  });
+});
+
+// Phase 5 (2026-11-12): building steps that don't need each other can run at the same time.
+describe('which steps can run together', () => {
+  const deps = (steps) => {
+    const ps = openProjectState(tmp());
+    ps.ensure({ id: 'p', name: 'P', path: ps.dir, goal: 'x' });
+    const { added } = planFromSteps(ps, steps);
+    return Object.fromEntries(added.map((t) => [t.title, t.depends_on]));
+  };
+  it('two separate building steps both wait for the plan, not for each other', () => {
+    const d = deps(['Write the spec for the page', 'Build the header', 'Build the footer']);
+    expect(d['Build the header']).toEqual(['T-001']);
+    expect(d['Build the footer']).toEqual(['T-001']);
+  });
+  it('a step that points back, tests, or the same file waits for the one before', () => {
+    const d = deps(['Build the login page', 'Then connect it to the API', 'Add the contact form to index.html', 'Fix the menu in index.html', 'Build the pricing table', 'Write tests for the pricing table']);
+    expect(d['Then connect it to the API']).toEqual(['T-001']);
+    expect(d['Fix the menu in index.html']).toEqual(['T-003']);
+    expect(d['Write tests for the pricing table']).toEqual(['T-005']);
   });
 });

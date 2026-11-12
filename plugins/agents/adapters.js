@@ -18,7 +18,8 @@ export const plainError = (s) => String(s || '').replace(/\u001b\[[0-9;]*m/g, ''
 // Runs a program and gives back what it printed. env: only what's passed (callers build a minimal one).
 // On a timeout the whole process tree is ended (a shell's child would otherwise keep running on Windows).
 // shell: false for a program given by its full path (no shell, no quoting needed); default: a shell on Windows.
-export function defaultExec(args, { cwd, input, env, timeoutMs = 20 * 60_000, shell = process.platform === 'win32' } = {}) {
+// signal: "stop the team" ends the program (its whole process tree) at once.
+export function defaultExec(args, { cwd, input, env, timeoutMs = 20 * 60_000, shell = process.platform === 'win32', signal = null } = {}) {
   return new Promise((resolve, reject) => {
     const win = process.platform === 'win32';
     const [cmd, ...rest] = shell ? shellArgs(args, win) : args;
@@ -28,11 +29,15 @@ export function defaultExec(args, { cwd, input, env, timeoutMs = 20 * 60_000, sh
     let stderr = '';
     let done = false;
     const end = (err) => { if (done) return; done = true; clearTimeout(timer); if (err) reject(Object.assign(err, { stdout })); else resolve(stdout); };
+    const kill = () => { if (win && child.pid) execFile('taskkill', ['/T', '/F', '/PID', String(child.pid)], { windowsHide: true }, () => {}); else child.kill('SIGKILL'); };
     const timer = setTimeout(() => {
-      if (win && child.pid) execFile('taskkill', ['/T', '/F', '/PID', String(child.pid)], { windowsHide: true }, () => {});
-      else child.kill('SIGKILL');
+      kill();
       end(new Error(`${args[0]} took longer than ${Math.round(timeoutMs / 60000)} min and was stopped`));
     }, timeoutMs);
+    if (signal) {
+      if (signal.aborted) { kill(); end(new Error('stopped')); }
+      else signal.addEventListener('abort', () => { kill(); end(new Error('stopped')); }, { once: true });
+    }
     child.stdout?.on('data', (d) => { stdout += d; if (stdout.length > 8_000_000) stdout = stdout.slice(-4_000_000); });
     child.stderr?.on('data', (d) => { stderr += d; if (stderr.length > 100_000) stderr = stderr.slice(-50_000); });
     child.on('error', (err) => end(err));
@@ -61,7 +66,7 @@ export function buildAdapters({ rt = {}, exec = defaultExec, sites = SITES, log 
 
   let codexSeen = null; // { at, ok }
   out.push({
-    id: 'codex', name: 'Codex', aliases: ['openai codex'], roles: ['build'], order: 2, levels: { medium: 25, hard: 15 },
+    id: 'codex', name: 'Codex', aliases: ['openai codex'], roles: ['build'], order: 2, copies: true, levels: { medium: 25, hard: 15 },
     available: async () => {
       if (codexSeen && Date.now() - codexSeen.at < 10 * 60_000) return codexSeen.ok ? ok : { ok: false, why: 'Codex is not installed' };
       let yes = false;
@@ -69,9 +74,9 @@ export function buildAdapters({ rt = {}, exec = defaultExec, sites = SITES, log 
       codexSeen = { at: Date.now(), ok: yes };
       return yes ? ok : { ok: false, why: 'Codex is not installed' };
     },
-    async run(pkg, { ps }) {
+    async run(pkg, { ps, cwd = null, signal = null }) {
       // Not live-tested (no Codex on this laptop yet): `codex exec` reads the task from stdin and works in the project folder.
-      const text = await exec(['codex', 'exec', '--sandbox', 'workspace-write', '--skip-git-repo-check', '-'], { cwd: path.dirname(ps.dir), input: pkg }); // ps.dir = <project>/.novi
+      const text = await exec(['codex', 'exec', '--sandbox', 'workspace-write', '--skip-git-repo-check', '-'], { cwd: cwd || path.dirname(ps.dir), input: pkg, signal }); // its own copy (Phase 5), else the project (ps.dir = <project>/.novi)
       return { ok: true, output: text.trim().slice(-6000), summary: text.trim().split('\n').filter(Boolean).at(-1) };
     },
   });

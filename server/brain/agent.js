@@ -54,7 +54,7 @@ const STEP_TOOLS = new Set(['open_app', 'open_website', 'screen_type_into', 'scr
 const LAPTOP_QUIET = new Set(['laptop_seek', 'laptop_media', 'laptop_video_mute', 'laptop_select']);
 const QUIET_NOTE = /^(?:Skipped ahead|Went back|Jumped to|Paused|Playing|Next|Previous|Already paused|Muted the video|Unmuted the video|The video is already|Selected)/;
 const SAID_NOT_WRITTEN = /^Copied \d+ lines?\.$/; // nothing to see, so it is said, but not written
-const DIRECT_OK = new Set(['team_add', 'team_discover', 'project_import', 'project_run', 'project_agents', 'project_decision', 'live_screen_open', 'text_edit_selection', 'code_start_task', 'code_send_message', 'rename_project', 'file_new_folder', 'open_project', 'file_open', 'file_rename', 'note_write', 'notes_ask', 'note_open', 'whatsapp_send', 'claude_project_make', 'remember_project', 'codemap_build', 'donecheck_run', 'donecheck_fix', 'claude_activity', 'code_changes', 'code_tests', 'code_pull', 'claude_usage']); // whatsapp_send: the user's decision 2026-10-17 — their command is the yes
+const DIRECT_OK = new Set(['project_stop', 'project_said', 'team_status', 'project_undo', 'team_add', 'team_discover', 'project_import', 'project_run', 'project_agents', 'project_decision', 'live_screen_open', 'text_edit_selection', 'code_start_task', 'code_send_message', 'rename_project', 'file_new_folder', 'open_project', 'file_open', 'file_rename', 'note_write', 'notes_ask', 'note_open', 'whatsapp_send', 'claude_project_make', 'remember_project', 'codemap_build', 'donecheck_run', 'donecheck_fix', 'claude_activity', 'code_changes', 'code_tests', 'code_pull', 'claude_usage']); // whatsapp_send: the user's decision 2026-10-17 — their command is the yes
 const ASK_ANYWAY = new Set(['file_gather', 'file_undo_move', 'laptop_run', 'preview_show', 'preview_open']); // preview_show/open: only its first start of a project's own command asks
 const MAX_ROUNDS = 10; // screen tasks: open the app, look, click, type, …
 const MAX_HISTORY = 40;
@@ -549,7 +549,7 @@ export class Agent {
     }
     const boardSaid = projectBoardCommand(text);
     // "Plan X" only for a project Novi knows ("plan a trip to Goa" goes on to the AI).
-    const board = boardSaid && (!['project_plan', 'project_run'].includes(boardSaid.tool) || this.memory?.findProject?.(boardSaid.args.project)) ? boardSaid : null;
+    const board = boardSaid && (!['project_plan', 'project_run', 'project_undo'].includes(boardSaid.tool) && !(boardSaid.tool === 'project_stop' && boardSaid.args.project) || this.memory?.findProject?.(boardSaid.args.project)) ? boardSaid : null;
     if (board && this.tools.get(board.tool)) {
       const { output } = await this._runTool({ id: `board-${Date.now()}`, function: { name: board.tool, arguments: JSON.stringify(board.args) } }, { direct: true });
       return this._remember(text, output?.error || output?.note || 'Done.');
@@ -857,7 +857,7 @@ ${LIVE_NOTE}` };
     const imported = importCommand(text);
     if (imported && this.tools.get(imported.tool) && this.memory?.findProject?.(imported.args.project)) return { quick: null, calls: [{ name: imported.tool, args: imported.args }], reply: null, provider: 'direct' };
     const boardSaid = projectBoardCommand(text);
-    const board = boardSaid && (!['project_plan', 'project_run'].includes(boardSaid.tool) || this.memory?.findProject?.(boardSaid.args.project)) ? boardSaid : null;
+    const board = boardSaid && (!['project_plan', 'project_run', 'project_undo'].includes(boardSaid.tool) && !(boardSaid.tool === 'project_stop' && boardSaid.args.project) || this.memory?.findProject?.(boardSaid.args.project)) ? boardSaid : null;
     if (board && this.tools.get(board.tool)) return { quick: null, calls: [{ name: board.tool, args: board.args }], reply: null, provider: 'direct' };
     const check = doneCheckCommand(text);
     if (check && this.tools.get(check.tool)) return { quick: null, calls: [{ name: check.tool, args: check.args }], reply: null, provider: 'direct' };

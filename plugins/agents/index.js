@@ -11,9 +11,10 @@ import { createGaps } from '../../server/brain/gaps.js';
 import { createRegistry } from './registry.js';
 import { createRunner } from './runner.js';
 import { buildAdapters, defaultExec } from './adapters.js';
-import { agentWords } from './roles.js';
+import { agentWords, roleVerb } from './roles.js';
 import { setTeam } from './team.js';
 import { checkTask, reviewCard } from './review.js';
+import { createCopies, createLocks, RISKY } from './copies.js';
 import { createRecord } from './record.js';
 import { consentKey } from './opencode.js';
 import { siteAdapter } from './learned.js';
@@ -60,7 +61,14 @@ export function createAgentsPlugin({ exec = defaultExec, review: checkers = {}, 
       for (const a of buildAdapters({ rt, exec, log, consent })) registry.add(a);
       setTeam(registry);
       const gaps = rt.gaps || (rt.dataDir ? createGaps({ file: path.join(rt.dataDir, 'gaps', 'gaps.jsonl') }) : null);
-      const runner = createRunner({ registry, say: (t) => rt.say?.(t, { kind: null }), gaps, log, tasks: rt.tasks, record });
+      // Phase 5: each coder that can gets its own copy of the project (outside it, in Novi's data folder);
+      // locks keep two tasks off one file; Claude's runs for the team are marked so they get no second
+      // commit card (the review card's yes commits them).
+      const copies = createCopies({ root: path.join(rt.dataDir || path.join(process.cwd(), 'data'), 'agents', 'copies') });
+      const locks = createLocks();
+      const teamRuns = new Set();
+      rt.teamRun = (id) => teamRuns.has(id);
+      const runner = createRunner({ registry, say: (t) => rt.say?.(t, { kind: null }), gaps, log, tasks: rt.tasks, record, copies, locks, onRun: (id) => teamRuns.add(id) });
       const find = (name) => rt.codingProject?.(name) || (rt.projects?.list?.() || []).find((p) => String(p.name).toLowerCase() === String(name || '').toLowerCase()) || null;
       const there = (p) => Boolean(p?.path && fs.existsSync(p.path) && fs.existsSync(path.join(p.path, '.novi', 'tasks.json')));
       const key = (p) => path.resolve(String(p || '')).toLowerCase();
@@ -95,13 +103,57 @@ export function createAgentsPlugin({ exec = defaultExec, review: checkers = {}, 
         asking.add(tag);
         try {
           const output = own(ps, t.output) && fs.existsSync(t.output) ? fs.readFileSync(t.output, 'utf8') : '';
-          const check = await checkTask({ task: t, dir: p.path, output, ...checkers });
+          // A build is checked where it was done: its own copy (only what it changed), or your folder.
+          const work = t.role === 'build' ? copies.find({ dir: p.path, taskId: t.id }) : null;
+          let seen = null; // what the card shows, exactly: the yes covers only that (security review)
+          const changes = work ? { changes: async () => { const list = await copies.changes(work); seen = Object.fromEntries(list.map((c) => [c.file, c.hash])); return list.map((c) => ({ file: c.file })); } } : {};
+          const check = await checkTask({ task: t, dir: work?.copy ? work.path : p.path, output, ...changes, ...checkers });
+          if (check.files?.length) locks.claim(t.id, check.files); // held until your answer
+          if (work && !work.copy && check.files?.length) check.risks = [...(check.risks || []), 'It worked in your own folder, so anything you or other tasks changed there meanwhile is in this list too.'];
           const agentName = registry.find(t.owner)?.name || t.owner || 'The agent';
-          const d = await rt.ask(reviewCard({ project: p.name, task: t, agentName, check, output }));
+          const commits = t.role === 'build' && Boolean(work) && Boolean(check.files?.length) && Boolean(rt.commitFiles);
+          const d = await rt.ask(reviewCard({ project: p.name, task: t, agentName, check, output, commits }));
+          if (halted.has(key(p.path))) {
+            // You stopped the team while this card waited: nothing moves, nothing restarts (code review).
+            rt.say?.(`The team on ${p.name} is stopped, so ${t.id} stays waiting. Say "run the ${p.name} tasks" to go on.`, { kind: null });
+            return true;
+          }
           asking.delete(tag); // answered: a re-run of this task gets its own card
           if (d?.allow) {
             record.note(t.owner, t.level, 'pass');
-            ps.upsertTask({ id: t.id, status: 'approved', feedback: '' });
+            if (work) {
+              // Your yes (user, 2026-11-12: "every commit under me … automated and done by all but pushed under
+              // my name"): the task's files come back into your folder, then Novi commits them as you and pushes.
+              const back = await copies.bringBack(work, { seen });
+              if (back.changed) {
+                ps.upsertTask({ id: t.id, status: 'review' });
+                rt.say?.(`${t.id}'s files changed after I showed you the card, so nothing was brought in. Here it is again.`, { kind: null });
+                asking.delete(tag);
+                await reviewProject(p, opts);
+                return true;
+              }
+              if (!back.ok) {
+                const list = back.clash.slice(0, 3).join(', ');
+                ps.upsertTask({ id: t.id, status: 'planned', feedback: `Redo this on top of the current files: ${list} changed in the project since you started.` }, { redact: true });
+                await copies.close(work).catch(() => {});
+                locks.release(t.id);
+                rt.say?.(`${t.id} clashes with changes in ${list} made since it started, so I'm having ${agentName} redo it on top of them.`, { kind: null });
+                await runProject(p, opts);
+                return true;
+              }
+              let committed = null;
+              const risky = back.files.filter((f) => RISKY.test(f));
+              if (back.files.length && rt.commitFiles) committed = await rt.commitFiles({ path: p.path, name: p.name, files: back.files, message: `${t.id}: ${t.title}`, push: !risky.length }).catch((err) => ({ ok: false, note: err.message }));
+              if (committed?.ok && risky.length) committed.note = `Committed, but not pushed: it changes ${risky.slice(0, 3).join(', ')}, which decide what runs. Look at it, then say "push my code".`;
+              ps.upsertTask({ id: t.id, status: committed?.ok ? 'merged' : 'approved', feedback: '', ...(committed?.commit ? { commit: committed.commit } : {}) });
+              if (committed?.commit) mergedLog({ project: key(p.path), task: t.id, commit: committed.commit });
+              await copies.close(work).catch(() => {});
+              locks.release(t.id);
+              if (committed?.note) rt.say?.(`${t.id}: ${committed.note}`, { kind: null });
+            } else {
+              ps.upsertTask({ id: t.id, status: 'approved', feedback: '' });
+              locks.release(t.id);
+            }
             log(`[agents] ${p.name}: ${t.id} approved`);
             await runProject(p, opts);
           } else if (d?.change) {
@@ -115,31 +167,67 @@ export function createAgentsPlugin({ exec = defaultExec, review: checkers = {}, 
           } else {
             record.note(t.owner, t.level, 'back');
             ps.upsertTask({ id: t.id, status: 'changes_requested' });
+            locks.release(t.id);
+            if (work) await copies.close(work).catch(() => {});
             rt.say?.(`Okay, ${t.id} waits. Tell me what to change ("change …"), or say "run the ${p.name} tasks" to try it again.`, { kind: null });
           }
           return true;
         } finally { asking.delete(tag); }
       };
 
+      const ended = new Map(); // project key → coder runs that ended while the runner was still busy there
+      const resume = new Map(); // project key → opts, for tasks that waited for a coder already in that folder
+      const controls = new Map(); // project key → AbortController of the run going on there
+      const halted = new Set(); // projects you stopped: a card answered later moves nothing; "run" clears it
+      // The commits your yes made, in order, kept in Novi's own data folder: an agent can write the project's
+      // board, so undo never trusts a hash from there (security review).
+      const mergedFile = store('merged.json');
+      const mergedRead = () => { try { return JSON.parse(fs.readFileSync(mergedFile, 'utf8')); } catch { return []; } };
+      const mergedLog = (row) => {
+        if (!mergedFile) return;
+        try { fs.mkdirSync(path.dirname(mergedFile), { recursive: true }); fs.writeFileSync(mergedFile, JSON.stringify([...mergedRead(), { ...row, at: new Date().toISOString() }].slice(-500))); } catch { /* best effort */ }
+      };
       const runProject = async (p, opts) => {
         const ps = openProjectState(p.path);
         const k = key(p.path);
-        running.set(k, { opts, busy: true, runId: null });
+        const ctl = new AbortController();
+        controls.set(k, ctl);
+        const mine = { opts, busy: true, runId: null };
+        running.set(k, mine);
+        const leave = () => { if (running.get(k) === mine) running.delete(k); };
         try {
-          const out = await runner.run(ps, opts);
+          const out = await runner.run(ps, { ...opts, signal: ctl.signal });
+          if (controls.get(k) === ctl) controls.delete(k);
+          if (ctl.signal.aborted) { leave(); return out; } // you stopped it: no cards, no carrying on
           if (out.started) {
             const runId = ps.tasks().find((t) => t.id === out.started.id)?.agent_run || null;
-            running.set(k, { opts, busy: false, runId });
+            const gone = runId ? ended.get(k)?.get(runId) : null;
+            if (gone) {
+              // Claude finished while the copies were still working (code review): carry on now.
+              ended.get(k).delete(runId);
+              leave();
+              if (gone !== 'done') { rt.say?.(`The coder ${gone} on ${p.name}. Say "run the ${p.name} tasks" to try again.`, { kind: null }); return out; }
+              setTimeout(() => { if (!halted.has(k)) runProject(p, opts).catch(() => {}); }, 500);
+              return out;
+            }
+            mine.busy = false;
+            mine.runId = runId;
             return out;
           }
-          running.delete(k);
+          if (out.waiting?.length) {
+            resume.set(k, opts);
+            rt.say?.(`${out.waiting.join(', ')} on ${p.name} ${out.waiting.length === 1 ? 'waits' : 'wait'}: a coder is already working in that folder. I'll start when it finishes.`, { kind: null });
+          }
+          // The project stays taken while a card waits, so a second "run" can't start another runner (code review).
+          const reviewed = await reviewProject(p, opts);
+          leave();
+          if (reviewed) return out; // tasks that finished next to a blocked one still get their card
           if (out.blocked) return out;
-          if (await reviewProject(p, opts)) return out;
           const left = ps.tasks().filter((t) => ['planned', 'assigned', 'review', 'changes_requested'].includes(t.status)).length;
           rt.notice?.({ key: `agents-${p.name}`, title: `${p.name}: the team is done for now`, body: left ? `${left} still on the board.` : 'Everything on the board is approved.' });
           return out;
         } catch (err) {
-          running.delete(k);
+          leave();
           log(`[agents] ${p.name}: ${err.message}`);
           rt.say?.(`The team stopped on ${p.name}: ${err.message}`, { kind: null });
           return { error: err.message };
@@ -152,6 +240,8 @@ export function createAgentsPlugin({ exec = defaultExec, review: checkers = {}, 
         if (!t?.path || !['done', 'failed', 'stopped'].includes(t.status)) return;
         const k = key(t.path);
         const r = running.get(k);
+        if (r?.busy && teamRuns.has(t.id)) { if (!ended.has(k)) ended.set(k, new Map()); ended.get(k).set(t.id, t.status === 'done' ? 'done' : t.status === 'failed' ? 'failed' : 'stopped'); return; }
+        if (!r && resume.has(k)) { const opts = resume.get(k); resume.delete(k); setTimeout(() => runProject({ name: t.project, path: t.path }, opts).catch(() => {}), 500); return; }
         if (!r || r.busy || !r.runId || r.runId !== t.id) return;
         running.delete(k);
         if (t.status !== 'done') { rt.say?.(`${t.agent || 'The coder'} ${t.status === 'failed' ? 'failed' : 'stopped'} on ${t.project}. Say "run the ${t.project} tasks" to try again.`, { kind: null }); return; }
@@ -171,7 +261,8 @@ export function createAgentsPlugin({ exec = defaultExec, review: checkers = {}, 
           if (running.has(p.path) || running.has(key(p.path))) return reply('', { note: `${p.name} is already running${running.get(key(p.path))?.runId ? ': a build step is with the coder. I\'ll carry on when it finishes' : ''}.` });
           const ps = openProjectState(p.path);
           // "Run" is the user's retry: tasks blocked earlier (no agent, Chrome off…) get another go.
-          for (const t of ps.tasks()) if (['blocked', 'changes_requested', 'failed'].includes(t.status)) ps.upsertTask({ id: t.id, status: 'planned', note: '' });
+          halted.delete(key(p.path));
+          for (const t of ps.tasks()) if (['blocked', 'changes_requested', 'failed'].includes(t.status) || (t.status === 'cancelled' && t.agent_run && !/^Undone/.test(t.note || ''))) ps.upsertTask({ id: t.id, status: 'planned', note: '' });
           const ready = readyTasks(ps.tasks()).sort((a, b) => a.id.localeCompare(b.id));
           // A task still waiting for the user's yes (its card was lost to a restart or closed): ask again.
           const owed = ps.tasks().filter((t) => t.status === 'review' && t.role);
@@ -289,7 +380,109 @@ export function createAgentsPlugin({ exec = defaultExec, review: checkers = {}, 
       });
 
       // Asked by the AI (not the user's own words): starting the team changes the project.
-      api.on('before_tool_call', async ({ toolName, params }) => {
+      // ---- Phase 6: the team by voice ----
+      const boards = (project) => {
+        const list = project ? [find(project)].filter(Boolean) : (rt.projects?.list?.() || []);
+        return list.filter((p) => there(p)).map((p) => ({ p, ps: openProjectState(p.path) }));
+      };
+      const agentName = (id) => registry.find(id)?.name || id || 'An agent';
+
+      api.registerTool({
+        name: 'project_stop',
+        description: 'Stop the team on a project (or on every project): running agents are stopped, their tasks go back to planned, nothing new starts. "Run the X tasks" starts again.',
+        parameters: obj({ project: str('Project name; leave out for every project') }),
+        async execute(_id, { project } = {}) {
+          const targets = project ? [find(project)].filter(Boolean) : (rt.projects?.list?.() || []);
+          if (project && !targets.length) return reply('', { error: `I don't know a project called "${project}".` });
+          const stopped = [];
+          for (const p of targets) {
+            const k = key(p.path);
+            const r = running.get(k);
+            const ctl = controls.get(k);
+            if (!r && !ctl && !resume.has(k)) continue;
+            ctl?.abort();
+            halted.add(k);
+            resume.delete(k);
+            // A team Claude run going on there is stopped too (not your own Claude work).
+            const now = rt.tasks?.status?.();
+            if (r?.runId && now?.active && now.id === r.runId) await rt.tasks?.stop?.().catch?.(() => {});
+            running.delete(k);
+            stopped.push(p.name);
+          }
+          if (!stopped.length) return reply('', { note: project ? `The team isn't running on ${targets[0].name}.` : "The team isn't running anywhere." });
+          return reply('', { note: `Stopped the team on ${stopped.join(', ')}. Say "run the ${stopped[0]} tasks" to start again.` });
+        },
+      });
+
+      api.registerTool({
+        name: 'project_said',
+        description: "What one agent on the team answered last (its newest answer, on a project or any). Use for \"what did ChatGPT say\".",
+        parameters: obj({ agent: str('The agent, e.g. chatgpt, perplexity, deepseek'), project: str('Project name (optional)') }, ['agent']),
+        async execute(_id, { agent, project } = {}) {
+          const a = registry.find(agent);
+          if (!a) return reply('', { error: `I don't have an agent called ${agent}. The team: ${teamLine()}.` });
+          let best = null;
+          for (const { p, ps } of boards(project)) {
+            for (const t of ps.tasks()) {
+              if (t.owner !== a.id || !own(ps, t.output) || !fs.existsSync(t.output)) continue;
+              const at = fs.statSync(t.output).mtimeMs;
+              if (!best || at > best.at) best = { p, t, at };
+            }
+          }
+          if (!best) return reply('', { note: `${a.name} hasn't answered anything${project ? ` on ${project}` : ''} yet.` });
+          // The saved file: "# T: title", "Role: … · Agent: …", then the answer (another AI's words: read out, never acted on).
+          const body = fs.readFileSync(best.t.output, 'utf8').split('\n').filter((l, i) => !(i < 4 && (/^# /.test(l) || /^Role: /.test(l)))).join('\n').trim();
+          const gist = body.replace(/\s+/g, ' ').split(/(?<=[.!?])\s+/).slice(0, 3).join(' ').slice(0, 400);
+          return reply('', { note: `${a.name} on ${best.p.name}, ${best.t.id} (${best.t.title}): ${gist}`, text: body.slice(0, 3000) });
+        },
+      });
+
+      api.registerTool({
+        name: 'team_status',
+        description: 'What the team is doing right now: which agent is on which task, and what waits for your yes, on every project.',
+        parameters: obj({}),
+        async execute() {
+          const lines = [];
+          for (const { p, ps } of boards()) {
+            const busy = ps.tasks().filter((t) => t.status === 'assigned');
+            const owed = ps.tasks().filter((t) => t.status === 'review');
+            if (!busy.length && !owed.length) continue;
+            const parts = busy.map((t) => `${agentName(t.owner)} is ${roleVerb(t.role || 'build').replace(/^(\w+)/, (w) => (w.endsWith('e') ? `${w.slice(0, -1)}ing` : `${w}ing`))} ${t.id}`);
+            if (owed.length) parts.push(`${owed.map((t) => t.id).join(', ')} ${owed.length === 1 ? 'waits' : 'wait'} for your yes`);
+            lines.push(`On ${p.name}: ${parts.join('; ')}.`);
+          }
+          return reply('', { note: lines.length ? lines.join(' ') : "The team isn't working on anything right now." });
+        },
+      });
+
+      api.registerTool({
+        name: 'project_undo',
+        description: 'Undo the last team task that went to GitHub on a project: a new commit that reverses it, under your name, pushed.',
+        parameters: obj({ project: str('Project name') }, ['project']),
+        async execute(_id, { project } = {}) {
+          const p = find(project);
+          if (!p?.path) return reply('', { error: `I don't know a project called "${project}".` });
+          if (!there(p)) return reply('', { note: `There's nothing from the team on ${p.name} to undo.` });
+          if (!rt.revertCommit) return reply('', { error: 'Undo needs the commit plugin.' });
+          const ps = openProjectState(p.path);
+          const byId = new Map(ps.tasks().map((t) => [t.id, t]));
+          const row = mergedRead().filter((r) => r.project === key(p.path) && byId.get(r.task)?.status === 'merged').pop();
+          const last = row ? { ...byId.get(row.task), commit: row.commit } : null;
+          if (!last) return reply('', { note: `There's nothing from the team on ${p.name} to undo.` });
+          const r = await rt.revertCommit({ path: p.path, name: p.name, commit: last.commit, subject: `${last.id}:` });
+          if (!r?.ok) return reply('', { note: r?.note || `I couldn't undo ${last.id}.` });
+          ps.upsertTask({ id: last.id, status: 'cancelled', note: `Undone by you${r.commit ? ` (${r.commit.slice(0, 7)})` : ''}${r.pushed ? '' : ', on the laptop only'}.` }, { redact: true });
+          const how = r.pushed ? 'The undo is on GitHub too.' : `It's undone on the laptop, not on GitHub: ${String(r.note || '').replace(/^Committed[^,.]*[,.]\s*/i, '')}`;
+          return reply('', { note: `Undid ${last.id} (${last.title}) on ${p.name}. ${how}`.trim() });
+        },
+      });
+
+      api.on('before_tool_call', async ({ toolName, params, direct }) => {
+        // Undo changes your project and GitHub: the AI asks first; your own words are the yes.
+        if (toolName === 'project_undo' && !direct) {
+          const title = `Undo the last team task on ${params?.project || 'the project'}?`;
+          return { requireApproval: { title, prompt: title, description: 'A new commit that reverses it, under your name, pushed to GitHub.', severity: 'warning', category: 'github', grantable: false } };
+        }
         if (toolName !== 'project_run') return null;
         const title = `Run the ${params?.project || 'project'} tasks with the team?`;
         return { requireApproval: { title, prompt: title, description: 'Each ready task goes to the agent of its role; build steps start the coder.', severity: 'warning', category: 'code', grantable: false } };

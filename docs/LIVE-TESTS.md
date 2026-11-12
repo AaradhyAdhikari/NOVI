@@ -327,3 +327,14 @@ Enable the Calendar, Tasks, Drive and Sheets APIs in Google Cloud Console, then 
 - With Chrome closed → every text step goes to the backup AI, said as such.
 - A build step: Claude starts, "Claude is building T-00N…", and after it finishes the next tasks run by themselves.
 - Known: Perplexity/DeepSeek selectors in sites.json are guesses until the first real run.
+
+## Several coders at once + the team by voice (Phases 5–6, 2026-11-12) — not tried through Novi yet
+Use a throwaway git project with a GitHub link (or a local "remote") so a push can't touch real work.
+- Plan two separate build steps (e.g. "Build the header", "Build the footer"), then "run the X tasks" → both start at once, each coder in its own copy; your folder doesn't change until you approve.
+- The card says "… Approve to commit and push it?" → yes → the files appear in your folder and a commit "T-00N: …" under your name is on GitHub.
+- While a task works, change the same file yourself, then approve → "T-00N clashes with changes in …" and it is redone on top of your version; nothing committed.
+- A change to package.json / .github / hooks → committed but not pushed, said so.
+- "what's the team doing" → who is on which task, what waits for your yes.
+- "what did ChatGPT say on X" → its last answer, short.
+- "stop the team on X" while a coder works → it stops, the task goes back to planned, nothing new starts.
+- "undo the last task on X" → a "Revert …" commit under your name on GitHub; the task shows as undone.

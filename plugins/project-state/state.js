@@ -14,7 +14,7 @@ import { looksSecret } from '../wiki/vault.js';
 export const TASK_STATES = ['planned', 'assigned', 'waiting_approval', 'review', 'changes_requested', 'approved', 'merged', 'failed', 'blocked', 'cancelled'];
 const OPEN = new Set(['planned', 'assigned', 'waiting_approval', 'review', 'changes_requested', 'approved', 'blocked']);
 const MAX_TASKS = 500;
-const FIELDS = ['title', 'role', 'owner', 'summary', 'note', 'agent_run', 'depends_on', 'acceptance_criteria', 'source', 'output', 'feedback', 'level'];
+const FIELDS = ['title', 'role', 'owner', 'summary', 'note', 'agent_run', 'depends_on', 'acceptance_criteria', 'source', 'output', 'feedback', 'level', 'commit'];
 const clip = (s, n) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
 
 export function openProjectState(dir, { now = Date.now } = {}) {

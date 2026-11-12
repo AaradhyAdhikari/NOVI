@@ -6,6 +6,7 @@
 // given: only the context its task needs.
 import { sections } from '../orchestrator/brief.js';
 import { roleFor, levelFor, ROLES } from '../agents/roles.js';
+import { filesNamed } from '../agents/copies.js';
 
 const FINISHED = new Set(['merged', 'review', 'approved']);
 // Finished enough to skip a step: merged/approved, or a planned step whose run is in review. A bare coder
@@ -52,24 +53,36 @@ const nextId = (tasks) => {
 // Steps → planned tasks. A step that is finished on the board, or already planned with the same title, is
 // not added again. Each new task depends on the one before it.
 // agent: the user's named agent; can: { agentId: [roles] } from the team, so it only goes on steps it can do.
+// Phase 5: a building step right after another one runs next to it (both wait for what came before)
+// unless it needs it: it points back (it/then/connect…), is about tests, or names the same file.
+const NEEDS_BEFORE = /\b(?:it|its|this|that|these|those|them|then|after|afterwards|same|also|above|previous|again|tests?|testing|connect|hook|wire|integrate|use)\b/i;
+export function canRunBeside(step, before) {
+  if (!before || (before.role || 'build') !== 'build' || roleFor(step) !== 'build') return false;
+  if (NEEDS_BEFORE.test(step) || /\btests?\b/i.test(before.title)) return false;
+  const mine = filesNamed(step).map((x) => x.toLowerCase());
+  return !filesNamed(before.title).some((x) => mine.includes(x.toLowerCase()));
+}
+
 export function planFromSteps(ps, steps, { doneWhen = [], agent = null, can = {}, source = 'brief' } = {}) {
   const board = ps.tasks();
   const id = nextId(board);
   const added = [];
   const skipped = [];
   let prev = null;
+  let prevTask = null;
   let k = 0;
   for (const step of steps) {
     const done = similarDone(step, board);
-    if (done) { skipped.push({ step, done: done.id }); prev = done.id; continue; }
+    if (done) { skipped.push({ step, done: done.id }); prev = done.id; prevTask = done; continue; }
     const same = board.find((t) => String(t.title).toLowerCase() === String(step).toLowerCase() && !['cancelled', 'failed'].includes(t.status));
-    if (same) { prev = same.id; continue; }
+    if (same) { prev = same.id; prevTask = same; continue; }
     k += 1;
     const role = roleFor(step);
     const owner = agent && (!can[agent] || can[agent].includes(role)) ? agent : null;
-    const task = { id: id(k), title: step, role, ...(role === 'build' ? { level: levelFor(step) } : {}), owner, status: 'planned', depends_on: prev ? [prev] : [], source };
+    const task = { id: id(k), title: step, role, ...(role === 'build' ? { level: levelFor(step) } : {}), owner, status: 'planned', depends_on: canRunBeside(step, prevTask) ? [...(prevTask.depends_on || [])] : prev ? [prev] : [], source };
     added.push(task);
     prev = task.id;
+    prevTask = task;
   }
   if (added.length && doneWhen.length) added[added.length - 1].acceptance_criteria = doneWhen;
   for (const t of added) ps.upsertTask(t);

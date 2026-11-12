@@ -110,14 +110,18 @@ export function createCommitPlugin({ git = gitRun, run = runShell, onDone = () =
         if (nowBranch !== branch || nowHead !== work.head || !same(nowFiles, files) || files.some((f) => printOf(p.path, f) !== work.prints[f])) return say(changed);
         if (!files.length && !work.ahead) return say(`Nothing new to commit in ${p.name}.`);
         if (files.length) {
-          const undo = () => git(['reset', '-q'], p.path).catch(() => {});
+          // Only the card's own files: anything you staged yourself stays staged and is never committed or
+          // unstaged by Novi (live 2026-11-12: a hand-staged "NOVI CONTEXT.txt" made every yes look "changed").
+          const input = files.join('\0');
+          const only = (args) => git(args, p.path, { literal: true, input: null }).catch(() => '');
+          const undo = () => git(['reset', '-q', '--pathspec-from-file=-', '--pathspec-file-nul'], p.path, { input }).catch(() => {});
           try {
-            await git(['add', '-A', '--pathspec-from-file=-', '--pathspec-file-nul'], p.path, { input: files.join('\0') });
-            const staged = parseNames(await git(['diff', '--cached', '--name-only', '-z', '--no-renames'], p.path));
+            await git(['add', '-A', '--pathspec-from-file=-', '--pathspec-file-nul'], p.path, { input });
+            const staged = parseNames(await only(['diff', '--cached', '--name-only', '-z', '--no-renames', '--', ...files]));
             if (!same(staged, files)) { await undo(); return say(changed); }
-            const keyIn = fileWithKey(await git(['diff', '--cached', '-U0', '--no-color', '--no-ext-diff'], p.path));
+            const keyIn = fileWithKey(await only(['diff', '--cached', '-U0', '--no-color', '--no-ext-diff', '--', ...files]));
             if (keyIn) { await undo(); return say(`I stopped: ${keyIn} looks like it holds a key. Nothing was committed.`); }
-            await git(['commit', '-q', '-m', message], p.path);
+            await git(['commit', '-q', '-m', message, '--pathspec-from-file=-', '--pathspec-file-nul'], p.path, { input });
           } catch (err) {
             await undo();
             return say(`The commit failed in ${p.name}: ${firstLine(err)}`);
@@ -140,6 +144,83 @@ export function createCommitPlugin({ git = gitRun, run = runShell, onDone = () =
         }
         return say(files.length ? `Committed and pushed ${count} in ${p.name}.` : `Pushed ${p.name} to GitHub.`);
       }
+
+      // A team task the user approved (user, 2026-11-12: "every commit under me … automated and done by all
+      // but pushed under my name"): exactly those files, committed with the user's own git name, then pushed.
+      // Same guards as the card: private files never, a key stops it, GitHub's work merged first, never force.
+      // Returns { ok, pushed, note } and says nothing (the caller does).
+      async function commitFiles({ path: folder, name, files = [], message, push = true }) {
+        const p = { name: name || path.basename(folder), path: folder };
+        const g = (args, opts) => git(args, folder, { literal: true, ...opts }); // "[id].js" is a name, not a pattern
+        const list = [...new Set(files.map((f) => String(f).replace(/\\/g, '/')))].filter(Boolean);
+        const privateOne = list.find(isPrivateFile);
+        if (privateOne) return { ok: false, pushed: false, note: `${privateOne} is private, so nothing was committed.` };
+        if (!list.length) return { ok: false, pushed: false, note: 'No files to commit.' };
+        let branch;
+        try { branch = (await g(['branch', '--show-current'])).trim(); } catch { return { ok: false, pushed: false, note: `${p.name} has no git.` }; }
+        if (!branch) return { ok: false, pushed: false, note: `${p.name} isn't on a branch, so I didn't commit.` };
+        const undo = () => g(['reset', '-q', '--', ...list]).catch(() => {});
+        let commit = null;
+        try {
+          await g(['add', '-A', '--', ...list]);
+          const staged = parseNames(await g(['-c', 'core.fsmonitor=false', 'diff', '--cached', '--name-only', '-z', '--no-renames', '--', ...list]));
+          if (!staged.length) { await undo(); return { ok: true, pushed: false, note: `Nothing changed in those files in ${p.name}.` }; }
+          // Exactly the files asked for, nothing a name happened to match (security review).
+          const wanted = new Set(list.map((f) => f.toLowerCase()));
+          if (staged.some((f) => !wanted.has(f.toLowerCase()))) { await undo(); return { ok: false, pushed: false, note: `Git picked up other files than the task's in ${p.name}, so nothing was committed.` }; }
+          const keyIn = fileWithKey(await g(['diff', '--cached', '-U0', '--no-color', '--no-ext-diff', '--', ...list]));
+          if (keyIn) { await undo(); return { ok: false, pushed: false, note: `I stopped: ${keyIn} looks like it holds a key. Nothing was committed.` }; }
+          await g(['commit', '-q', '-m', cleanMessage(message) || namesMessage(staged), '--', ...list]); // only these paths, whatever else is staged
+          commit = (await g(['rev-parse', 'HEAD'])).trim();
+        } catch (err) {
+          await undo();
+          return { ok: false, pushed: false, note: `The commit failed in ${p.name}: ${firstLine(err)}` };
+        }
+        if (!push) return { ok: true, pushed: false, commit, note: `Committed in ${p.name}, not pushed.` };
+        return { ok: true, commit, ...(await pushOut(p, g, branch)) };
+      }
+
+      // GitHub's work merged in, everything going out scanned, then pushed (never forced). { pushed, note }
+      async function pushOut(p, g, branch) {
+        const remote = (await g(['remote']).catch(() => '')).split('\n').includes('origin');
+        if (!remote) return { ok: true, pushed: false, note: `Committed in ${p.name}. It has no GitHub link, so nothing was pushed.` };
+        const pulled = await pull(p, branch);
+        if (pulled === 'clash') return { ok: true, pushed: false, note: `Committed in ${p.name}, but GitHub has changes that clash with it, so nothing was pushed.` };
+        if (pulled !== 'ok') return { ok: true, pushed: false, note: `Committed in ${p.name}, but I couldn't get GitHub's latest: ${pulled}` };
+        const out = ['HEAD', '--not', '--remotes=origin'];
+        const outgoing = parseNames(await g(['log', '--format=', '--name-only', '-z', '--no-renames', ...out])).map((f) => f.trim()).filter(Boolean);
+        const privateOut = outgoing.find(isPrivateFile);
+        if (privateOut) return { ok: true, pushed: false, note: `Committed, but ${privateOut} is in a commit waiting to go out, so nothing was pushed.` };
+        const keyOut = fileWithKey(await g(['log', '--format=', '-p', '-U0', '--no-color', '--no-ext-diff', '--no-renames', ...out]));
+        if (keyOut) return { ok: true, pushed: false, note: `Committed, but ${keyOut} looks like it holds a key, so nothing was pushed.` };
+        try { await g(['push', 'origin', branch]); } catch (err) { return { ok: true, pushed: false, note: `Committed in ${p.name}, but the push failed: ${firstLine(err)}` }; }
+        return { ok: true, pushed: true, note: `Committed and pushed to GitHub under your name.` };
+      }
+      if (api.runtime) api.runtime.commitFiles = commitFiles;
+
+      // Undo a team task (Phase 6): a new commit that reverses it, made with your git name, then pushed.
+      // Only a commit that is on this branch; any clash leaves everything as it was.
+      async function revertCommit({ path: folder, name, commit, subject = null }) {
+        const p = { name: name || path.basename(folder), path: folder };
+        const g = (args, opts) => git(args, folder, { literal: true, ...opts });
+        if (!/^[0-9a-f]{7,40}$/i.test(String(commit || ''))) return { ok: false, pushed: false, note: 'That task has no commit to undo.' };
+        let branch;
+        try { branch = (await g(['branch', '--show-current'])).trim(); } catch { return { ok: false, pushed: false, note: `${p.name} has no git.` }; }
+        if (!branch) return { ok: false, pushed: false, note: `${p.name} isn't on a branch, so I didn't undo anything.` };
+        try { await g(['merge-base', '--is-ancestor', commit, 'HEAD']); } catch { return { ok: false, pushed: false, note: `That commit isn't on ${branch} in ${p.name} any more.` }; }
+        // Exactly the task's own commit: one parent, and its message starts with the task's id.
+        const [parents = '', said = ''] = (await g(['log', '-1', '--format=%P%x00%s', commit]).catch(() => '')).trim().split('\0');
+        if (parents.trim().split(/\s+/).filter(Boolean).length !== 1 || (subject && !said.startsWith(subject))) return { ok: false, pushed: false, note: `That commit doesn't look like the task's own, so I didn't undo it.` };
+        try {
+          await g(['revert', '--no-edit', commit]);
+        } catch (err) {
+          await g(['revert', '--abort']).catch(() => {});
+          return { ok: false, pushed: false, note: `I couldn't undo it cleanly in ${p.name} (later changes touch the same lines, or you have unsaved work there): ${firstLine(err)}` };
+        }
+        const made = (await g(['rev-parse', 'HEAD'])).trim();
+        return { ok: true, commit: made, ...(await pushOut(p, g, branch)) };
+      }
+      if (api.runtime) api.runtime.revertCommit = revertCommit;
 
       // What a card says, from where its work stands now.
       function cardWords(view) {
@@ -311,6 +392,7 @@ export function createCommitPlugin({ git = gitRun, run = runShell, onDone = () =
 
       rt.tasks?.on?.('task', async (task) => {
         if (task?.status !== 'done' || !task.path) return;
+        if (rt.teamRun?.(task.id)) return; // a team task: its review card's yes commits it (no second card)
         const key = `${task.id || task.startedAt || ''}:${task.path}`;
         if (seen.has(key)) return;
         seen.add(key);

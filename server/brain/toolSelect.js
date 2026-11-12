@@ -7,7 +7,7 @@ const GROUP = {
   play_youtube: 'youtube', youtube_search: 'youtube',
   open_project: 'ide', list_projects: 'projects', remember_project: 'projects', forget_project: 'projects',
   timer_set: 'reminder', conversation_history: 'memory',
-  project_next: 'projects', rename_project: 'projects', project_about: 'projects', project_status: 'projects', project_board: 'projects', project_decision: 'projects', project_run: 'projects', project_agents: 'projects', project_import: 'projects', team_add: 'projects', team_discover: 'projects', study_log: 'sheets', sheets_log_link: 'sheets',
+  project_next: 'projects', rename_project: 'projects', project_about: 'projects', project_status: 'projects', project_board: 'projects', project_decision: 'projects', project_run: 'projects', project_stop: 'projects', project_said: 'projects', team_status: 'projects', project_undo: 'projects', project_agents: 'projects', project_import: 'projects', team_add: 'projects', team_discover: 'projects', study_log: 'sheets', sheets_log_link: 'sheets',
   note_write: 'wiki', notes_ask: 'wiki', note_open: 'wiki', notes_list: 'wiki', wiki_recent: 'wiki',
   laptop_run: 'commands', commands_history: 'commands', laptop_disk: 'commands',
   whatsapp_prepare: 'whatsapp', whatsapp_send: 'whatsapp',

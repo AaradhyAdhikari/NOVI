@@ -24,6 +24,15 @@ export function projectBoardCommand(text) {
   if ((m = /^(?:show(?: me)?|open|read(?: me)?|what'?s on|what is on)\s+(?:the\s+)?(.+?)(?:'s)?\s+(?:task\s+)?board$/i.exec(t))) return { tool: 'project_board', args: { project: name(m[1]) } };
   if ((m = /^(?:(?:the|my)\s+)?(?:task|project)\s+board\s+(?:for|of)\s+(.+)$/i.exec(t))) return { tool: 'project_board', args: { project: name(m[1]) } };
   if (/^(?:which|what)\s+agents?\s+(?:do you have|can you use|are there|do we have)|^(?:who|what)\s+can you use(?:\s+for\s+\w+)?$|^(?:list|show)\s+(?:me\s+)?(?:the\s+|your\s+)?(?:agents|team)$/i.test(t)) return { tool: 'project_agents', args: {} };
+  // Phase 6: the team by voice.
+  if ((m = /^(?:stop|pause|halt)\s+(?:all\s+(?:the\s+)?agents|all\s+the\s+team|the\s+team|the\s+agents|everyone|everybody)(?:\s+(?:on|for|in)\s+(.+))?$/i.exec(t))) return { tool: 'project_stop', args: m[1] ? { project: name(m[1]) } : {} };
+  if ((m = /^(?:stop|pause|halt)\s+(?:the\s+|my\s+)?(.+?)\s+tasks$/i.exec(t))) return { tool: 'project_stop', args: { project: name(m[1]) } };
+  if ((m = /^what\s+did\s+(.+?)\s+(?:say|answer|write|reply|come up with|find)(?:\s+(?:on|for|about|in)\s+(.+))?$/i.exec(t))
+    || (m = /^what\s+(?:was|is)\s+(.+?)'s\s+(?:answer|reply|result|report)(?:\s+(?:on|for|about|in)\s+(.+))?$/i.exec(t))) {
+    return { tool: 'project_said', args: { agent: m[1].trim().toLowerCase(), ...(m[2] ? { project: name(m[2]) } : {}) } };
+  }
+  if (/^(?:what'?s|what\s+is|what\s+are)\s+(?:the\s+)?(?:team|agents)\s+doing(?:\s+now|\s+right now)?$|^(?:the\s+)?team\s+status$|^who(?:'s|\s+is)\s+(?:working\s+on|doing)\s+what$|^(?:how'?s|how\s+is)\s+the\s+team\s+doing$/i.test(t)) return { tool: 'team_status', args: {} };
+  if ((m = /^(?:undo|revert|roll\s*back)\s+(?:the\s+)?last\s+(?:task|merge|change|commit)\s+(?:on|for|in|of)\s+(.+)$/i.exec(t))) return { tool: 'project_undo', args: { project: name(m[1]) } };
   if (/^(?:run|start|do|continue|resume)\b/i.test(t)) {
     const { rest, ...who } = agentTail(t);
     if ((m = /^(?:run|start|do)\s+(?:the\s+|my\s+)?(.+?)\s+tasks$/i.exec(rest)) || (m = /^(?:run|start|do)\s+(?:the\s+)?next\s+task\s+(?:on|for|of|in)\s+(.+)$/i.exec(rest)) || (m = /^(?:continue|resume)\s+(?:the\s+|my\s+)?(.+?)(?:\s+(?:project|tasks|work))$/i.exec(rest))) {

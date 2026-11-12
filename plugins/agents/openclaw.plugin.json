@@ -10,7 +10,11 @@
       "project_run",
       "project_agents",
       "team_discover",
-      "team_add"
+      "team_add",
+      "project_stop",
+      "project_said",
+      "team_status",
+      "project_undo"
     ]
   },
   "activation": {

@@ -150,6 +150,20 @@ describe('the commit card', () => {
 });
 
 describe('what never goes to GitHub', () => {
+  // Live 2026-11-12: "NOVI CONTEXT.txt" was staged by hand, so the card refused every yes as "changed".
+  it('a private file you staged by hand neither blocks the card nor gets committed', async () => {
+    const { dir, bare } = repo();
+    write(dir, 'a.js');
+    write(dir, 'NOVI CONTEXT.txt', 'private plan\n');
+    git(dir, 'add', 'NOVI CONTEXT.txt');
+    const s = setup(dir);
+    await s.tool('code_commit');
+    await s.settled();
+    expect(s.said.at(-1)).toBe('Committed and pushed 1 file in Shop.');
+    expect(git(bare, 'ls-tree', '-r', '--name-only', 'main').split('\n').sort()).toEqual(['README.md', 'a.js']);
+    expect(git(dir, 'diff', '--cached', '--name-only').trim()).toBe('NOVI CONTEXT.txt'); // still yours, still staged, never committed
+  });
+
   it('private files stay out, even with no .gitignore', async () => {
     const { dir, bare } = repo();
     write(dir, 'a.js');

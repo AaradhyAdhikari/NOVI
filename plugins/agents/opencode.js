@@ -17,7 +17,7 @@ import { testEnv } from './review.js';
 // run outside its sandbox. So: no shell at all (Novi runs the tests itself, from settings the agent can't
 // change), no edits to run settings / git / Novi's record / secrets / installed packages, no reading of
 // secret files, no web, nothing outside the project folder (each checked live on OpenCode 1.19.5).
-const NO_EDIT = ['package.json', '**/package.json', 'package-lock.json', '**/package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', '*.config.*', '**/*.config.*', 'conftest.py', '**/conftest.py', 'pytest.ini', 'pyproject.toml', 'setup.py', 'setup.cfg', 'tox.ini', '.npmrc', '.yarnrc*', '.git/**', '.gitmodules', '.novi/**', '.env*', '**/.env*', 'node_modules/**', '**/node_modules/**', '.github/**', '.vscode/**', '.opencode/**', 'opencode.json', 'AGENTS.md', 'Makefile'];
+const NO_EDIT = ['package.json', '**/package.json', 'package-lock.json', '**/package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', '*.config.*', '**/*.config.*', 'conftest.py', '**/conftest.py', 'pytest.ini', 'pyproject.toml', 'setup.py', 'setup.cfg', 'tox.ini', '.npmrc', '.yarnrc*', '.git', '.git/**', '.gitmodules', '.venv/**', 'venv/**', '.novi/**', '.env*', '**/.env*', 'node_modules/**', '**/node_modules/**', '.github/**', '.vscode/**', '.opencode/**', 'opencode.json', 'AGENTS.md', 'Makefile'];
 const NO_READ = ['*.env*', '**/*.env*', '*.pem', '**/*.pem', '*.key', '**/*.key', '**/secrets*', '**/id_rsa*', '**/.aws/**', '**/.ssh/**', '.novi/**'];
 // The project's own folder, never a name: two projects called "Foo" are not one consent.
 export const consentKey = (p) => String(p?.path ? path.resolve(p.path) : p?.name || p || '').toLowerCase();
@@ -90,31 +90,34 @@ export function opencodeAdapter(spec, { exec, consent, home, program = null } = 
     return ok;
   };
   return {
-    id: spec.id, name: spec.name, aliases: spec.aliases || [], roles: ['build'], levels: spec.levels, order: 30, trains: true,
+    id: spec.id, name: spec.name, aliases: spec.aliases || [], roles: ['build'], levels: spec.levels, order: 30, trains: true, copies: true, safeLibs: true, // safeLibs: its rules deny edits in node_modules/.venv, so libraries can be linked in // copies: works in its own copy of the project (Phase 5)
     async available(ctx = {}) {
       if (!(await installed())) return { ok: false, why: 'OpenCode is not installed' };
       if (ctx.project && consent && (await consent(ctx.project)) === false) return { ok: false, why: `you said no free models on ${ctx.project}` };
       return { ok: true };
     },
-    async run(pkg, { ps, task, untrusted = false }) {
+    async run(pkg, { ps, task, untrusted = false, cwd = null, signal = null }) {
       // Text from other AIs and websites goes only to Claude, which shows its plan first (security review).
       if (untrusted) return { ok: false, error: 'this task carries text from other AIs and websites, so a free model does not get it; Claude takes it and shows its plan first' };
-      const dir = path.dirname(ps.dir); // ps.dir = <project>/.novi
-      const brief = path.join(ps.dir, 'outputs', `${task?.id || 'task'}.task.md`);
+      const main = path.dirname(ps.dir); // ps.dir = <project>/.novi
+      const dir = cwd || main; // its own copy (Phase 5), else the project folder
+      const brief = path.join(dir, '.novi', 'outputs', `${task?.id || 'task'}.task.md`);
       fs.mkdirSync(path.dirname(brief), { recursive: true });
       fs.writeFileSync(brief, pkg);
       const { env } = opencodeConfig({ model: spec.model, userMcp: userMcpServers(home) });
-      const before = gitState(dir);
+      // In a copy, .git is a small file pointing at the project's real git folder: both are watched.
+      const guard = () => { let pointer = null; try { pointer = fs.readFileSync(path.join(dir, '.git'), 'utf8'); } catch { /* a folder or none */ } return JSON.stringify([gitState(dir), gitState(main), pointer]); };
+      const before = guard();
       let out = '';
       try {
         // The words before -f: -f takes everything after it as more files (live 2026-11-12). The file is
         // named relative to the project folder (cwd), so no full path goes through a command line.
-        out = await exec([cmd, 'run', '--pure', '-m', spec.model, '--format', 'json', 'Do the task in the attached file. Work only in this project folder. End with the report it asks for.', '-f', path.relative(dir, brief)], { cwd: dir, env, timeoutMs: 20 * 60_000, shell });
+        out = await exec([cmd, 'run', '--pure', '-m', spec.model, '--format', 'json', 'Do the task in the attached file. Work only in this project folder. End with the report it asks for.', '-f', path.relative(dir, brief)], { cwd: dir, env, timeoutMs: 20 * 60_000, shell, signal });
       } catch (err) {
         return { ok: false, error: errorOf(err.stdout) || String(err.message || err).slice(0, 200) };
       }
       // Its rules deny .git edits; this is the second lock (a changed git setting would run code in Novi's git calls).
-      if (gitState(dir) !== before) return { ok: false, error: `${spec.name} changed git's settings in this project. I didn't use its work; check .git/config and .git/hooks` };
+      if (guard() !== before) return { ok: false, error: `${spec.name} changed git's settings in this project. I didn't use its work; check .git/config and .git/hooks` };
       const failed = errorOf(out);
       if (failed) return { ok: false, error: failed };
       const text = lastText(out);

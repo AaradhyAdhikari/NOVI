@@ -94,8 +94,9 @@ describe('the runner', () => {
   });
   it('a build step starts the coder and waits: the task is assigned with the run id, and done when the run ends', async () => {
     const tasks = new EventEmitter();
-    tasks.status = () => ({ active: true, id: 'run7', status: 'running' });
-    const claude = agent('claude', ['build'], { run: async () => ({ ok: true, pending: true, runId: 'run7' }) });
+    let active = false; // Claude takes your folder only when no coder runs there (Phase 5)
+    tasks.status = () => ({ active, id: 'run7', status: 'running' });
+    const claude = agent('claude', ['build'], { run: async () => { active = true; return { ok: true, pending: true, runId: 'run7' }; } });
     const { ps, runner } = setup({ agents: [claude, agent('perplexity', ['research'])], tasks });
     planFromSteps(ps, ['Research tip apps', 'Build the inputs', 'Research the dark mode']);
     const first = await runner.run(ps);

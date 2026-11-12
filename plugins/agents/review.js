@@ -112,14 +112,15 @@ export async function checkTask({ task, dir, output = '', changes = defaultChang
 
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
 // The card: who did what, what Novi found (problems first), approve or send back ("change X").
-export function reviewCard({ project, task, agentName, check, output = '' }) {
+// commits: a yes also brings the files back and commits + pushes them under your name (Phase 5).
+export function reviewCard({ project, task, agentName, check, output = '', commits = false }) {
   const found = [
     check.files?.length ? `${plural(check.files.length, 'file')} changed` : '',
     check.tests?.ran ? check.tests.summary.replace(/\.$/, '') : '',
   ].filter(Boolean).join(', ');
   const lead = `${agentName} finished ${task.id} for ${project}`;
   const prompt = check.ok
-    ? `${lead}${found ? `: ${found}` : ''}. Approve?`
+    ? `${lead}${found ? `: ${found}` : ''}. ${commits ? 'Approve to commit and push it?' : 'Approve?'}`
     : `${lead}, but ${check.problems[0].replace(/\.$/, '')}. Approve anyway, or send it back?`;
   const detail = [
     ...(check.problems.length ? ['Problems:', ...check.problems.map((p) => `- ${p}`), ''] : []),
@@ -128,6 +129,7 @@ export function reviewCard({ project, task, agentName, check, output = '' }) {
     ...(check.risks?.length ? ['Risks:', ...check.risks.map((r) => `- ${r}`), ''] : []),
     ...(check.questions?.length ? ['Questions:', ...check.questions.map((q) => `- ${q}`), ''] : []),
     ...(output ? ['Answer:', String(output).slice(0, 3000)] : []),
+    ...(commits ? ['A yes brings these files into your project, commits them under your name and pushes them to GitHub.', ''] : []),
     'Say "approve", or "change …" to send it back with what to fix.',
   ].join('\n');
   return { title: `${project} · ${task.id}: ${task.title} (${agentName})`, prompt, detail, changeable: true, timeoutMs: null, source: 'agents', speaksOnDeny: true };
