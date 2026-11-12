@@ -29,6 +29,10 @@ import { diagramCommand } from './diagramCommand.js';
 import { editCommand } from './editCommand.js';
 import { doneCheckCommand } from './doneCheckCommand.js';
 import { projectBoardCommand } from './projectBoardCommand.js';
+import { importCommand } from '../../plugins/project-import/gather.js';
+import { teamAddCommand } from '../../plugins/agents/learned.js';
+// "Look for new AIs": the team checks the open tabs for chat sites it doesn't have (plugins/agents).
+const teamDiscoverCommand = (t) => (/^(?:(?:ok(?:ay)?|hey novi|novi|please)[,\s]+)*(?:look|check|search)\s+for\s+(?:new|more|other)\s+(?:ai|ais|ai tools|agents|team members)\b/i.test(String(t || '').trim()) ? { tool: 'team_discover', args: {} } : null);
 import { isScreenModeStart, isLiveStart } from './screenModeCommand.js';
 import { isScreenStep } from '../../plugins/screen/mode.js';
 import { parseApproval } from './approvalIntent.js';
@@ -50,7 +54,7 @@ const STEP_TOOLS = new Set(['open_app', 'open_website', 'screen_type_into', 'scr
 const LAPTOP_QUIET = new Set(['laptop_seek', 'laptop_media', 'laptop_video_mute', 'laptop_select']);
 const QUIET_NOTE = /^(?:Skipped ahead|Went back|Jumped to|Paused|Playing|Next|Previous|Already paused|Muted the video|Unmuted the video|The video is already|Selected)/;
 const SAID_NOT_WRITTEN = /^Copied \d+ lines?\.$/; // nothing to see, so it is said, but not written
-const DIRECT_OK = new Set(['project_run', 'project_agents', 'project_decision', 'live_screen_open', 'text_edit_selection', 'code_start_task', 'code_send_message', 'rename_project', 'file_new_folder', 'open_project', 'file_open', 'file_rename', 'note_write', 'notes_ask', 'note_open', 'whatsapp_send', 'claude_project_make', 'remember_project', 'codemap_build', 'donecheck_run', 'donecheck_fix', 'claude_activity', 'code_changes', 'code_tests', 'code_pull', 'claude_usage']); // whatsapp_send: the user's decision 2026-10-17 — their command is the yes
+const DIRECT_OK = new Set(['team_add', 'team_discover', 'project_import', 'project_run', 'project_agents', 'project_decision', 'live_screen_open', 'text_edit_selection', 'code_start_task', 'code_send_message', 'rename_project', 'file_new_folder', 'open_project', 'file_open', 'file_rename', 'note_write', 'notes_ask', 'note_open', 'whatsapp_send', 'claude_project_make', 'remember_project', 'codemap_build', 'donecheck_run', 'donecheck_fix', 'claude_activity', 'code_changes', 'code_tests', 'code_pull', 'claude_usage']); // whatsapp_send: the user's decision 2026-10-17 — their command is the yes
 const ASK_ANYWAY = new Set(['file_gather', 'file_undo_move', 'laptop_run', 'preview_show', 'preview_open']); // preview_show/open: only its first start of a project's own command asks
 const MAX_ROUNDS = 10; // screen tasks: open the app, look, click, type, …
 const MAX_HISTORY = 40;
@@ -531,6 +535,18 @@ export class Agent {
       return this._remember(text, output?.error || output?.note || 'Done.');
     }
     // "Show me the X board" / "decision for X: …" (plugins/project-state), no AI.
+    // "Include what I did on X in Y" (plugins/project-import): only for a project Novi knows; the tool's card asks.
+    // "Add X to the team" / "look for new AIs" (plugins/agents): the tool tests the site and its card asks.
+    const teamSaid = teamAddCommand(text) || teamDiscoverCommand(text);
+    if (teamSaid && this.tools.get(teamSaid.tool)) {
+      const { output } = await this._runTool({ id: `team-${Date.now()}`, function: { name: teamSaid.tool, arguments: JSON.stringify(teamSaid.args) } }, { direct: true });
+      return output?.note || output?.error || 'Done.';
+    }
+    const imported = importCommand(text);
+    if (imported && this.tools.get(imported.tool) && this.memory?.findProject?.(imported.args.project)) {
+      const { output } = await this._runTool({ id: `import-${Date.now()}`, function: { name: imported.tool, arguments: JSON.stringify(imported.args) } }, { direct: true });
+      return output?.note || output?.error || 'Done.';
+    }
     const boardSaid = projectBoardCommand(text);
     // "Plan X" only for a project Novi knows ("plan a trip to Goa" goes on to the AI).
     const board = boardSaid && (!['project_plan', 'project_run'].includes(boardSaid.tool) || this.memory?.findProject?.(boardSaid.args.project)) ? boardSaid : null;
@@ -838,6 +854,8 @@ ${LIVE_NOTE}` };
     if (activity && this.tools.get('claude_activity')) return { quick: null, calls: [{ name: 'claude_activity', args: {} }], reply: null, provider: 'direct' };
     const change = commitCommand(text) || aiSendCommand(text) || changesCommand(text) || claudeUsageCommand(text);
     if (change && this.tools.get(change.tool)) return { quick: null, calls: [{ name: change.tool, args: change.args }], reply: null, provider: 'direct' };
+    const imported = importCommand(text);
+    if (imported && this.tools.get(imported.tool) && this.memory?.findProject?.(imported.args.project)) return { quick: null, calls: [{ name: imported.tool, args: imported.args }], reply: null, provider: 'direct' };
     const boardSaid = projectBoardCommand(text);
     const board = boardSaid && (!['project_plan', 'project_run'].includes(boardSaid.tool) || this.memory?.findProject?.(boardSaid.args.project)) ? boardSaid : null;
     if (board && this.tools.get(board.tool)) return { quick: null, calls: [{ name: board.tool, args: board.args }], reply: null, provider: 'direct' };

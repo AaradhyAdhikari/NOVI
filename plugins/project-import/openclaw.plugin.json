@@ -1,0 +1,9 @@
+{
+  "id": "project-import",
+  "name": "Bring my work in",
+  "description": "Adds what you made somewhere else (any website or AI tool tab: its text and big pictures, or files you just downloaded) to a project after one card, and notes it on the project's board.",
+  "categories": ["other"],
+  "contracts": { "tools": ["project_import"] },
+  "activation": { "onStartup": true },
+  "configSchema": { "type": "object", "additionalProperties": false, "properties": {} }
+}

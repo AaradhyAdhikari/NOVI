@@ -5,6 +5,26 @@
   if (window.__novi) return;
   const SEL = 'a[href],button,input:not([type=hidden]),select,textarea,[contenteditable="true"],[role=button],[role=link],[role=textbox],[role=option],[role=tab],[role=checkbox],[role=menuitem],[role=combobox]';
   const visible = (el) => el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
+  // A chat page's message box: the biggest visible text box that isn't a password or a search field
+  // (lower on the page wins a tie: chat boxes sit at the bottom).
+  const chatBox = () => {
+    // A real search field is skipped by what it is (type/role), not by its words: Perplexity's chat box is labelled
+    // "Type / for search modes" (live 2026-11-12). Small panes make boxes narrow, so the size floor is low.
+    const boxes = [...document.querySelectorAll('textarea, [contenteditable="true"], [role="textbox"]')].filter(visible)
+      .filter((el) => (el.getAttribute('type') || '').toLowerCase() !== 'password' && el.getAttribute('role') !== 'searchbox' && (el.getAttribute('type') || '').toLowerCase() !== 'search');
+    const size = (el) => { const r = el.getBoundingClientRect(); return { area: r.width * r.height, y: r.top }; };
+    return boxes.map((el) => ({ el, ...size(el) })).filter((b) => b.area > 2500).sort((a, b) => b.area - a.area || b.y - a.y)[0]?.el || null;
+  };
+  // The send button next to a message box: within a few parents, enabled, and saying send/submit/ask/go (in its
+  // label or title), or a submit button.
+  const sendButton = (box) => {
+    let el = box;
+    for (let i = 0; i < 5 && el; i++, el = el.parentElement) {
+      const hit = [...el.querySelectorAll('button, [role="button"]')].filter(visible).find((b) => !b.disabled && (b.getAttribute('type') === 'submit' || /\b(?:send|submit|ask|go|run)\b/i.test(`${b.getAttribute('aria-label') || ''} ${b.getAttribute('title') || ''} ${b.innerText || ''}`)));
+      if (hit) return hit;
+    }
+    return null;
+  };
   const clean = (s) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, 80);
   const labelOf = (el) => clean(el.getAttribute('aria-label') || el.labels?.[0]?.innerText || el.getAttribute('placeholder') || el.innerText || el.getAttribute('title') || el.getAttribute('name') || el.getAttribute('alt') || el.value);
   const forms = new Map();
@@ -140,6 +160,61 @@
       return {};
     },
     scroll({ dir }) { window.scrollBy(0, (dir === 'up' ? -0.8 : 0.8) * innerHeight); return {}; },
+    // New AIs join by themselves (2026-11-12): any chat page in general terms, no site list.
+    // chatShape: only whether the page looks like a chat (a big message box and real text); never its words.
+    chatShape() {
+      const box = chatBox();
+      return { chat: Boolean(box) && String(document.body?.innerText || '').length > 300 };
+    },
+    // chatAsk: the biggest message box gets the words (typed the way the page takes them), then the send
+    // button next to it, or Enter.
+    async chatAsk({ text }) {
+      const box = chatBox();
+      if (!box) return { sent: false, why: 'no message box' };
+      box.focus();
+      if (box.isContentEditable) {
+        document.execCommand('selectAll', false);
+        document.execCommand('insertText', false, text);
+        if (!String(box.innerText || '').includes(String(text).slice(0, 20))) {
+          try { const r = document.createRange(); r.selectNodeContents(box); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); } catch { /* the event alone */ }
+          box.dispatchEvent(new InputEvent('beforeinput', { inputType: 'insertText', data: text, bubbles: true, cancelable: true }));
+        }
+      } else setValue(box, text);
+      await new Promise((r) => setTimeout(r, 400));
+      const near = sendButton(box);
+      if (near) near.click();
+      else for (const type of ['keydown', 'keypress', 'keyup']) box.dispatchEvent(new KeyboardEvent(type, { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
+      return { sent: true };
+    },
+    // chatRead: the page's text and whether a "stop" button shows (still answering).
+    chatRead() {
+      const busy = [...document.querySelectorAll('button, [role="button"]')].filter(visible).some((b) => /\bstop\b/i.test(`${b.getAttribute('aria-label') || ''} ${b.getAttribute('title') || ''} ${b.innerText || ''}`));
+      return { text: String(document.body?.innerText || '').slice(-60000), busy };
+    },
+    // "Bring my work in" (2026-11-12): the page's main text and its big pictures (≥ 256 px, biggest first, ≤ 8),
+    // on any site. Pictures only the page can read (blob:/data:) come back as data; the rest the extension fetches.
+    async harvest() {
+      const main = document.querySelector('main, [role="main"], article') || document.body;
+      const text = String(main?.innerText || '').trim().slice(0, 20000);
+      // A picture, not an icon: longer side ≥ 200 px, shorter ≥ 100 (live: Wikipedia's 300 px thumbnails were missed at 256 × 256).
+      const big = (i) => Math.max(i.naturalWidth, i.naturalHeight) >= 200 && Math.min(i.naturalWidth, i.naturalHeight) >= 100;
+      const imgs = [...document.images].filter(visible).filter(big)
+        .sort((a, b) => b.naturalWidth * b.naturalHeight - a.naturalWidth * a.naturalHeight).slice(0, 8);
+      const images = [];
+      for (const [i, img] of imgs.entries()) {
+        const src = img.currentSrc || img.src;
+        const item = { src, w: img.naturalWidth, h: img.naturalHeight, name: String(img.alt || `image-${i + 1}`).slice(0, 40) };
+        if (/^(?:blob|data):/i.test(src)) {
+          try {
+            const blob = await (await fetch(src)).blob();
+            item.mime = blob.type;
+            item.b64 = await new Promise((resolve) => { const fr = new FileReader(); fr.onload = () => resolve(String(fr.result).split(',')[1] || ''); fr.readAsDataURL(blob); });
+          } catch { /* left out */ }
+        }
+        images.push(item);
+      }
+      return { url: location.href, title: document.title, text, images };
+    },
     attach({ selector, name, mime, b64 }) {
       const input = document.querySelector(selector || 'input[type=file]');
       if (!input) return { error: 'No file box on this page.' };

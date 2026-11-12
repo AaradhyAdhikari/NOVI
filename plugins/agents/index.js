@@ -16,13 +16,17 @@ import { setTeam } from './team.js';
 import { checkTask, reviewCard } from './review.js';
 import { createRecord } from './record.js';
 import { consentKey } from './opencode.js';
+import { siteAdapter } from './learned.js';
+import { pickTab } from '../project-import/gather.js';
+import { SITES as sites } from '../orchestrator/siteDriver.js';
 
 const obj = (properties, required = []) => ({ type: 'object', properties, required, additionalProperties: false });
 const str = (description) => ({ type: 'string', description });
 const reply = (text, details = {}) => ({ content: [{ type: 'text', text }], details });
 
 // review: { changes, runTests } for tests (defaults read git and run the project's own tests).
-export function createAgentsPlugin({ exec = defaultExec, review: checkers = {} } = {}) {
+// learnSleep: for tests (the learned-site waits).
+export function createAgentsPlugin({ exec = defaultExec, review: checkers = {}, learnSleep = null } = {}) {
   return definePluginEntry({
     id: 'agents',
     name: 'The team',
@@ -195,6 +199,92 @@ export function createAgentsPlugin({ exec = defaultExec, review: checkers = {} }
           const list = await registry.status();
           const lines = list.map((a) => `${a.name}: ${a.roles.join(', ')} (${a.ok ? 'ready' : a.why})`);
           return reply('', { note: `The team:\n${lines.join('\n')}`, agents: list });
+        },
+      });
+
+      // New AIs join by themselves (2026-11-12): a chat-shaped site the user has open that isn't on the team is
+      // tested with one tiny question; if it answers, one card asks; yes = a member (kept in learned.json), no =
+      // never asked about that site again. Nothing here knows any site.
+      const learnedFile = store('learned.json');
+      const learned = (() => { try { return { members: [], offered: {}, ...JSON.parse(fs.readFileSync(learnedFile, 'utf8')) }; } catch { return { members: [], offered: {} }; } })();
+      const saveLearned = () => { try { fs.mkdirSync(path.dirname(learnedFile), { recursive: true }); fs.writeFileSync(learnedFile, `${JSON.stringify(learned, null, 2)}\n`); } catch { /* kept for this run */ } };
+      const join = (spec) => registry.add(siteAdapter(spec, { rt, ...(learnSleep ? { sleep: learnSleep } : {}) }));
+      for (const m of learned.members) join(m);
+      const hostOf = (url) => { try { return new URL(url).host.toLowerCase(); } catch { return ''; } };
+      const onTeam = (host) => registry.list().some((a) => (a.aliases || []).some((x) => String(x).toLowerCase() === host) || String(sites[a.id]?.url || '').includes(host)) || learned.members.some((m) => m.host === host);
+      const known = new Set(Object.values(sites).map((s) => hostOf(s.url)).filter(Boolean));
+      const NOVI_HOSTS = /^(?:localhost|127\.0\.0\.1)(?::\d+)?$|\.ts\.net(?::\d+)?$/i;
+      const nameOf = (tab, host) => String(tab.title || host).split(/\s[-|–]\s/)[0].trim().slice(0, 40) || host;
+      // Try one site: a tiny question; it must answer READY. Then the card.
+      const tryJoin = async (tab) => {
+        const host = hostOf(tab.url);
+        const spec = { host, url: `https://${host}/`, name: nameOf(tab, host) };
+        const probe = siteAdapter(spec, { rt, ...(learnSleep ? { sleep: learnSleep } : {}), maxMs: 60_000 });
+        const test = await probe.run('Reply with just the word READY.').catch((err) => ({ ok: false, error: err.message }));
+        // Any case: live, Perplexity answered "ready".
+        if (!test.ok || !/\bready\b/i.test(test.output || '')) { log(`[agents] couldn't learn ${host}: ${test.error || 'no READY'}`); return { host, ok: false }; }
+        learned.offered[host] = new Date().toISOString();
+        saveLearned();
+        const d = rt.ask ? await rt.ask({ title: `Add ${spec.name} to the team?`, prompt: `You use ${spec.name}. I tried it and it answers. Add it to the team for research, plans and reviews?`, detail: `${spec.url}\nIt would get research, plan and review tasks, which include the project's goal, finished work and decisions (never .env files or keys).\nIt starts with no track record, so it gets work only after the others, until your approvals move it up.`, source: 'agents' }) : { allow: false };
+        if (!d?.allow) return { host, ok: true, joined: false };
+        learned.members.push(spec);
+        saveLearned();
+        join(spec);
+        log(`[agents] ${spec.name} (${host}) joined the team`);
+        return { host, ok: true, joined: true, name: spec.name };
+      };
+      const discover = async () => {
+        if (!rt.browserRequest || !rt.browserStatus?.().connected) return { note: "Chrome isn't connected, so I can't look for new AIs." };
+        const { tabs = [] } = await rt.browserRequest('tabs', {});
+        const fresh = [];
+        for (const tab of tabs) {
+          const host = hostOf(tab.url);
+          if (!host || !/^https:/i.test(tab.url || '') || NOVI_HOSTS.test(host) || known.has(host) || onTeam(host) || learned.offered[host] || fresh.some((t) => hostOf(t.url) === host)) continue;
+          // Only the page's shape is read (a chat box and long answers?), never its content.
+          const shape = await rt.browserRequest('chatShape', { tabId: tab.id }).catch(() => null);
+          if (shape?.chat) fresh.push(tab);
+        }
+        const joined = [];
+        for (const tab of fresh.slice(0, 3)) { const r = await tryJoin(tab); if (r.joined) joined.push(r.name); }
+        return { note: joined.length ? `${joined.join(' and ')} joined the team.` : fresh.length ? "I found new AI sites but couldn't learn them, or you said no." : 'Nothing new to add to the team.' };
+      };
+
+      api.registerTool({
+        name: 'team_discover',
+        description: 'Look at the open Chrome tabs for AI sites that are not on the team yet; test each, then ask the user to add it.',
+        parameters: obj({}),
+        async execute() { try { return reply('', await discover()); } catch (err) { return reply('', { error: err.message }); } },
+      });
+      api.registerTool({
+        name: 'team_add',
+        description: 'Add an AI the user names (a site name or address) to the team: found in the open Chrome tabs, tested, then one card.',
+        parameters: obj({ name: str('The AI in the user\'s words, or its address') }, ['name']),
+        async execute(_id, { name } = {}) {
+          if (!rt.browserRequest || !rt.browserStatus?.().connected) return reply('', { error: "Chrome isn't connected, so I can't add a site." });
+          let tab = null;
+          if (/^https?:\/\//i.test(name)) tab = { url: name, title: hostOf(name) };
+          else {
+            const { tabs = [] } = await rt.browserRequest('tabs', {});
+            tab = pickTab(tabs, name, ['localhost:', '.ts.net', 'chrome-extension:']);
+          }
+          if (!tab) return reply('', { error: `I can't find ${name} in your open Chrome tabs. Open it once, then ask again (or tell me its address).` });
+          if (onTeam(hostOf(tab.url))) return reply('', { note: `${nameOf(tab, hostOf(tab.url))} is already on the team.` });
+          delete learned.offered[hostOf(tab.url)];
+          const r = await tryJoin(tab);
+          if (!r.ok) return reply('', { error: `I couldn't learn ${name}: it didn't answer my test question. It may need you to log in there first.` });
+          return reply('', { note: r.joined ? `${r.name} joined the team.` : `Okay, I won't add ${name}.` });
+        },
+      });
+      // Every 6 hours (first one 10 minutes after start) while Chrome is connected.
+      api.registerService({
+        id: 'agents-discover',
+        start: () => {
+          if (process.env.VITEST) return;
+          const tick = () => discover().then((r) => { if (/joined/.test(r.note || '')) rt.say?.(r.note, { kind: null }); }).catch((err) => log(`[agents] discover: ${err.message}`));
+          const first = setTimeout(tick, 10 * 60_000);
+          const every = setInterval(tick, 6 * 60 * 60_000);
+          first.unref?.(); every.unref?.();
+          return { stop: () => { clearTimeout(first); clearInterval(every); } };
         },
       });
 

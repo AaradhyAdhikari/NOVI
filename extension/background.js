@@ -316,7 +316,7 @@ async function handle(cmd, args) {
   }
   if (cmd === 'tabs') {
     const tabs = await chrome.tabs.query({});
-    return { tabs: tabs.map((t) => ({ id: t.id, title: t.title, url: t.url, active: t.active })) };
+    return { tabs: tabs.map((t) => ({ id: t.id, title: t.title, url: t.url, active: t.active, lastAccessed: t.lastAccessed || 0 })) };
   }
   if (cmd === 'switch') {
     const tab = await chrome.tabs.update(args.tabId, { active: true });
@@ -324,6 +324,32 @@ async function handle(cmd, args) {
     return {};
   }
   const tab = args.tabId ? await chrome.tabs.get(args.tabId) : await activeTab();
+  if (cmd === 'harvest') {
+    // The page gives its text and its big pictures; pictures it couldn't read are fetched here (≤ 8, ≤ 4 MB each, ≤ 12 MB in all).
+    const page = await inPage(tab.id, 'harvest', {});
+    const images = [];
+    let total = 0;
+    for (const im of page.images || []) {
+      if (images.length >= 8 || total > 12_000_000) break;
+      let { b64, mime } = im;
+      if (!b64 && /^https?:/i.test(im.src || '')) {
+        try {
+          const res = await fetch(im.src, { credentials: 'include' });
+          if (!res.ok) continue;
+          const buf = new Uint8Array(await res.arrayBuffer());
+          if (buf.byteLength > 4_000_000) continue;
+          mime = (res.headers.get('content-type') || 'image/png').split(';')[0];
+          let bin = '';
+          for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
+          b64 = btoa(bin);
+        } catch { continue; }
+      }
+      if (!b64 || !/^image\//i.test(mime || 'image/png')) continue;
+      total += b64.length;
+      images.push({ name: im.name, mime: mime || 'image/png', b64, w: im.w, h: im.h });
+    }
+    return { url: page.url, title: page.title, text: page.text, images };
+  }
   if (cmd === 'screenshot') {
     const url = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
     return { png: url.split(',')[1] };
@@ -339,7 +365,7 @@ async function handle(cmd, args) {
     }
     return { found: false };
   }
-  if (['read', 'click', 'type', 'select', 'key', 'scroll', 'attach', 'has', 'query', 'textOf', 'textsOf', 'groups', 'clickSel', 'typeSel'].includes(cmd)) {
+  if (['read', 'click', 'type', 'select', 'key', 'scroll', 'attach', 'has', 'query', 'textOf', 'textsOf', 'groups', 'clickSel', 'typeSel', 'chatShape', 'chatAsk', 'chatRead'].includes(cmd)) {
     const result = await inPage(tab.id, cmd, args);
     if (cmd === 'click' || cmd === 'key') await loaded(tab.id, 1500);
     return result;
