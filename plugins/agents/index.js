@@ -112,6 +112,8 @@ export function createAgentsPlugin({ exec = defaultExec, review: checkers = {}, 
           if (work && !work.copy && check.files?.length) check.risks = [...(check.risks || []), 'It worked in your own folder, so anything you or other tasks changed there meanwhile is in this list too.'];
           const agentName = registry.find(t.owner)?.name || t.owner || 'The agent';
           const commits = t.role === 'build' && Boolean(work) && Boolean(check.files?.length) && Boolean(rt.commitFiles);
+          // Routines that wait for "the team finished a task" run now (look-only; they never answer this card).
+          rt.routineEvent?.('team_task', { project: p.name, task: t.id })?.catch?.(() => {});
           const d = await rt.ask(reviewCard({ project: p.name, task: t, agentName, check, output, commits }));
           if (halted.has(key(p.path))) {
             // You stopped the team while this card waited: nothing moves, nothing restarts (code review).

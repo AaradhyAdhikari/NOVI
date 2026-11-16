@@ -29,6 +29,8 @@ import { diagramCommand } from './diagramCommand.js';
 import { editCommand } from './editCommand.js';
 import { doneCheckCommand } from './doneCheckCommand.js';
 import { projectBoardCommand } from './projectBoardCommand.js';
+import { routineCommand } from './routineCommand.js';
+import { flickCommand } from './flickCommand.js';
 import { importCommand } from '../../plugins/project-import/gather.js';
 import { teamAddCommand } from '../../plugins/agents/learned.js';
 // "Look for new AIs": the team checks the open tabs for chat sites it doesn't have (plugins/agents).
@@ -54,7 +56,7 @@ const STEP_TOOLS = new Set(['open_app', 'open_website', 'screen_type_into', 'scr
 const LAPTOP_QUIET = new Set(['laptop_seek', 'laptop_media', 'laptop_video_mute', 'laptop_select']);
 const QUIET_NOTE = /^(?:Skipped ahead|Went back|Jumped to|Paused|Playing|Next|Previous|Already paused|Muted the video|Unmuted the video|The video is already|Selected)/;
 const SAID_NOT_WRITTEN = /^Copied \d+ lines?\.$/; // nothing to see, so it is said, but not written
-const DIRECT_OK = new Set(['project_stop', 'project_said', 'team_status', 'project_undo', 'team_add', 'team_discover', 'project_import', 'project_run', 'project_agents', 'project_decision', 'live_screen_open', 'text_edit_selection', 'code_start_task', 'code_send_message', 'rename_project', 'file_new_folder', 'open_project', 'file_open', 'file_rename', 'note_write', 'notes_ask', 'note_open', 'whatsapp_send', 'claude_project_make', 'remember_project', 'codemap_build', 'donecheck_run', 'donecheck_fix', 'claude_activity', 'code_changes', 'code_tests', 'code_pull', 'claude_usage']); // whatsapp_send: the user's decision 2026-10-17 — their command is the yes
+const DIRECT_OK = new Set(['flick_stage', 'flick_open', 'routine_make', 'routine_list', 'routine_run', 'routine_said', 'routine_pause', 'routine_remove', 'project_stop', 'project_said', 'team_status', 'project_undo', 'team_add', 'team_discover', 'project_import', 'project_run', 'project_agents', 'project_decision', 'live_screen_open', 'text_edit_selection', 'code_start_task', 'code_send_message', 'rename_project', 'file_new_folder', 'open_project', 'file_open', 'file_rename', 'note_write', 'notes_ask', 'note_open', 'whatsapp_send', 'claude_project_make', 'remember_project', 'codemap_build', 'donecheck_run', 'donecheck_fix', 'claude_activity', 'code_changes', 'code_tests', 'code_pull', 'claude_usage']); // whatsapp_send: the user's decision 2026-10-17 — their command is the yes
 const ASK_ANYWAY = new Set(['file_gather', 'file_undo_move', 'laptop_run', 'preview_show', 'preview_open']); // preview_show/open: only its first start of a project's own command asks
 const MAX_ROUNDS = 10; // screen tasks: open the app, look, click, type, …
 const MAX_HISTORY = 40;
@@ -554,6 +556,19 @@ export class Agent {
       const { output } = await this._runTool({ id: `board-${Date.now()}`, function: { name: board.tool, arguments: JSON.stringify(board.args) } }, { direct: true });
       return this._remember(text, output?.error || output?.note || 'Done.');
     }
+    // Routines (plugins/routines): make / list / run / pause / resume / remove by voice; the plan card is the yes.
+    const routine = routineCommand(text);
+    if (routine && this.tools.get(routine.tool)) {
+      const { output } = await this._runTool({ id: `routine-${Date.now()}`, function: { name: routine.tool, arguments: JSON.stringify(routine.args) } }, { direct: true });
+      if (!output?.unknown) return this._remember(text, output?.error || output?.note || 'Done.');
+      // No routine by that name: the words go on ("run the tests routine" may mean something else).
+    }
+    // Novi Flick (plugins/flick): "open the stage", "close the stage", "open the last flick", no AI.
+    const flick = flickCommand(text);
+    if (flick && this.tools.get(flick.tool)) {
+      const { output } = await this._runTool({ id: `flick-${Date.now()}`, function: { name: flick.tool, arguments: JSON.stringify(flick.args) } }, { direct: true });
+      return this._remember(text, output?.error || output?.note || output?.text || 'Done.');
+    }
     // "Check it" / "is it done" / "fix it" (plugins/donecheck), no AI: the user's words are the yes.
     const check = doneCheckCommand(text);
     if (check && this.tools.get(check.tool)) {
@@ -859,6 +874,10 @@ ${LIVE_NOTE}` };
     const boardSaid = projectBoardCommand(text);
     const board = boardSaid && (!['project_plan', 'project_run', 'project_undo'].includes(boardSaid.tool) && !(boardSaid.tool === 'project_stop' && boardSaid.args.project) || this.memory?.findProject?.(boardSaid.args.project)) ? boardSaid : null;
     if (board && this.tools.get(board.tool)) return { quick: null, calls: [{ name: board.tool, args: board.args }], reply: null, provider: 'direct' };
+    const routine = routineCommand(text);
+    if (routine && this.tools.get(routine.tool)) return { quick: null, calls: [{ name: routine.tool, args: routine.args }], reply: null, provider: 'direct' };
+    const flick = flickCommand(text);
+    if (flick && this.tools.get(flick.tool)) return { quick: null, calls: [{ name: flick.tool, args: flick.args }], reply: null, provider: 'direct' };
     const check = doneCheckCommand(text);
     if (check && this.tools.get(check.tool)) return { quick: null, calls: [{ name: check.tool, args: check.args }], reply: null, provider: 'direct' };
     const map = codemapCommand(text);

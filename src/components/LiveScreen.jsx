@@ -1,6 +1,6 @@
 import { cloneElement, isValidElement, useEffect, useRef, useState } from 'react';
 import { X, CornerDownLeft, Delete, ArrowLeft, Send, Mic, MicOff, RotateCw, Keyboard } from 'lucide-react';
-import { onLive, tapPoint, scrollNotches } from '../lib/liveInput.js';
+import { onLive, tapPoint, scrollNotches, tapKind } from '../lib/liveInput.js';
 import { answerOffer } from '../lib/liveVideo.js';
 import { phoneSpeech, onHeard } from '../lib/phoneSpeech.js';
 
@@ -16,6 +16,7 @@ export default function LiveScreen({ send, reply = '', children = null }) {
   const [src, setSrc] = useState('');
   const [mode, setMode] = useState('pictures'); // pictures at once (fast), video once it connects
   const video = useRef(null);
+  const lastTap = useRef(null); // for double-taps (YouTube skip 5 s)
   const [text, setText] = useState('');
   const [note, setNote] = useState('');
   const firstReply = useRef(reply);
@@ -188,7 +189,12 @@ export default function LiveScreen({ send, reply = '', children = null }) {
     const shown = mode === 'video' ? video.current : img.current;
     if (g?.kind === 'one' && !g.moved && shown) {
       const point = tapPoint(shown.getBoundingClientRect(), e.clientX, e.clientY);
-      if (point) input({ kind: 'tap', ...point });
+      if (point) {
+        const now = { at: Date.now(), ...point };
+        const kind = tapKind(lastTap.current, now);
+        lastTap.current = kind === 'doubletap' ? null : now;
+        input({ kind, ...point });
+      }
     }
     if (!fingers.current.size) gesture.current = null;
     else if (g?.kind === 'two') gesture.current = { kind: 'done' }; // the second finger lifting is not a tap

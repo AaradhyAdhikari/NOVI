@@ -2,8 +2,10 @@ import { spawn, execFile } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import crypto from 'node:crypto';
 import { normalizeEvent } from './stream.js';
+import { QUICK_AGENT, QUICK_LINE } from './modelLadder.js';
 
-export function claudeArgs({ resumeSessionId, permissionMode } = {}) {
+// model / effort: what this run starts on (the model ladder); the cheap helper (novi-quick) comes with every run.
+export function claudeArgs({ resumeSessionId, permissionMode, model = null, effort = null } = {}) {
   const args = [
     '-p',
     '--input-format', 'stream-json',
@@ -12,8 +14,11 @@ export function claudeArgs({ resumeSessionId, permissionMode } = {}) {
     '--permission-prompts', 'host',
     '--permission-prompt-tool', 'stdio',
     // Novi answers "what's the progress" / "what's next" by voice from this plan.
-    '--append-system-prompt', 'The user follows this task by voice from their phone. For any task with more than one step, keep a short step-by-step plan with the TodoWrite tool (one short line per step) and update it as you work. Ask the user a question only when you truly cannot continue; otherwise make a sensible choice and say so in your plan. If the project has a website, write .novi/run.json with {"command", "port", "pages": {"home": "/", ...}} so Novi can preview it. If .novi/context.md exists, read it first: it is the project record Novi keeps, with the finished work (extend it, never rebuild it), the open tasks and the decisions you must follow; never edit files in .novi/ yourself. If graphify-out/GRAPH_REPORT.md exists, read it first to find your way around the code (it maps how the files, classes and functions connect; Novi refreshes it after each task) and open only the files you need; the code itself wins if they differ. Use the ECC plugin on every task: pick the ecc:* skill that fits (e.g. ecc:tdd-workflow while building, ecc:verification-loop before saying it is done) and, for bigger jobs only, one or two ecc:* agents that fit (e.g. ecc:planner, ecc:code-reviewer or ecc:security-reviewer after changes); no agents for a small edit. Never wait for a skill or agent to be confirmed: decide and continue. If ECC is not installed, carry on without it.',
+    '--append-system-prompt', 'The user follows this task by voice from their phone. For any task with more than one step, keep a short step-by-step plan with the TodoWrite tool (one short line per step) and update it as you work. Ask the user a question only when you truly cannot continue; otherwise make a sensible choice and say so in your plan. If the project has a website, write .novi/run.json with {"command", "port", "pages": {"home": "/", ...}} so Novi can preview it. If .novi/context.md exists, read it first: it is the project record Novi keeps, with the finished work (extend it, never rebuild it), the open tasks and the decisions you must follow; never edit files in .novi/ yourself. If graphify-out/GRAPH_REPORT.md exists, read it first to find your way around the code (it maps how the files, classes and functions connect; Novi refreshes it after each task) and open only the files you need; the code itself wins if they differ. Use the ECC plugin on every task: pick the ecc:* skill that fits (e.g. ecc:tdd-workflow while building, ecc:verification-loop before saying it is done) and, for bigger jobs only, one or two ecc:* agents that fit (e.g. ecc:planner, ecc:code-reviewer or ecc:security-reviewer after changes); no agents for a small edit. Never wait for a skill or agent to be confirmed: decide and continue. If ECC is not installed, carry on without it. ' + QUICK_LINE,
+    '--agents', JSON.stringify({ 'novi-quick': QUICK_AGENT }),
   ];
+  if (model) args.push('--model', String(model));
+  if (effort) args.push('--effort', String(effort));
   if (resumeSessionId) args.push('--resume', resumeSessionId);
   // Plan first (2026-10-18): Claude shows its plan (ExitPlanMode → Novi's card) before building.
   if (permissionMode) args.push('--permission-mode', permissionMode);
@@ -32,12 +37,14 @@ export function killTree(pid) {
 // One live Claude Code process. Follow-up messages go to the same stdin, so
 // the conversation keeps its context; permission asks arrive as control requests.
 export class ClaudeSession extends EventEmitter {
-  constructor({ command, argsPrefix = [], cwd, resumeSessionId, permissionMode, onPermission, spawnImpl = spawn }) {
+  constructor({ command, argsPrefix = [], cwd, resumeSessionId, permissionMode, model = null, effort = null, onPermission, spawnImpl = spawn }) {
     super();
     this.onPermission = onPermission;
     this.sessionId = resumeSessionId || null;
+    this.model = model; // what the run started on: setModel sends only changes
+    this.effort = effort;
     this.exited = false;
-    this.proc = spawnImpl(command, [...argsPrefix, ...claudeArgs({ resumeSessionId, permissionMode })], {
+    this.proc = spawnImpl(command, [...argsPrefix, ...claudeArgs({ resumeSessionId, permissionMode, model, effort })], {
       cwd,
       env: { ...process.env, NOVI_TASK: '1' }, // its questions already reach Novi: tools/claude-hook.mjs stands aside
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -106,6 +113,18 @@ export class ClaudeSession extends EventEmitter {
       ? { behavior: 'allow', updatedInput: decision.updatedInput || input }
       : { behavior: 'deny', message: decision.message || 'The user denied this action.' };
     this._write({ type: 'control_response', response: { subtype: 'success', request_id: raw.request_id, response } });
+  }
+
+  // Switch model / effort inside the running session (checked on the installed Claude Code: set_model,
+  // apply_flag_settings {effortLevel}); only what changed is sent.
+  setModel(model, effort) {
+    if (model && model !== this.model) { this._write({ type: 'control_request', request_id: crypto.randomUUID(), request: { subtype: 'set_model', model } }); this.model = model; }
+    if (effort && effort !== this.effort) { this._write({ type: 'control_request', request_id: crypto.randomUUID(), request: { subtype: 'apply_flag_settings', settings: { effortLevel: effort } } }); this.effort = effort; }
+  }
+
+  // Leave plan mode so the approved steps can edit (Novi sends them one at a time).
+  setMode(mode) {
+    this._write({ type: 'control_request', request_id: crypto.randomUUID(), request: { subtype: 'set_permission_mode', mode } });
   }
 
   send(text) {

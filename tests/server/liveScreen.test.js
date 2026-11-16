@@ -2,11 +2,11 @@ import { describe, it, expect } from 'vitest';
 import { PluginHost } from '../../server/plugins/host.js';
 import { createLiveScreenPlugin } from '../../plugins/live-screen/index.js';
 import { isLiveStart } from '../../server/brain/screenModeCommand.js';
-import { tapPoint, scrollNotches } from '../../src/lib/liveInput.js';
+import { tapPoint, scrollNotches, tapKind } from '../../src/lib/liveInput.js';
 
 const PHONE = { deviceId: 'phone-1' };
 
-function setup({ asker = PHONE, frames = ['A'], focused = {} } = {}) {
+function setup({ asker = PHONE, frames = ['A'], focused = {}, title = 'Notepad' } = {}) {
   const did = [];
   const sent = [];
   let at = 1000;
@@ -19,7 +19,7 @@ function setup({ asker = PHONE, frames = ['A'], focused = {} } = {}) {
     type: async (t) => did.push(['type', t]),
     key: async (k) => did.push(['key', k]),
   };
-  const runtime = { sendToDevice: (id, m) => sent.push([id, m]) };
+  const runtime = { sendToDevice: (id, m) => sent.push([id, m]), activeWindowTitle: async () => title };
   const host = new PluginHost({ runtime, env: {}, logger: { warn() {}, info() {} } });
   expect(host.register(createLiveScreenPlugin({ driver, now: () => at, gapMs: 0, idleMs: 60_000 }))).toBe(true);
   const say = async (msg, from = PHONE) => { const out = []; await host.runtime.liveMessage(msg, from, (m) => out.push(m)); return out; };
@@ -86,6 +86,24 @@ describe('live screen on the phone', () => {
     expect(s.did).toEqual([['click', 960, 300], ['scroll', -3], ['type', 'hello there'], ['key', 'enter']]);
   });
 
+  // Live 2026-11-13: a double-tap to skip on YouTube paused the video (desktop YouTube: a click = pause).
+  it('a double-tap on YouTube skips 5 s instead of pausing: the first tap pause is undone, then the arrow key', async () => {
+    const s = setup({ title: 'Lofi beats - YouTube - Google Chrome' });
+    await s.open();
+    await s.say({ type: 'live_ack' });
+    await s.say({ type: 'live_input', kind: 'tap', x: 0.7, y: 0.4 }); // first tap: a click (pauses)
+    await s.say({ type: 'live_input', kind: 'doubletap', x: 0.7, y: 0.4 });
+    await s.say({ type: 'live_input', kind: 'doubletap', x: 0.2, y: 0.4 });
+    expect(s.did).toEqual([['click', 1344, 480], ['click', 1344, 480], ['key', 'right'], ['click', 384, 480], ['key', 'left']]);
+  });
+  it('a double-tap anywhere else is just a second click', async () => {
+    const s = setup({ title: 'Notepad' });
+    await s.open();
+    await s.say({ type: 'live_ack' });
+    await s.say({ type: 'live_input', kind: 'doubletap', x: 0.5, y: 0.5 });
+    expect(s.did).toEqual([['click', 960, 600]]);
+  });
+
   it('bad input does nothing', async () => {
     const s = setup();
     await s.open();
@@ -138,5 +156,15 @@ describe('finger to laptop', () => {
     expect(scrollNotches(120)).toBe(3);
     expect(scrollNotches(10)).toBe(0);
     expect(scrollNotches(-5000)).toBe(-10);
+  });
+});
+
+describe('a double-tap on the phone', () => {
+  it('a second tap soon after, on the same spot, is a double-tap; anything else is a tap', () => {
+    const first = { at: 1000, x: 0.7, y: 0.4 };
+    expect(tapKind(null, { at: 1000, x: 0.7, y: 0.4 })).toBe('tap');
+    expect(tapKind(first, { at: 1250, x: 0.71, y: 0.41 })).toBe('doubletap');
+    expect(tapKind(first, { at: 1500, x: 0.7, y: 0.4 })).toBe('tap'); // too slow
+    expect(tapKind(first, { at: 1200, x: 0.2, y: 0.4 })).toBe('tap'); // somewhere else
   });
 });

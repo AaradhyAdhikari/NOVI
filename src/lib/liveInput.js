@@ -18,3 +18,10 @@ export function scrollNotches(dy) {
 let listener = null;
 export const onLive = (fn) => { listener = fn; return () => { if (listener === fn) listener = null; }; };
 export const emitLive = (msg) => listener?.(msg);
+
+// A second tap within 350 ms on about the same spot is a double-tap (YouTube skip 5 s); else a tap.
+export const DOUBLE_TAP_MS = 350;
+export function tapKind(prev, now) {
+  if (!prev || now.at - prev.at > DOUBLE_TAP_MS) return 'tap';
+  return Math.abs(now.x - prev.x) < 0.06 && Math.abs(now.y - prev.y) < 0.06 ? 'doubletap' : 'tap';
+}

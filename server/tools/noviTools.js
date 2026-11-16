@@ -120,7 +120,7 @@ export function createNoviTools({ memory, tasks, coder = 'novi-coder', alternati
       describe: (a) => `Start ${coderFor(a).title} on ${a.project}: "${a.instruction}"`,
       prompt: (a) => `${coderFor(a).name} will ${brief(a.instruction)} in ${a.project}. OK?`,
       choices: (a = {}) => (alternativeAvailable ? [{ id: coderFor(a).other, label: coderFor(a).otherLabel, params: { $agent: coderFor(a).other } }] : undefined),
-      run: async ({ project, instruction, agent, $agent, $planFirst }) => ({ started: true, task: tasks.start(project, instruction, { agent: $agent || named({ agent }) || undefined, ...($planFirst === false ? { planFirst: false } : {}) }), note: $planFirst === false ? 'Claude is on it.' : "Claude is making a plan first; I'll show it to you before it builds anything." }),
+      run: async ({ project, instruction, agent, $agent, $planFirst, $level }) => ({ started: true, task: tasks.start(project, instruction, { agent: $agent || named({ agent }) || undefined, ...($planFirst === false ? { planFirst: false } : {}), ...($level ? { level: $level } : {}) }), note: $planFirst === false ? 'Claude is on it.' : "Claude is making a plan first; I'll show it to you before it builds anything." }),
     })
     .add({
       name: 'code_send_message',

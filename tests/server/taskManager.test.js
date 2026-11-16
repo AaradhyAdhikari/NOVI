@@ -339,3 +339,95 @@ describe("Claude's permission cards: change / yes-but", async () => {
     expect(s.sent.at(-1)).toBe("About that last step, the user says: don't delete the old files.");
   });
 });
+
+// Right model per step (2026-11-16, user: "a small box requires Haiku or Sonnet low effort, rather than Opus
+// high effort"): after the plan card's yes, Novi sends the plan one step at a time in the same session and
+// switches model + effort before each step.
+describe('one model per plan step', async () => {
+  const { EventEmitter } = await import('node:events');
+  const { levelFor } = await import('../../plugins/agents/roles.js');
+  const { levelSettings, stepUp } = await import('../../server/claude/modelLadder.js');
+  const PLAN = '# Landing page\n\n1. Build the hero with scroll motion and parallax across sections\n2. Change the button text to Start\n3. Add a footer with links';
+  function stepSetup() {
+    const q = new ApprovalQueue();
+    q.on('added', (a) => q.resolve(a.id, true));
+    const opened = [];
+    const sent = [];
+    const models = [];
+    const modes = [];
+    let session;
+    const tm = new TaskManager({
+      memory, approvals: q,
+      createSession: (o) => { opened.push(o); session = Object.assign(new EventEmitter(), { exited: false, send: (t) => sent.push(t), setModel: (m, e) => models.push([m, e]), setMode: (m) => modes.push(m), stop: async () => {}, close: () => {} }); return session; },
+    });
+    return { tm, opened, sent, models, modes, result: (isError = false) => session.emit('event', { kind: 'result', isError, text: 'ok' }) };
+  }
+
+  it('starts on the task\'s level; after yes each step goes out on its own model; done only after the last', async () => {
+    const s = stepSetup();
+    s.tm.start('portfolio', 'build a landing page', { agent: 'claude', level: 'hard' });
+    expect(s.opened[0]).toMatchObject({ model: 'opus', effort: 'high', permissionMode: 'plan' });
+    const answer = await s.tm._onPermission(s.tm.task, { toolName: 'ExitPlanMode', input: { plan: PLAN } });
+    expect(answer.allow).toBe(false); // Claude stops; Novi sends the steps itself
+    expect(answer.message).toMatch(/approved/i);
+    expect(s.modes).toEqual(['default']); // the normal mode: every edit and command still goes through Novi's checks
+    const steps = ['Build the hero with scroll motion and parallax across sections', 'Change the button text to Start', 'Add a footer with links'];
+    s.result(); // the planning turn ends → step 1
+    s.result(); // step 1 done → step 2
+    s.result(); // step 2 done → step 3
+    expect(s.models).toEqual(steps.map((t) => { const v = levelSettings(levelFor(t)); return [v.model, v.effort]; }));
+    expect(s.sent.filter((t) => /^Approved plan, step/.test(t))).toHaveLength(3);
+    expect(s.sent.at(-1)).toMatch(/step 3 of 3: Add a footer with links/);
+    expect(s.tm.task.status).toBe('running');
+    s.result(); // last step done
+    expect(s.tm.task.status).toBe('done');
+  });
+
+  it('a step that fails is done again one level up', async () => {
+    const s = stepSetup();
+    s.tm.start('portfolio', 'build a landing page', { agent: 'claude', level: 'medium' });
+    await s.tm._onPermission(s.tm.task, { toolName: 'ExitPlanMode', input: { plan: PLAN } });
+    s.result(); // → step 1
+    s.result(true); // step 1 failed → step 1 again, one level up
+    const first = levelFor('Build the hero with scroll motion and parallax across sections');
+    const up = levelSettings(stepUp(first));
+    expect(s.models.at(-1)).toEqual([up.model, up.effort]);
+    expect(s.sent.at(-1)).toMatch(/step 1 of 3/);
+  });
+
+  it('a message you send during a step waits for that step; steps stay in order and finish only after the last', async () => {
+    const s = stepSetup();
+    s.tm.start('portfolio', 'build a landing page', { agent: 'claude', level: 'hard' });
+    await s.tm._onPermission(s.tm.task, { toolName: 'ExitPlanMode', input: { plan: PLAN } });
+    s.result(); // → step 1 in flight
+    s.tm.send('make the hero blue');
+    expect(s.sent.at(-1)).toMatch(/step 1 of 3/); // not sent yet: waits for step 1
+    s.result(); // step 1 done → your message goes now, as its own turn
+    expect(s.sent.at(-1)).toBe('make the hero blue');
+    s.result(); // your message's turn done → step 2
+    expect(s.sent.at(-1)).toMatch(/step 2 of 3/);
+    s.result(); // → step 3
+    s.result(); // step 3 done
+    expect(s.tm.task.status).toBe('done');
+    expect(s.tm.task.pieces).toBe(null); // the step list ends with the task
+  });
+
+  it('the plan card again while steps run is answered quietly, not restarted; nothing of it is saved', async () => {
+    const s = stepSetup();
+    s.tm.start('portfolio', 'build a landing page', { agent: 'claude', level: 'hard' });
+    await s.tm._onPermission(s.tm.task, { toolName: 'ExitPlanMode', input: { plan: PLAN } });
+    s.result(); // → step 1
+    const again = await s.tm._onPermission(s.tm.task, { toolName: 'ExitPlanMode', input: { plan: PLAN } });
+    expect(again.allow).toBe(true);
+    expect(s.tm.task.pieceAt).toBe(0); // still step 1
+    expect(s.tm._persistable(s.tm.task).pieces).toBeUndefined();
+  });
+
+  it('a session that can\'t switch models builds the old way', async () => {
+    const q = new ApprovalQueue();
+    q.on('added', (a) => q.resolve(a.id, true));
+    const tm = new TaskManager({ memory, approvals: q, createSession: () => Object.assign(new EventEmitter(), { exited: false, send() {}, stop: async () => {}, close: () => {} }) });
+    tm.start('portfolio', 'build a landing page', { agent: 'claude' });
+    expect(await tm._onPermission(tm.task, { toolName: 'ExitPlanMode', input: { plan: PLAN } })).toEqual({ allow: true });
+  });
+});

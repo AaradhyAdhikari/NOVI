@@ -109,6 +109,17 @@ export function createLiveScreenPlugin({ driver = windowsDriver, now = Date.now,
 
       async function act(s, m, reply) {
         if (m.kind === 'tap' && unit(m.x) && unit(m.y) && s.width) return driver.click(Math.round(m.x * s.width), Math.round(m.y * s.height));
+        // The second tap of a double-tap (live 2026-11-13: skipping 5 s on YouTube paused it, since a click on
+        // desktop YouTube = pause). On YouTube: click again (undoes the first tap's pause), then the arrow key
+        // (left half = back 5 s, right half = ahead 5 s). Anywhere else: just a second click.
+        if (m.kind === 'doubletap' && unit(m.x) && unit(m.y) && s.width) {
+          const x = Math.round(m.x * s.width);
+          const y = Math.round(m.y * s.height);
+          const title = String(await Promise.resolve(api.runtime?.activeWindowTitle?.()).catch(() => '') || '');
+          await driver.click(x, y);
+          if (/\byoutube\b/i.test(title)) return driver.key(m.x < 0.5 ? 'left' : 'right');
+          return null;
+        }
         if (m.kind === 'scroll' && Number.isInteger(m.notches) && Math.abs(m.notches) <= 10 && m.notches) {
           // Under the finger, so a side panel scrolls, not the middle of the window (live 2026-11-08).
           const at = unit(m.x) && unit(m.y) && s.width ? { x: Math.round(m.x * s.width), y: Math.round(m.y * s.height) } : undefined;

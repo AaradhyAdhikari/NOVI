@@ -1,0 +1,9 @@
+{
+  "id": "routines",
+  "name": "Routines",
+  "description": "Jobs you describe in words that run by themselves, only look things up, and report on a small card.",
+  "categories": ["productivity"],
+  "contracts": { "tools": ["routine_make", "routine_list", "routine_run", "routine_said", "routine_pause", "routine_remove"] },
+  "activation": { "onStartup": true },
+  "configSchema": { "type": "object", "additionalProperties": false }
+}

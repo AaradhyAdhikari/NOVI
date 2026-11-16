@@ -45,7 +45,8 @@ export class PluginHost {
         // Background work (e.g. a scheduler), started after all plugins load. Mirrors OpenClaw plugin services.
         registerService: (service) => { services.push(service); },
         // A local-only HTTP endpoint at /api/plugin/<path> (OpenClaw's registerHttpRoute): handler(body) → JSON.
-        registerHttpRoute: ({ path: routePath, handler }) => { routes.push({ path: String(routePath), handler }); },
+        // upload: true = a file upload at /api/plugin-upload/<path> (streamed to a temp file); phone: true = paired phones may use it.
+        registerHttpRoute: ({ path: routePath, handler, upload = false, phone = false }) => { routes.push({ path: String(routePath), handler, upload: Boolean(upload), phone: Boolean(phone) }); },
         on: (event, handler, opts = {}) => {
           if (!SUPPORTED_HOOKS.has(event)) throw new Error(`unsupported hook "${event}"`);
           hooks.push({ event, handler, allTools: Boolean(opts.allTools) });
@@ -123,6 +124,12 @@ export class PluginHost {
   // The handler a plugin registered for /api/plugin/<path>, or undefined.
   route(routePath) {
     for (const p of this.plugins) for (const r of p.routes || []) if (r.path === routePath) return r.handler;
+    return undefined;
+  }
+
+  // The whole registration (handler + upload/phone flags), or undefined.
+  routeInfo(routePath) {
+    for (const p of this.plugins) for (const r of p.routes || []) if (r.path === routePath) return r;
     return undefined;
   }
 

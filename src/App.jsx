@@ -5,6 +5,8 @@ import { speak, stopSpeaking, speechEvents } from './lib/voice.js';
 import { HandsFree, handsFreeSupported, chime } from './lib/handsFree.js';
 import { getItem, setItem } from './lib/storage.js';
 import LiveScreen from './components/LiveScreen.jsx';
+import FlickSend from './components/FlickSend.jsx';
+import { wantsFlick } from './lib/flickGesture.js';
 import StatusBar from './components/StatusBar.jsx';
 import Transcript from './components/Transcript.jsx';
 import Composer from './components/Composer.jsx';
@@ -28,6 +30,7 @@ export default function App() {
   const [muted, setMuted] = useState(() => getItem('novi.muted') === '1');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [memoryOpen, setMemoryOpen] = useState(() => wantsMemory(window.location.search));
+  const [flickOpen, setFlickOpen] = useState(() => wantsFlick(window.location.search));
   const [handsFreeState, setHandsFreeState] = useState({ enabled: false });
   const mutedRef = useRef(muted);
   mutedRef.current = muted;
@@ -98,6 +101,7 @@ export default function App() {
         onOpenSettings={() => setSettingsOpen(true)}
         quiet={state.quiet}
         onLive={novi.isLocal ? null : () => novi.send({ type: 'user_message', text: 'open live screen' })}
+        onFlick={novi.isLocal ? null : () => setFlickOpen(true)}
         handsFree={serverWake ? { supported: true, on: true, server: true, running: true, awaiting: Boolean(state.wakeHeardAt) && !state.thinking } : { supported: handsFreeSupported, on: handsFreeOn, ...handsFreeState }}
       />
       <main className="layout">
@@ -120,6 +124,7 @@ export default function App() {
       <NoticeCards notices={state.notices} onOk={(id) => send({ type: 'notice_ok', id })} />
       <ApprovalCards api={novi.api} approvals={state.approvals} resolved={state.resolvedNote} onAnswer={(id, allow, choice, opts = {}) => send({ type: 'approval', id, allow, ...(choice ? { choice } : {}), ...(opts.always ? { always: true } : {}), ...(typeof opts.answer === 'string' ? { answer: opts.answer } : {}), ...(opts.proof || {}) })} />
       <TalkButton onText={sendVoice} api={novi.api} onRecording={(on) => handsFree.current?.enabled && handsFree.current.pause(on)} handsFreeOn={handsFreeOn || serverWake} answerAt={answerAt} />
+      {flickOpen && <FlickSend api={novi.api} onClose={() => { setFlickOpen(false); if (wantsFlick(window.location.search)) window.history.replaceState(null, '', '/'); }} />}
       {memoryOpen && <MemoryGalaxy api={novi.api} onClose={() => { setMemoryOpen(false); window.history.replaceState(null, '', '/'); }} />}
       <SettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} projects={state.projects} devices={state.devices} accounts={state.accounts} googleConfigured={state.googleConfigured} api={novi.api} isLocal={novi.isLocal} />
     </div>

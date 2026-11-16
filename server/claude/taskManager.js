@@ -1,4 +1,6 @@
 import { planSummary, planLine } from './planSummary.js';
+import { levelSettings, stepUp } from './modelLadder.js';
+import { levelFor } from '../../plugins/agents/roles.js';
 import { plainTool, plainBuiltin } from './toolNames.js';
 import crypto from 'node:crypto';
 import { EventEmitter } from 'node:events';
@@ -69,7 +71,8 @@ export class TaskManager extends EventEmitter {
 
   // planFirst (2026-10-18): Claude Code starts in plan mode, so its plan comes to the user as a card
   // first (_planCard); false when the user already approved a brief.
-  start(projectName, instruction, { agent, planFirst = true } = {}) {
+  // level: easy / medium / hard (the model ladder): the run starts on that model + effort (Claude only).
+  start(projectName, instruction, { agent, planFirst = true, level = null } = {}) {
     if (this.isRunning()) throw new UserFacingError(`${this.task.agentName || this.agentName} is already working on ${this.task.project}. Say "stop" first, or give it a follow-up.`);
     const project = this.memory.findProject(projectName);
     if (!project) throw new UserFacingError(`I don't know a project called "${projectName}". Tell me its folder and I'll remember it.`);
@@ -88,11 +91,13 @@ export class TaskManager extends EventEmitter {
       agent: agent || null,
       agentName: this.agentLabels[agent] || this.agentName,
       planFirst: Boolean(planFirst) && agent !== 'novi-coder' && (this.agentLabels[agent] || this.agentName) !== 'Novi Coder',
+      level: level || null,
     };
     this.task = task;
     this.memory.touchProject(project.name);
     this.memory.addTask(this._persistable(task));
-    this._openSession(task, null, { permissionMode: task.planFirst ? 'plan' : undefined });
+    const start = task.level && agent !== 'novi-coder' ? levelSettings(task.level) : {};
+    this._openSession(task, null, { permissionMode: task.planFirst ? 'plan' : undefined, ...start });
     this.session.send(instruction);
     this._emitTask();
     return this.status();
@@ -103,7 +108,9 @@ export class TaskManager extends EventEmitter {
     if (!task) throw new UserFacingError('There is no coding task to continue. Ask me to start one first.');
     if (!this.session || this.session.exited) this._openSession(task, task.sessionId);
     task.status = 'running';
-    this.session.send(text);
+    // During a plan step your message waits for that step, then goes as its own turn (steps stay in order).
+    if (task.pieces && task.pieceAt >= 0) task.queued = [...(task.queued || []), text];
+    else this.session.send(text);
     this._save(task);
     this._emitTask();
     return this.status();
@@ -122,6 +129,8 @@ export class TaskManager extends EventEmitter {
     this.approvals.denyWhere((a) => a.source === 'claude', 'task stopped');
     await this.session.stop();
     this.task.status = 'stopped';
+    this.task.pieces = null; // a stop ends the step list too
+    this.task.queued = null;
     this._save(this.task);
     this._emitTask();
     return true;
@@ -156,7 +165,7 @@ export class TaskManager extends EventEmitter {
     return this.task;
   }
 
-  _openSession(task, resumeSessionId, { permissionMode } = {}) {
+  _openSession(task, resumeSessionId, { permissionMode, model = null, effort = null } = {}) {
     this.narrator?.dispose();
     this.stopping = false;
     this.narrator = new Narrator({
@@ -168,7 +177,7 @@ export class TaskManager extends EventEmitter {
       },
       onSpeak: (text) => this.emit('speak', text),
     });
-    const session = this.createSession({ cwd: task.path, resumeSessionId, agent: task.agent || null, ...(permissionMode ? { permissionMode } : {}), onPermission: (req) => this._onPermission(task, req) });
+    const session = this.createSession({ cwd: task.path, resumeSessionId, agent: task.agent || null, ...(permissionMode ? { permissionMode } : {}), ...(model ? { model, effort } : {}), onPermission: (req) => this._onPermission(task, req) });
     this.session = session;
     session.on('event', (event) => this._onEvent(task, session, event));
   }
@@ -190,6 +199,8 @@ export class TaskManager extends EventEmitter {
     }
     if (event.kind === 'result') {
       if (this.stopping) return;
+      // Approved plan sent one step at a time: the next step (or the same one, one level up, after a failure).
+      if (task.pieces && this._nextPiece(task, event)) return;
       task.status = event.isError ? 'failed' : 'done';
       task.summary = event.text;
       if (event.sessionId) task.sessionId = event.sessionId;
@@ -240,6 +251,7 @@ export class TaskManager extends EventEmitter {
   // Claude's plan (plan mode's ExitPlanMode) as a card + a short spoken line. Yes → it builds
   // (edits allowed; "yes, also X" adds X); "change X" → it plans again; no → it stops.
   async _planCard(task, input = {}) {
+    if (task.pieces) return { allow: true }; // already approved and running step by step: answered quietly, never restarted
     const plan = String(input.plan || '').trim();
     const short = planSummary(plan);
     const name = task.agentName || this.agentName;
@@ -249,6 +261,18 @@ export class TaskManager extends EventEmitter {
     });
     if (d.allow) {
       task.allowEdits = true;
+      // One model per step (2026-11-16): a session that can switch models gets the plan one step at a time,
+      // each on the model + effort that step needs. Claude stops now; Novi sends step 1 when this turn ends.
+      const steps = [...(short.steps || [])];
+      if (short.more) steps.push(`Finish the rest of the plan (${short.more} more step${short.more === 1 ? '' : 's'}).`);
+      if (typeof this.session?.setModel === 'function' && steps.length >= 2) {
+        task.pieces = steps.map((text) => ({ text, level: levelFor(text) }));
+        task.pieceAt = -1;
+        task.addition = d.addition || null;
+        this.session.setMode?.('default'); // the normal mode: every edit and command still reaches _onPermission (code review)
+        this._emitTask();
+        return { allow: false, message: 'The user approved this plan. Do not build yet: stop here. Novi will now send you the steps one at a time.' };
+      }
       if (d.addition) this.session?.send(`Also: ${d.addition}`);
       this._emitTask();
       return { allow: true };
@@ -257,6 +281,35 @@ export class TaskManager extends EventEmitter {
     return { allow: false, message: 'The user said no to this plan. Stop here and do not make changes.' };
   }
 
+
+  // The next approved step on its own model (true = a step was sent, so the task isn't finished yet).
+  _nextPiece(task, event) {
+    const wasQueued = task.queuedBusy; // this result ended one of your own messages, not a step
+    task.queuedBusy = false;
+    const at = task.pieceAt;
+    const now = task.pieces[at];
+    if (!wasQueued && now && event.isError && !now.retried) {
+      now.retried = true;
+      now.level = stepUp(now.level); // failed: the same step again, one level up
+      task.pieceAt = at - 1;
+    }
+    if (task.queued?.length) { // your message from during the step goes first, as its own turn
+      task.queuedBusy = true;
+      this.session.send(task.queued.shift());
+      return true;
+    }
+    const i = task.pieceAt + 1;
+    if (i >= task.pieces.length) { task.pieces = null; task.queued = null; return false; }
+    task.pieceAt = i;
+    const piece = task.pieces[i];
+    const { model, effort } = levelSettings(piece.level);
+    piece.model = model;
+    this.session.setModel(model, effort);
+    this.emit('feed', { taskId: task.id, text: `Step ${i + 1} of ${task.pieces.length} on ${model} (${effort} effort): ${piece.text}` });
+    const also = i === 0 && task.addition ? ` Also: ${task.addition}` : '';
+    this.session.send(`Approved plan, step ${i + 1} of ${task.pieces.length}: ${piece.text}.${also} Do only this step now (hand small, simple edits to the novi-quick agent) and stop when it is done.`);
+    return true;
+  }
 
   // Claude's own questions: asked one by one as question cards (spoken with numbered options), no
   // timeout — Claude waits; one spoken reminder. A skipped question lets Claude choose.
@@ -292,7 +345,7 @@ export class TaskManager extends EventEmitter {
   }
 
   _persistable(task) {
-    const { updates, allowEdits, ...rest } = task;
+    const { updates, allowEdits, pieces, pieceAt, queued, queuedBusy, addition, ...rest } = task; // the step list never outlives Novi
     return rest;
   }
 

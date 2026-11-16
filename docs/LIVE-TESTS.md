@@ -338,3 +338,25 @@ Use a throwaway git project with a GitHub link (or a local "remote") so a push c
 - "what did ChatGPT say on X" → its last answer, short.
 - "stop the team on X" while a coder works → it stops, the task goes back to planned, nothing new starts.
 - "undo the last task on X" → a "Revert …" commit under your name on GitHub; the task shows as undone.
+
+## Routines (2026-11-13) — not tried live yet
+- "every morning at 7 check my github and tell me what changed" → one card "New routine: …?" with the steps and "only looks things up" → yes → "Saved. … runs every day at 07:00."
+- "list my routines" → the list; "run the <name> routine now" → a small card with the report.
+- "when a coding task finishes show me the board" → after the next coding task, a small card with that project's board.
+- "every morning message Isha …" → refused: a routine only looks things up.
+- "pause the <name> routine" / "resume …" / "delete …".
+
+- Remote view on YouTube: double-tap the right side → ahead 5 s, left side → back 5 s, and the video keeps playing (2026-11-13).
+
+## Right model per step (2026-11-16) — not tried live yet
+- Ask Claude for a job with a hard part and small parts ("make the Team Test page: a hero with scroll motion, change the button text to Start, add a footer"). Approve the plan. The feed shows "Step 1 of 3 on opus (high effort)…", then "Step 2 of 3 on haiku (low effort)…". The task finishes after the last step.
+- During an Opus step, small edits may show as done by the novi-quick helper.
+
+## Novi Flick: phone to laptop (2026-11-16, not live-tested)
+Restart Novi first (new plugin), then install the new app `android\Novi.apk` (2.6.0; the Update card should offer it).
+1. On the phone, tap the new **send arrow** in Novi's top bar, then **Photos & files**, and pick a photo. Flick the card up. The laptop should go full screen (dark teal grid) and the photo should fly in. It's saved in `Downloads\Novi Flick\<today>`.
+2. Flick two or three more: they fan into a stack. Tap one on the laptop and it opens in its app.
+3. Paste a YouTube link with a time (`…?t=90`) and flick it: a card lands, then YouTube opens on the laptop at that second.
+4. From the Photos or YouTube app: **Share → Flick to Novi**. Novi opens on the flick screen with the item ready. Flick it.
+5. Voice: "open the stage", "close the stage", "open the last flick". Esc or the Close button closes the stage too. It closes by itself after 5 minutes with nothing new.
+6. Send a `.exe`: it's saved but never opened (the card says so).

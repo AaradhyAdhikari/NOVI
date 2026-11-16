@@ -57,8 +57,8 @@ export function buildAdapters({ rt = {}, exec = defaultExec, sites = SITES, log 
     available: async () => (!rt.startCoding ? { ok: false, why: 'Claude Code is not set up' } : busy() ? { ok: false, why: 'Claude is already working on a task' } : ok),
     // A package carrying other AIs' answers (untrusted) gets Claude's plan card first, so nothing from a
     // website turns into edits without the user's yes (code review 2026-11-11).
-    async run(pkg, { project, untrusted = false }) {
-      const r = await rt.startCoding({ project, instruction: pkg, planFirst: Boolean(untrusted) });
+    async run(pkg, { project, task, untrusted = false }) {
+      const r = await rt.startCoding({ project, instruction: pkg, planFirst: Boolean(untrusted), level: task?.level || null });
       if (r?.error) return { ok: false, error: r.error };
       return { ok: true, pending: true, runId: rt.tasks?.status?.()?.id || null };
     },

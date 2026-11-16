@@ -1,4 +1,5 @@
 import { createQuiet } from './quiet.js';
+import { receiveUpload, uploadAllowed } from './uploads.js';
 import { createPhoneOnly } from './phoneOnly.js';
 import { uiBuildOf } from './uiBuild.js';
 import { replyPlace } from './liveReplies.js';
@@ -158,6 +159,8 @@ export function createNovi(config, overrides = {}) {
         if (gate.block || gate.approval) throw new Error(`${name} needs approval, so a plugin can't run it`);
         return tool.run(params);
       },
+      // A tool's description and parameters (read-only), e.g. for routines planning with look-up tools.
+      toolInfo: (name) => { const t = plugins.get(name); return t ? { description: t.description || '', parameters: t.parameters || {} } : null; },
       // Signed-in Google API calls for plugins (Calendar, Tasks) on the account connected for Gmail.
       google: overrides.google || createGoogleApi({ auth, accounts }),
       vision: overrides.vision || createVision({ geminiKeys: config.providers.find((p) => p.name === 'gemini')?.keys || [], groqKeys: config.providers.find((p) => p.name === 'groq')?.keys || [] }),
@@ -257,8 +260,9 @@ export function createNovi(config, overrides = {}) {
       // A message to the Claude task already running (plugins/ai-cards).
       tellCoder: (text) => tasks.send(text),
       // agent: 'claude' (default) or 'novi-coder' (the team's easy-edit member, plugins/agents).
-      startCoding: async ({ project, instruction, planFirst = false, agent = 'claude' }) => {
-        const params = { project, instruction, agent: agent === 'novi-coder' ? 'novi-coder' : 'claude', ...(planFirst ? {} : { $planFirst: false }) };
+      startCoding: async ({ project, instruction, planFirst = false, agent = 'claude', level = null }) => {
+        // level: the task's difficulty, so Claude starts on the right model + effort (model ladder).
+        const params = { project, instruction, agent: agent === 'novi-coder' ? 'novi-coder' : 'claude', ...(planFirst ? {} : { $planFirst: false }), ...(['easy', 'medium', 'hard'].includes(level) ? { $level: level } : {}) };
         const result = await plugins.get('code_start_task').run(params);
         plugins.afterToolCall({ toolName: 'code_start_task', params, result }).catch(() => {});
         return result;
@@ -784,9 +788,24 @@ export function createNovi(config, overrides = {}) {
   // wait here up to ~2 min for the user's answer on a card.
   app.post('/api/plugin/:path', async (req, res) => {
     if (!isLocal(req)) return res.status(403).json({ error: 'Laptop only.' });
-    const handler = plugins.route?.(req.params.path);
+    const info = plugins.routeInfo?.(req.params.path);
+    const handler = info ? (info.upload ? null : info.handler) : plugins.route?.(req.params.path); // upload routes only via /api/plugin-upload
     if (!handler) return res.status(404).json({ error: 'No such plugin endpoint.' });
     try { res.json((await handler(req.body || {}, { headers: req.headers })) || {}); } catch (err) { res.status(500).json({ error: err.message }); }
+  });
+  // File uploads to plugins (Novi Flick): streamed to a temp file, then handed over. Phones only where the
+  // plugin said so. Name in x-novi-name (URI-encoded), x-novi-kind: file | link.
+  app.post('/api/plugin-upload/:path', async (req, res) => {
+    const info = plugins.routeInfo?.(req.params.path);
+    if (!uploadAllowed(info, req.from === 'local')) return res.status(info ? 403 : 404).json({ error: info ? 'Not allowed from here.' : 'No such upload endpoint.' });
+    let got;
+    try { got = await receiveUpload(req); } catch (err) { return res.status(413).json({ error: err.message }); }
+    let name = 'file';
+    try { name = decodeURIComponent(String(req.headers['x-novi-name'] || 'file')); } catch { /* keep 'file' */ }
+    const kind = req.headers['x-novi-kind'] === 'link' ? 'link' : 'file';
+    try { res.json((await info.handler({ file: got.file, size: got.size, name, kind, type: String(req.headers['x-novi-type'] || ''), from: req.from })) || {}); }
+    catch (err) { res.status(500).json({ error: err.message }); }
+    finally { fs.rm(got.file, { force: true }, () => {}); }
   });
   app.get('/api/pairing-code', (req, res) => {
     if (!isLocal(req)) return res.status(403).json({ error: 'The pairing code is only shown on the laptop.' });

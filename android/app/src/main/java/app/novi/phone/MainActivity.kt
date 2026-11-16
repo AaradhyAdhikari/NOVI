@@ -17,6 +17,10 @@ import android.webkit.PermissionRequest
 import android.webkit.SslErrorHandler
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
+import android.webkit.ValueCallback
+import android.net.Uri
+import androidx.activity.result.contract.ActivityResultContracts
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
@@ -39,6 +43,19 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var store: Store
     private var web: WebView? = null
+    // Novi Flick: the page's "Photos & files" button hands picking to Android.
+    private var fileCallback: ValueCallback<Array<Uri>>? = null
+    private val chooser = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val data = result.data
+        val uris = when {
+            result.resultCode != RESULT_OK || data == null -> null
+            data.clipData != null -> Array(data.clipData!!.itemCount) { data.clipData!!.getItemAt(it).uri }
+            data.data != null -> arrayOf(data.data!!)
+            else -> null
+        }
+        fileCallback?.onReceiveValue(uris)
+        fileCallback = null
+    }
     // The remote view's voice: the phone's own recognizer, results handed to the page (window.__noviHeard).
     private val speech by lazy {
         PhoneSpeech(this) { id, text, final, error ->
@@ -56,6 +73,10 @@ class MainActivity : ComponentActivity() {
      * the speech back as a WAV. Ends on a pause, after 8 s of nothing, or on stop().
      */
     private inner class Bridge {
+        /** Novi Flick: what the share menu handed over, once (JSON list of { id, name, type, link? }). */
+        @JavascriptInterface
+        fun flickInbox(): String = FlickInbox.takeJson()
+
         /** Earbuds-only: the page stays silent with none in. */
         @JavascriptInterface
         fun mayTalk(): Boolean = NoviService.instance?.mayTalk() ?: true
@@ -189,6 +210,12 @@ class MainActivity : ComponentActivity() {
             settings.domStorageEnabled = true
             settings.mediaPlaybackRequiresUserGesture = false
             webViewClient = object : WebViewClient() {
+                // Novi Flick: files shared to the app, read by the page from https://novi-flick.local/<id>.
+                override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
+                    if (request.url.host != FlickInbox.HOST) return null
+                    val f = FlickInbox.file(this@MainActivity, request.url.lastPathSegment ?: "") ?: return WebResourceResponse("text/plain", null, 404, "Not found", mapOf("Access-Control-Allow-Origin" to base.trimEnd('/')), null)
+                    return WebResourceResponse("application/octet-stream", null, 200, "OK", mapOf("Access-Control-Allow-Origin" to base.trimEnd('/')), f.inputStream())
+                }
                 // Novi's own pages stay here; any other link opens in the phone's browser.
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                     // Except the app file: a WebView can't download it, the browser can.
@@ -216,6 +243,14 @@ class MainActivity : ComponentActivity() {
                 }
             }
             webChromeClient = object : WebChromeClient() {
+                override fun onShowFileChooser(view: WebView, callback: ValueCallback<Array<Uri>>, params: FileChooserParams): Boolean {
+                    fileCallback?.onReceiveValue(null)
+                    fileCallback = callback
+                    return runCatching {
+                        chooser.launch(params.createIntent().apply { putExtra(Intent.EXTRA_ALLOW_MULTIPLE, params.mode == FileChooserParams.MODE_OPEN_MULTIPLE) })
+                        true
+                    }.getOrElse { fileCallback = null; false }
+                }
                 // The talk button: the mic, for Novi's own page only.
                 override fun onPermissionRequest(request: PermissionRequest) {
                     val ours = request.origin.toString().startsWith(base)

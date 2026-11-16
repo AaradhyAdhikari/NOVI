@@ -51,9 +51,9 @@ report, onlyChanges, paused, created_at, last_run, last_result_hash, fails }`.
   whose step outputs are the same as last time (hash) makes no card.
 
 **The look list** (`look.js`): an explicit allow-list of read-only tools, e.g. weather_get, github_activity,
-github_repo, github_graph, leetcode_today, leetcode_stats, project_board, project_status, project_about,
-team_status, project_said, code_changes, calendar_events, calendar_free, tasks_list, notes_ask, notes_list,
-brain_search, web_search, web_read, laptop_battery, laptop_disk, claude_usage, claude_activity,
+github_repo, github_graph, leetcode_today, leetcode_stats, project_board, project_about,
+team_status, project_said, calendar_events, calendar_free, tasks_list, notes_ask, notes_list,
+brain_search, web_search, web_read, laptop_battery, laptop_disk, claude_activity,
 reminder_list, preview_status. A tool joins only by being added here (reviewed), never by guessing from its
 name. Running still goes through `runtime.callTool` (which refuses anything with a card) — two locks.
 

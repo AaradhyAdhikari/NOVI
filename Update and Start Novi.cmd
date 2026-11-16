@@ -13,7 +13,8 @@ if errorlevel 1 (
 )
 echo Installing anything new Novi needs...
 call npm.cmd install --no-audit --no-fund
-netstat -ano | findstr /r /c:":3001 .*LISTENING" >nul
+rem Ask Novi itself: netstat stopped listing Novi's port (2026-11-16).
+curl.exe -sk -m 4 -o nul https://localhost:3001/api/health || (netstat -ano | findstr /r /c:":3001 .*LISTENING" >nul)
 if not errorlevel 1 (
   echo Novi is running. Restarting it with the new version ^(this can take a minute^)...
   curl.exe -sk -m 10 -X POST https://localhost:3001/api/restart >nul
