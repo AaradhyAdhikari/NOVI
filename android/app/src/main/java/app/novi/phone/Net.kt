@@ -3,6 +3,7 @@ package app.novi.phone
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
@@ -92,6 +93,22 @@ class Net(private val base: String, private val token: String?, pin: String?) {
             .post(bytes.toRequestBody("application/octet-stream".toMediaType()))
             .build()
         return call(req)
+    }
+
+    /** A whole file to the laptop's stage, streamed. */
+    fun flickFile(file: java.io.File, name: String, type: String): JSONObject {
+        val body = file.asRequestBody("application/octet-stream".toMediaType())
+        val req = request("/api/plugin-upload/flick")
+            .header("x-novi-kind", "file")
+            .header("x-novi-name", java.net.URLEncoder.encode(name, "UTF-8").replace("+", "%20"))
+            .header("x-novi-type", type)
+            .post(body)
+            .build()
+        return client.newBuilder().writeTimeout(10, TimeUnit.MINUTES).build().newCall(req).execute().use { res ->
+            val json = runCatching { JSONObject(res.body?.string().orEmpty()) }.getOrDefault(JSONObject())
+            if (!res.isSuccessful) throw NoviError(json.optString("error").ifEmpty { "Novi answered ${res.code}." }, res.code)
+            json
+        }
     }
 
     fun socket(listener: WebSocketListener): WebSocket = client.newWebSocket(Request.Builder().url(wsUrl(base)).build(), listener)

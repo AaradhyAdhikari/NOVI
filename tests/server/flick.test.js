@@ -320,6 +320,25 @@ describe('card actions (v2)', () => {
     await new Promise((r) => setTimeout(r, 10));
     expect(s.ran).toContainEqual({ tool: 'play_youtube', params: { query: 'Lofi beats to study to', on: 'laptop' } });
   });
+  it('selected text from the phone lands as a text card, saved as a .txt, and goes on to an AI or WhatsApp as text', async () => {
+    const s = setup({ viewers: 1 });
+    const t = path.join(tmp(), 'up'); fs.writeFileSync(t, 'Meeting moved to 5 pm, bring the slides');
+    const out = await s.handler({ file: t, name: 'text', kind: 'text', from: { deviceId: 'p1' } });
+    expect(out.ok).toBe(true);
+    expect(s.pushed[0]).toMatchObject({ kind: 'doc', text: 'Meeting moved to 5 pm, bring the slides' });
+    expect(s.pushed[0].path).toMatch(/\.txt$/);
+    expect(fs.readFileSync(s.pushed[0].path, 'utf8')).toBe('Meeting moved to 5 pm, bring the slides');
+    // It is also on the laptop's clipboard, ready to paste (user, 2026-11-17).
+    expect(s.ran.find((r) => r.copy)?.copy).toEqual({ text: 'Meeting moved to 5 pm, bring the slides' });
+    await s.host.get('flick_do').run({ action: 'copy' });
+    expect(s.ran.filter((r) => r.copy).pop().copy).toEqual({ text: 'Meeting moved to 5 pm, bring the slides' });
+    await s.host.get('flick_do').run({ action: 'ai', app: 'chatgpt' });
+    expect(s.ran.filter((r) => r.tool === 'open_website').pop().params.target).toBe('https://chatgpt.com/?q=' + encodeURIComponent('Meeting moved to 5 pm, bring the slides'));
+    await s.host.get('flick_do').run({ action: 'whatsapp', to: 'Rahul' });
+    expect(s.ran.filter((r) => r.tool === 'whatsapp_prepare').pop().params).toEqual({ to: 'Rahul', text: 'Meeting moved to 5 pm, bring the slides' });
+    const empty = path.join(tmp(), 'e'); fs.writeFileSync(empty, '   ');
+    expect((await s.handler({ file: empty, name: 'text', kind: 'text', from: 'local' })).ok).toBe(false);
+  });
   it('the stage page reaches the actions through its own POST', async () => {
     const stage = createStage();
     const url = await stage.start();

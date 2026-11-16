@@ -45,12 +45,18 @@ class FlickOverlay(private val svc: NoviService) {
     }
 
     /** After a landing: quick buttons for the AIs and a box for anywhere else ("Rahul", "Isha on WhatsApp"). */
-    fun landed(onSend: (String) -> Unit) {
+    fun landed(onSend: (String) -> Unit, onShare: ((Boolean) -> Unit)? = null) {
         show(9000, vertical = true) { col ->
             col.addView(words("✓ Landed on the laptop", "Send it on to:"))
             val chips = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
             for (name in listOf("ChatGPT", "Claude", "Gemini", "Google")) chips.addView(button(name) { hide(); onSend(name.lowercase()) })
             col.addView(android.widget.HorizontalScrollView(ctx).apply { isHorizontalScrollBarEnabled = false; addView(chips) })
+            // Share from the phone too (user, 2026-11-16): WhatsApp's own picker (search, tap a contact) or Android's share sheet.
+            if (onShare != null) col.addView(LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                addView(button("WhatsApp") { hide(); onShare(true) })
+                addView(button("Share…") { hide(); onShare(false) })
+            })
             val row = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
             val box = android.widget.EditText(ctx).apply {
                 hint = "or type: Rahul on WhatsApp…"

@@ -101,17 +101,19 @@ export function createFlickPlugin({ root = null, stage = null, openWindow = null
         if (action === 'copy') {
           if (file && !SAFE.includes(item.kind)) return { note: refuse(item) };
           // A picture goes on the clipboard as the picture; any other file only as a file (pasting never runs it).
-          const what = !file ? { text: item.url } : item.kind === 'photo' ? { image: item.path } : { file: item.path };
+          const what = item.text ? { text: item.text } : !file ? { text: item.url } : item.kind === 'photo' ? { image: item.path } : { file: item.path };
           if (!(await copy(what))) return { note: "I couldn't copy it. Try again in a moment." };
-          return { note: !file ? 'Copied the link.' : item.kind === 'photo' ? 'Copied the picture. Press Ctrl+V to paste it.' : `Copied ${item.name}. Press Ctrl+V to paste it.` };
+          return { note: item.text ? 'Copied the text.' : !file ? 'Copied the link.' : item.kind === 'photo' ? 'Copied the picture. Press Ctrl+V to paste it.' : `Copied ${item.name}. Press Ctrl+V to paste it.` };
         }
         if (action === 'whatsapp') {
           if (file && !SAFE.includes(item.kind)) return { note: refuse(item) };
           const name = String(to || '').trim().slice(0, 60);
           if (!name) return { note: 'Who should I send it to on WhatsApp?' };
           // By voice: only what to send goes back; the agent sends it like any spoken WhatsApp command.
-          if (handoff) return { note: `Sending to ${name}…`, send: file ? { to: name, path: item.path } : { to: name, text: item.url } };
-          const prep = await rt.callTool('whatsapp_prepare', file ? { to: name, path: item.path } : { to: name, text: item.url });
+          // Selected text goes as the words themselves, a link as the link, anything else as the file.
+          const what = item.text ? { to: name, text: item.text } : file ? { to: name, path: item.path } : { to: name, text: item.url };
+          if (handoff) return { note: `Sending to ${name}…`, send: what };
+          const prep = await rt.callTool('whatsapp_prepare', what);
           const ready = prep?.ready; // callTool / runAsked give the tool's details flat (host mapResult)
           if (!ready) return { note: prep?.error || prep?.note || prep?.text || `I couldn't get WhatsApp ready for ${name}.` };
           // No asking (user, 2026-11-16): a tap and a name on the stage is the go-ahead, like a spoken WhatsApp command.
@@ -126,7 +128,7 @@ export function createFlickPlugin({ root = null, stage = null, openWindow = null
           const t = aiTarget(site, item);
           if (t.copy && !(await copy(t.copy))) return { note: "I couldn't copy it for the site. Try again in a moment." };
           await rt.callTool?.('open_website', { target: t.url, on: 'laptop' });
-          return { note: t.copy ? `Opened ${site.name}. Press Ctrl+V there to add ${!file ? 'the link' : item.kind === 'photo' ? 'the picture' : item.name}.` : `Opened ${site.name} with the link in the question.` };
+          return { note: t.copy ? `Opened ${site.name}. Press Ctrl+V there to add ${item.text ? 'the text' : !file ? 'the link' : item.kind === 'photo' ? 'the picture' : item.name}.` : `Opened ${site.name} with the link in the question.` };
         }
         return { note: 'I can open it, copy it, show it in its folder, or send it to WhatsApp or an AI.' };
       };
@@ -147,7 +149,16 @@ export function createFlickPlugin({ root = null, stage = null, openWindow = null
           const id = crypto.randomBytes(6).toString('hex');
           let item;
           let playTitle = null;
-          if (kind === 'youtube') {
+          if (kind === 'text') {
+            // Text selected on the phone (user, 2026-11-16): a text card, also saved as a .txt in Novi Flick.
+            const words = fs.readFileSync(file, 'utf8').replace(/ /g, '').trim().slice(0, 20000);
+            if (!words) return { ok: false, error: 'No text came with it.' };
+            fs.writeFileSync(file, words);
+            const saved = saveFlick({ tmp: file, name: `Text ${new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-')}.txt`, root: saveRoot });
+            item = { id, kind: 'doc', name: words.split(/s+/).slice(0, 8).join(' ').slice(0, 60), path: saved, text: words, at: Date.now() };
+            // Selected text is also put on the laptop's clipboard, ready to paste (user, 2026-11-17).
+            copy({ text: words }).catch?.(() => {});
+          } else if (kind === 'youtube') {
             // A video playing in the phone's YouTube app (user, 2026-11-16): its title; the laptop plays it on YouTube.
             const title = fs.readFileSync(file, 'utf8').replace(/[\r\n\t]+/g, ' ').replace(/[\u0000-\u001f]/g, '').trim().slice(0, 200);
             if (!title) return { ok: false, error: 'No video title came with it.' };

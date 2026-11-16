@@ -45,7 +45,7 @@ class FlickDetectorTest {
         assertEquals(FlickSend.PRIVATE, flickChoice(false, null, true, "com.phonepe.app", false, null, true))
         assertEquals(FlickSend.PRIVATE, flickChoice(false, null, true, "com.instagram.android", true, null, true))
         assertEquals(FlickSend.LINK, flickChoice(false, null, true, "com.android.chrome", false, "https://x.com", true))
-        assertEquals(FlickSend.SCREEN, flickChoice(false, null, true, "com.google.android.apps.photos", false, null, true))
+        assertEquals(FlickSend.SCREEN, flickChoice(false, null, true, "com.example.reader", false, null, true))
         assertEquals(FlickSend.NOTHING, flickChoice(false, null, true, "com.google.android.apps.photos", false, null, false))
         // Review fixes: never from the lock screen; an earlier screenshot never goes from a bank app; no picture of a messages app.
         assertEquals(FlickSend.NOTHING, flickChoice(false, 1000, true, "com.x", false, null, true, locked = true))
@@ -59,6 +59,37 @@ class FlickDetectorTest {
         assertEquals(FlickSend.APP, flickChoice(false, null, true, "com.instagram.android", false, null, true))
         assertEquals("https://www.instagram.com/", appSite("com.instagram.android"))
         assertEquals(null, appSite("com.instagram.androidx.evil"))
+    }
+
+    @Test fun selectionAndGallery() {
+        assertEquals(FlickSend.TEXT, flickChoice(false, 1000, true, "com.whatsapp", false, null, true, selection = "meet at 5"))
+        assertEquals(FlickSend.LINK, flickChoice(false, null, true, "com.whatsapp", false, null, true, selection = "https://x.com/a"))
+        assertEquals(FlickSend.PRIVATE, flickChoice(false, null, true, "com.phonepe.app", false, null, true, selection = "1234"))
+        assertEquals(FlickSend.PICTURE, flickChoice(false, 1000, true, "com.sec.android.gallery3d", false, null, true))
+        assertEquals(FlickSend.SCREENSHOT, flickChoice(false, 1000, true, "com.whatsapp", false, null, true))
+    }
+
+    @Test fun copyAndFiles() {
+        assertEquals(FlickSend.COPY, flickChoice(false, null, true, "com.whatsapp", false, null, true, copyShown = true))
+        assertEquals(FlickSend.TEXT, flickChoice(false, null, true, "com.whatsapp", false, null, true, selection = "hi", copyShown = true))
+        assertEquals(FlickSend.FILE, flickChoice(false, null, true, "com.sec.android.app.myfiles", false, null, true, filesOk = true))
+        assertEquals(FlickSend.SCREEN, flickChoice(false, null, true, "com.sec.android.app.myfiles", false, null, true, filesOk = false))
+        assertEquals(listOf("Resume 2026.pdf", "notes.txt"), fileNames(listOf("Resume 2026.pdf"), listOf("Downloads", "notes.txt", "Resume 2026.pdf", "3 items")))
+        assertTrue(fileNames(emptyList(), listOf("a/b.pdf", "Hello there")).isEmpty())
+    }
+
+    @Test fun picturesLoseTheirBlackEdges() {
+        // A 100x200 screen: black above y=50 and below y=150, the photo in between (x 10..90).
+        val box = trimDark(100, 200, step = 2) { x, y -> y < 50 || y >= 150 || x < 10 || x >= 90 }
+        assertTrue(box[1] in 48..52 && box[3] in 148..152 && box[0] in 8..12 && box[2] in 88..92)
+        // Live 2026-11-16: white icons and words on black at the top (status bar + gallery buttons) and the bottom,
+        // a dark gap, then the photo. Only the photo is kept.
+        val photo = trimDark(100, 200, step = 1) { x, y -> when { y < 30 -> x % 10 != 0; y < 40 -> true; y < 160 -> false; y < 190 -> true; else -> x % 10 != 0 } }
+        assertTrue("got " + photo.toList(), photo[1] in 38..42 && photo[3] in 158..162)
+        // A dark photo that fills the screen stays whole.
+        assertTrue(trimDark(100, 200, step = 2) { _, _ -> true }.contentEquals(intArrayOf(0, 0, 100, 200)))
+        // Nothing dark: nothing cut.
+        assertTrue(trimDark(100, 200, step = 2) { _, _ -> false }.contentEquals(intArrayOf(0, 0, 100, 200)))
     }
 
     @Test fun browserBarToLink() {

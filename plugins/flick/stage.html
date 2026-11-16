@@ -39,6 +39,7 @@
   .meta { padding:8px 14px 10px; }
   .play { position:absolute; left:50%; top:40%; transform:translate(-50%,-50%); width:64px; height:64px; border-radius:50%; background:rgba(2,16,21,.7); border:1px solid rgba(63,224,255,.5); display:grid; place-items:center; font-size:26px; color:var(--ink); pointer-events:none; }
   .card.playing .play { display:none; }
+  .words { padding:22px 20px 6px; font-size:19px; line-height:1.45; max-height:46vh; overflow:auto; white-space:pre-wrap; word-break:break-word; }
   .corner { position:absolute; top:8px; right:8px; display:flex; gap:6px; z-index:2; }
   .corner button { width:30px; height:30px; border-radius:50%; border:1px solid rgba(63,224,255,.4); background:rgba(2,16,21,.75); color:var(--ink); font:inherit; font-size:15px; line-height:1; cursor:pointer; display:grid; place-items:center; padding:0; }
   .corner button:hover { border-color:var(--glow); background:rgba(63,224,255,.25); }
@@ -156,6 +157,9 @@ function el(item) {
     video = document.createElement('video'); video.src = `file/${item.id}#t=0.1`; video.playsInline = true; video.preload = 'metadata'; video.controls = false; c.appendChild(video);
     // A video waits for you (user, 2026-11-16): its first frame and a ▶; click the front card to play it.
     const play = document.createElement('div'); play.className = 'play'; play.textContent = '▶'; c.appendChild(play);
+  } else if (item.text) {
+    // Selected text from the phone: the words themselves are the card.
+    const q = document.createElement('div'); q.className = 'words'; q.textContent = item.text; c.appendChild(q);
   } else {
     const i = document.createElement('div'); i.className = 'icon'; i.textContent = ICON[item.kind] || '📦'; c.appendChild(i);
   }

@@ -46,6 +46,8 @@ class FlickAnywhere(private val svc: NoviService, private val store: Store) : Se
     private var acc = 0f
     private var listening = false
     private var busy = false
+    // What just landed (bytes, name, type, kind), for the WhatsApp / Share buttons on the "Landed" card.
+    private var lastSent: Pair<Triple<ByteArray, String, String>, String>? = null
 
     private data class Shot(val uri: Uri, val name: String, val type: String, val at: Long)
     private var lastShot: Shot? = null
@@ -133,12 +135,40 @@ class FlickAnywhere(private val svc: NoviService, private val store: Store) : Se
             link = if (access != null && shotAge?.let { it <= 90_000 } != true) access.browserLink() else null,
             canShoot = access?.canShoot() ?: false,
             youtubeTitle = access?.youtubeTitle(),
+            selection = access?.selectedText(),
+            copyShown = access?.selectedText() == null && access?.copyShown() == true,
+            filesOk = Build.VERSION.SDK_INT >= 30 && android.os.Environment.isExternalStorageManager(),
         )
         val no = { text: String -> overlay.result(text, false); answer(false, text) }
         when (choice) {
             FlickSend.PAGE -> { MainActivity.flickPage(); answer(true, "Sent the top card from the flick screen.") }
             FlickSend.SCREENSHOT -> lastShot?.let { s -> lastShot = null; buzz(); send(answer) { readUri(s.uri)?.let { Triple(it, s.name, s.type) } } } ?: no("Nothing to flick here.")
-            FlickSend.LINK -> access?.browserLink()?.let { link -> buzz(); send(answer, kind = "link") { Triple(link.toByteArray(), "link", "") } } ?: no("Nothing to flick here.")
+            FlickSend.LINK -> (access?.selectedText()?.let { browserAddress(it) } ?: access?.browserLink())?.let { link -> buzz(); send(answer, kind = "link") { Triple(link.toByteArray(), "link", "") } } ?: no("Nothing to flick here.")
+            FlickSend.TEXT -> access?.selectedText()?.let { words -> buzz(); send(answer, kind = "text") { Triple(words.toByteArray(), "text", "text/plain") } } ?: no("Nothing to flick here.")
+            // The app didn't say what's selected: press its Copy, then read the clipboard for a moment in front.
+            FlickSend.COPY -> {
+                buzz()
+                if (access?.pressCopy() != true) return no("Couldn't copy the selection.")
+                ClipActivity.onRead = { words -> main.post { if (words == null) no("Couldn't read what was copied.") else sendWordsNow(words, answer) } }
+                main.postDelayed({ runCatching { svc.startActivity(Intent(svc, ClipActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)) } }, 250)
+            }
+            // A file manager or document viewer: the whole file, found by its name on screen.
+            FlickSend.FILE -> {
+                buzz()
+                val (chosen, shown) = access?.screenWords() ?: (emptyList<String>() to emptyList())
+                val names = fileNames(chosen, shown)
+                Thread {
+                    val files = findFiles(names)
+                    main.post {
+                        if (files.isNotEmpty()) sendFiles(files, answer)
+                        else access?.shot { bytes -> main.post { if (bytes == null) no("Couldn't find the file.") else send(answer) { Triple(bytes, "Novi flick ${stamp()}.jpg", "image/jpeg") } } }
+                    }
+                }.start()
+            }
+            FlickSend.PICTURE -> {
+                buzz()
+                access?.shot(trim = true) { bytes -> main.post { if (bytes == null) no("Couldn't take the picture.") else send(answer) { Triple(bytes, "Novi photo ${stamp()}.jpg", "image/jpeg") } } }
+            }
             FlickSend.YOUTUBE -> access?.youtubeTitle()?.let { title ->
                 buzz()
                 pausePhone()
@@ -173,6 +203,7 @@ class FlickAnywhere(private val svc: NoviService, private val store: Store) : Se
         Thread {
             val out = runCatching {
                 val (bytes, name, type) = what() ?: throw IllegalStateException("Couldn't read it.")
+                lastSent = Triple(bytes, name, type) to kind
                 val net = svc.netOrNull() ?: throw IllegalStateException("Not connected to Novi.")
                 net.flick(bytes, name, type, kind)
             }
@@ -182,7 +213,7 @@ class FlickAnywhere(private val svc: NoviService, private val store: Store) : Se
                     if (r.optBoolean("ok", true)) {
                         then()
                         // "Send to" (user, 2026-11-16): where the thing that just landed goes next.
-                        if (kind == "youtube") overlay.result("Playing on the laptop", true) else overlay.landed { where -> svc.sendText("send the last flick to $where") }
+                        if (kind == "youtube") overlay.result("Playing on the laptop", true) else overlay.landed({ where -> svc.sendText("send the last flick to $where") }, { whatsapp -> share(whatsapp) })
                         done(true, if (kind == "youtube") "It is playing on the laptop." else "It landed on the laptop.")
                     }
                     else r.optString("error", "The laptop didn't take it.").let { overlay.result(it, false); done(false, it) }
@@ -194,11 +225,94 @@ class FlickAnywhere(private val svc: NoviService, private val store: Store) : Se
     /** A second thing that goes with the first (an app's website after its screenshot), with no card of its own. */
     private fun sendQuiet(link: String) = Thread { runCatching { svc.netOrNull()?.flick(link.toByteArray(), "link", "", "link") } }.start()
 
+    /**
+     * The thing that just landed, from the phone: WhatsApp's own contact picker (search, tap) or Android's share
+     * sheet (recent contacts, Quick Share, Gmail…). Pictures and files go through Novi's FileProvider (cache/share/
+     * only, read permission for that one share); links and text go as text.
+     */
+    private fun share(whatsapp: Boolean) {
+        val (data, kind) = lastSent ?: return
+        val (bytes, name, type) = data
+        val send = Intent(Intent.ACTION_SEND)
+        if (kind == "link" || kind == "text") {
+            send.type = "text/plain"
+            send.putExtra(Intent.EXTRA_TEXT, String(bytes))
+        } else {
+            val dir = java.io.File(svc.cacheDir, "share").apply { mkdirs() }
+            dir.listFiles()?.forEach { it.delete() } // only the newest share is kept
+            val safe = name.replace(Regex("""[\\/:*?"<>|]"""), "_").ifBlank { "Novi flick.jpg" }
+            val file = java.io.File(dir, safe).apply { writeBytes(bytes) }
+            val uri = androidx.core.content.FileProvider.getUriForFile(svc, "${svc.packageName}.flickshare", file)
+            send.type = type.ifBlank { "image/jpeg" }
+            send.putExtra(Intent.EXTRA_STREAM, uri)
+            send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        val wa = listOf("com.whatsapp", "com.whatsapp.w4b").firstOrNull { pkg -> runCatching { svc.packageManager.getPackageInfo(pkg, 0) }.isSuccess }
+        val intent = if (whatsapp && wa != null) send.setPackage(wa) else Intent.createChooser(send, "Share")
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        runCatching { svc.startActivity(intent) }.onFailure { overlay.result("Couldn't open sharing.", false) }
+    }
+
     /** The phone's video stops when it starts on the laptop. */
     private fun pausePhone() = runCatching {
         val am = svc.getSystemService(android.media.AudioManager::class.java)
         am.dispatchMediaKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_MEDIA_PAUSE))
         am.dispatchMediaKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_MEDIA_PAUSE))
+    }
+
+    /** Words (selected text, the selection menu's "Send to Novi"): a link goes as a link, else as text. */
+    fun sendWords(words: String) = sendWordsNow(words) { _, _ -> }
+    private fun sendWordsNow(words: String, done: (Boolean, String) -> Unit) {
+        val link = browserAddress(words)
+        if (link != null) send(done, kind = "link") { Triple(link.toByteArray(), "link", "") }
+        else send(done, kind = "text") { Triple(words.toByteArray(), "text", "text/plain") }
+    }
+
+    /** What the share menu handed over: whole files streamed, links as links. */
+    fun sendInbox() {
+        val items = FlickInbox.takeItems()
+        items.filter { it.link != null }.forEach { sendWords(it.link!!) }
+        val files = items.mapNotNull { it.file?.let { f -> Triple(f, it.name, it.type) } }
+        if (files.isNotEmpty()) sendFileTriples(files) { _, _ -> }
+    }
+
+    private fun sendFiles(files: List<java.io.File>, done: (Boolean, String) -> Unit) =
+        sendFileTriples(files.map { Triple(it, it.name, android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(it.extension.lowercase()) ?: "") }, done)
+
+    private fun sendFileTriples(files: List<Triple<java.io.File, String, String>>, done: (Boolean, String) -> Unit) {
+        busy = true
+        overlay.result(if (files.size == 1) "Sending ${files[0].second}…" else "Sending ${files.size} files…", true)
+        Thread {
+            val out = runCatching {
+                val net = svc.netOrNull() ?: throw IllegalStateException("Not connected to Novi.")
+                files.forEach { (f, name, type) -> net.flickFile(f, name, type) }
+            }
+            main.post {
+                busy = false
+                out.onSuccess { overlay.result(if (files.size == 1) "${files[0].second} landed on the laptop" else "${files.size} files landed on the laptop", true); done(true, "It landed on the laptop.") }
+                    .onFailure { (it.message ?: "Couldn't reach the laptop.").let { m -> overlay.result(m, false); done(false, m) } }
+            }
+        }.start()
+    }
+
+    /** The files with these names on the phone (Download, Documents, DCIM, Pictures, WhatsApp…), newest first. */
+    private fun findFiles(names: List<String>): List<java.io.File> {
+        if (names.isEmpty()) return emptyList()
+        val wanted = names.map { it.lowercase() }.toSet()
+        val base = android.os.Environment.getExternalStorageDirectory()
+        val roots = listOf("Download", "Documents", "DCIM", "Pictures", "Movies", "Music", "Android/media/com.whatsapp/WhatsApp/Media", "WhatsApp/Media").map { java.io.File(base, it) }
+        val found = mutableMapOf<String, java.io.File>()
+        var seen = 0
+        fun walk(dir: java.io.File, depth: Int) {
+            if (depth > 6 || seen > 30000 || found.size == wanted.size) return
+            for (f in dir.listFiles() ?: return) {
+                seen++
+                if (f.isDirectory) { if (!f.name.startsWith(".")) walk(f, depth + 1) }
+                else { val k = f.name.lowercase(); if (k in wanted && (found[k]?.lastModified() ?: 0) < f.lastModified()) found[k] = f }
+            }
+        }
+        roots.filter { it.isDirectory }.forEach { walk(it, 0) }
+        return names.mapNotNull { found[it.lowercase()] }.filter { it.length() <= 300L * 1024 * 1024 }
     }
 
     /** "Send to Novi" on the screenshot pop-up. */

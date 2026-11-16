@@ -35,7 +35,43 @@ class NoviAccess : AccessibilityService() {
         super.onDestroy()
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+    // The newest text selection an app reported (many apps only say it through this event).
+    @Volatile private var picked: Triple<String, String, Long>? = null
+
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (event?.eventType != AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED) return
+        val pkg = event.packageName?.toString().orEmpty()
+        if (event.isPassword || blockedApp(pkg)) { picked = null; return }
+        val text = event.text?.joinToString("")?.takeIf { it.isNotEmpty() } ?: event.source?.text?.toString()
+        val a = event.fromIndex; val b = event.toIndex
+        picked = if (text != null && a >= 0 && b > a && b <= text.length) Triple(pkg, text.substring(a, b).trim(), System.currentTimeMillis()) else null
+    }
+
+    /** The selection the app in front reported in the last 2 minutes. */
+    fun reportedSelection(): String? {
+        val p = picked ?: return null
+        return if (p.first == frontPackage() && System.currentTimeMillis() - p.third < 120_000 && p.second.isNotEmpty()) p.second.take(20000) else null
+    }
+
+    /** The selection menu's Copy button, when one shows (the text itself isn't told to Novi). */
+    private fun copyNode(): AccessibilityNodeInfo? {
+        val root = rootInActiveWindow ?: return null
+        val all = windows.mapNotNull { it.root } + root
+        return all.asSequence().flatMap { nodes(it).asSequence() }.firstOrNull { n ->
+            n.isVisibleToUser && (n.text?.toString() ?: n.contentDescription?.toString()).orEmpty().trim().equals("Copy", ignoreCase = true)
+        }
+    }
+    fun copyShown(): Boolean = copyNode() != null
+    fun pressCopy(): Boolean = copyNode()?.let { n -> (generateSequence(n) { it.parent }.take(4).firstOrNull { it.isClickable } ?: n).performAction(AccessibilityNodeInfo.ACTION_CLICK) } ?: false
+
+    /** Words on screen: (selected / checked items, everything shown), for finding the open or picked file. */
+    fun screenWords(): Pair<List<String>, List<String>> {
+        val root = rootInActiveWindow ?: return emptyList<String>() to emptyList()
+        val all = nodes(root).filter { it.isVisibleToUser }
+        fun words(n: AccessibilityNodeInfo) = listOfNotNull(n.text?.toString(), n.contentDescription?.toString())
+        val chosen = all.filter { it.isSelected || it.isChecked }.flatMap { n -> words(n) + (0 until n.childCount).mapNotNull { n.getChild(it) }.flatMap { words(it) } }
+        return chosen to all.flatMap { words(it) }
+    }
     override fun onInterrupt() {}
 
     /** The app in front (the mic bubble never takes the focus, so it's the app the user is in). */
@@ -162,14 +198,24 @@ class NoviAccess : AccessibilityService() {
     }
 
     /** A picture of the screen as PNG bytes (Android 11+; the user's own screen, for their own laptop). */
-    fun shot(done: (ByteArray?) -> Unit) {
+    fun shot(trim: Boolean = false, done: (ByteArray?) -> Unit) {
+        val inside = if (trim) pictureBox() else null
         if (Build.VERSION.SDK_INT < 30) return done(null)
         // Compressing a screen picture takes ~100 ms: off the main thread (review 2026-11-16).
         takeScreenshot(android.view.Display.DEFAULT_DISPLAY, shotPool, object : TakeScreenshotCallback {
             override fun onSuccess(result: ScreenshotResult) {
                 val bytes = runCatching {
                     val hw = try { android.graphics.Bitmap.wrapHardwareBuffer(result.hardwareBuffer, result.colorSpace) } finally { }
-                    val soft = try { hw?.copy(android.graphics.Bitmap.Config.ARGB_8888, false) } finally { result.hardwareBuffer.close() }
+                    val full = try { hw?.copy(android.graphics.Bitmap.Config.ARGB_8888, false) } finally { result.hardwareBuffer.close() }
+                    // A photo in a gallery: cut away the viewer's black edges, so only the picture goes.
+                    val soft = if (trim && full != null) {
+                        // First the gallery's own picture box (when Android says where it is), then the black edges inside it.
+                        val r = inside?.let { Rect(it.left.coerceAtLeast(0), it.top.coerceAtLeast(0), it.right.coerceAtMost(full.width), it.bottom.coerceAtMost(full.height)) }
+                        val area = if (r != null && r.width() > 50 && r.height() > 50 && (r.width() < full.width || r.height() < full.height)) android.graphics.Bitmap.createBitmap(full, r.left, r.top, r.width(), r.height()).also { full.recycle() } else full
+                        val b = trimDark(area.width, area.height) { x, y -> val c = area.getPixel(x, y); ((c shr 16 and 255) + (c shr 8 and 255) + (c and 255)) < 60 }
+                        if (b[0] == 0 && b[1] == 0 && b[2] == area.width && b[3] == area.height) area
+                        else android.graphics.Bitmap.createBitmap(area, b[0], b[1], b[2] - b[0], b[3] - b[1]).also { area.recycle() }
+                    } else full
                     val out = java.io.ByteArrayOutputStream()
                     soft?.compress(android.graphics.Bitmap.CompressFormat.JPEG, 88, out)
                     soft?.recycle()
@@ -182,6 +228,36 @@ class NoviAccess : AccessibilityService() {
     }
 
     fun canShoot(): Boolean = Build.VERSION.SDK_INT >= 30
+
+    /** The box where a gallery draws the open photo (its picture view), or null when it can't tell. */
+    fun pictureBox(): Rect? {
+        val root = rootInActiveWindow ?: return null
+        val screen = Rect().also(root::getBoundsInScreen)
+        val minArea = screen.width().toLong() * screen.height() / 4
+        return nodes(root).asSequence()
+            .filter { it.isVisibleToUser && it.text.isNullOrEmpty() }
+            .filter {
+                val cls = it.className?.toString().orEmpty()
+                val id = it.viewIdResourceName.orEmpty().lowercase()
+                Regex("Image|Photo|Surface|Texture|GLSurface").containsMatchIn(cls) || Regex("photo|image|picture|preview|viewer|pager").containsMatchIn(id)
+            }
+            .map { Rect().also(it::getBoundsInScreen) }
+            .filter { it.width().toLong() * it.height() >= minArea }
+            .maxByOrNull { it.width().toLong() * it.height() }
+    }
+
+    /** Text selected in the app in front (never from a password box), else null. */
+    fun selectedText(): String? {
+        reportedSelection()?.let { return it }
+        val root = rootInActiveWindow ?: return null
+        for (n in nodes(root)) {
+            if (n.isPassword || !n.isVisibleToUser) continue
+            val t = n.text ?: continue
+            val a = n.textSelectionStart; val b = n.textSelectionEnd
+            if (a >= 0 && b > a && b <= t.length) return t.subSequence(a, b).toString().trim().take(20000).ifEmpty { null }
+        }
+        return null
+    }
 
     /** The video open in the YouTube app: its title (the watch page or the player's own title line), else null. */
     fun youtubeTitle(): String? {

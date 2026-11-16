@@ -74,6 +74,10 @@ object FlickInbox {
         return arr.toString()
     }
 
+    /** Everything waiting, once, as items (the service sends them straight to the laptop). */
+    @Synchronized
+    fun takeItems(): List<Item> = items.toList().also { items.clear() }
+
     /** A shared file by id, only from our own cache folder. */
     fun file(ctx: Context, id: String): File? {
         if (!Regex("^[a-f0-9]{8,32}$").matches(id)) return null

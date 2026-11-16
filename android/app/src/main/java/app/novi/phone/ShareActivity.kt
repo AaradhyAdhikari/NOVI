@@ -9,6 +9,8 @@ class ShareActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         FlickInbox.take(this, intent)
+        // Straight to the laptop, whole files and all (user, 2026-11-17: "it is sending a screenshot, not the file").
+        NoviService.instance?.let { svc -> if (svc.netOrNull() != null) { svc.flickInbox(); finish(); return } }
         startActivity(Intent(this, MainActivity::class.java).apply {
             putExtra("page", "/?flick")
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)

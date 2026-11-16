@@ -197,6 +197,13 @@ class SetupActivity : ComponentActivity() {
         permission("Photos (Allow all): offer to send new screenshots", FlickAnywhere.canReadShots(this)) {
             requestPermissions(FlickAnywhere.shotPermissions(), 4)
         }
+        // Novi Flick: whole files from file managers / document viewers (found by name, sent only when you flick).
+        if (Build.VERSION.SDK_INT >= 30) {
+            permission("All files: flick sends the whole file", android.os.Environment.isExternalStorageManager()) {
+                runCatching { startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:$packageName"))) }
+                    .onFailure { startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)) }
+            }
+        }
         // Fingerprint instead of the PIN on risky cards (2026-11-11); set up again after a new fingerprint is added.
         if (Fingerprint.canUse(this)) {
             permission("Fingerprint for risky cards", Fingerprint.has()) {

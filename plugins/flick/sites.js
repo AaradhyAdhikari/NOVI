@@ -24,6 +24,7 @@ export function destination(text) {
 
 // { url, copy? } for one item on one site.
 export function aiTarget(site, item) {
+  if (item.text) return site.q && item.text.length <= 1500 ? { url: site.q + encodeURIComponent(item.text) } : { url: site.url, copy: { text: item.text } };
   if (item.url) return site.q ? { url: site.q + encodeURIComponent(item.url) } : { url: site.url, copy: { text: item.url } };
   if (item.kind === 'photo') return { url: site.picture || site.url, copy: { image: item.path } };
   return { url: site.url, copy: { file: item.path } };

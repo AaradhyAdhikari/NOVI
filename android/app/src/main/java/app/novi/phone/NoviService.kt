@@ -67,6 +67,10 @@ class NoviService : Service() {
     private lateinit var flick: FlickAnywhere
     /** The flick setting or the screenshot permission changed (setup screen). */
     fun flickRefresh() = main.post { flick.refresh() }
+    /** Words from the selection menu's "Send to Novi". */
+    fun flickWords(words: String) = main.post { flick.sendWords(words) }
+    /** What the share menu handed to "Send to Novi". */
+    fun flickInbox() = main.post { flick.sendInbox() }
     private val notices = ArrayList<Notice>()
     private var noticePosted: String? = null
     private lateinit var bubble: MicBubble
