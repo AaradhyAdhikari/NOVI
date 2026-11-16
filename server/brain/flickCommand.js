@@ -10,8 +10,12 @@ const FLICK = '(?:the |my )?(?:last |latest |newest )?(?:flick|flicked (?:photo|
 const AI_WORDS = { chatgpt: 'chatgpt', 'chat gpt': 'chatgpt', gemini: 'gemini', claude: 'claude', perplexity: 'perplexity', google: 'google', 'google lens': 'google', lens: 'google' };
 const keep = (raw, word) => (String(raw).match(new RegExp(word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')) || [word])[0];
 
+// "Send this to my laptop" said on the phone (Novi mic button): the phone flicks what's on its screen.
+const TO_LAPTOP = /^(?:send|flick|share|put|throw|move|cast)(?: (?:this|it|that|the|my))?(?: (?:photo|picture|pic|image|screenshot|screen|page|link|video|file|thing))?(?: over)? (?:to|on|onto) (?:my |the )?(?:laptop|computer|pc)(?: screen)?$|^(?:ye|yeh|isko|isse) laptop (?:pe|par) (?:bhejo|bhej do|daalo|dalo)$/;
+
 export function flickCommand(text) {
   const t = clean(text);
+  if (TO_LAPTOP.test(t)) return { tool: 'flick_from_phone', args: {} };
   if (/^(?:open|show|start|bring up)(?: the| my| novi)? (?:stage|flick stage)$|^(?:flick|stage) mode(?: on)?$|^stage kholo$/.test(t)) return { tool: 'flick_stage', args: { do: 'open' } };
   if (/^(?:close|hide|stop|end)(?: the| my| novi)? (?:stage|flick stage)$|^(?:flick|stage) mode off$|^stage band karo$/.test(t)) return { tool: 'flick_stage', args: { do: 'close' } };
   if (/^open (?:the |my )?(?:last|latest|newest) (?:flick|flicked (?:thing|file|item))$|^open what i (?:just )?flicked$/.test(t)) return { tool: 'flick_open', args: {} };

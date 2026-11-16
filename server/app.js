@@ -162,14 +162,17 @@ export function createNovi(config, overrides = {}) {
       // A plugin action that needs the user's yes (Novi Flick v2: a stage card's "Send to WhatsApp"): the tool's
       // own approval shows as a normal card, and it runs only after a yes. Never for high-risk, PIN, delete or
       // payment cards (those stay on their own paths). → the tool's result, or { declined: true }.
-      runAsked: async (name, params = {}) => {
+      // direct: the user's own tap or words named exactly this send (user, 2026-10-17 and 2026-11-16: "I don't want
+      // it asking if I want to send"), so no card; only for WhatsApp sends.
+      runAsked: async (name, params = {}, { direct = false } = {}) => {
         const tool = plugins.get(name);
         if (!tool) throw new Error(`Unknown tool ${name}`);
-        const gate = await tool.gate(params);
+        const gate = await tool.gate(params, { direct });
         if (gate.block) return { error: gate.blockReason || 'Not allowed.' };
         if (gate.approval) {
           const a = gate.approval;
           if (a.tier === 'high' || a.pin || a.kind) throw new Error(`${name} needs a stronger yes, so a plugin can't ask for it`);
+          if (direct && name === 'whatsapp_send') return tool.run(params);
           const d = await approvals.decide({ ...a, grantable: false, source: 'novi' });
           if (!d?.allow) return { declined: true };
         }

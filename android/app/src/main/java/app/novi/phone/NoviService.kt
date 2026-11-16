@@ -251,7 +251,10 @@ class NoviService : Service() {
                 },
             )
             // A step inside the app open on this phone (phone typing, plugins/phone-control).
-            "phone_action" -> work.execute {
+            // "Send this to my laptop" (Novi mic button): the same as a wrist flick.
+            "phone_action" -> if (msg.optString("do") == "flick") main.post {
+                flick.flicked { ok, note -> socket?.send(JSONObject().put("type", "phone_action_result").put("id", msg.optString("id")).put("ok", ok).put("note", note).toString()) }
+            } else work.execute {
                 val (ok, note) = runCatching { NoviAccess.instance?.perform(msg) }.getOrElse { false to "That didn't work on the phone." }
                     ?: (false to "Turn on Novi's typing on the phone: Settings → Accessibility → Novi.")
                 socket?.send(JSONObject().put("type", "phone_action_result").put("id", msg.optString("id")).put("ok", ok).put("note", note).toString())

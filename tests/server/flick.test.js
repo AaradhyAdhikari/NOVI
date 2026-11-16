@@ -270,6 +270,30 @@ describe('card actions (v2)', () => {
     const out = await s.host.get('flick_do').run({ action: 'whatsapp', to: 'Rahul', recent: true });
     expect(out.unknown).toBe(true);
   });
+  it('the card ✕ takes it off the stage (POST remove), and the page hears it gone', async () => {
+    const stage = createStage();
+    const url = await stage.start();
+    try {
+      stage.push({ id: 'a1', kind: 'link', name: 'x.com', url: 'https://x.com', host: 'x.com' });
+      const res = await fetch(`${url}events`);
+      const reader = res.body.getReader();
+      await new Promise((r) => setTimeout(r, 50));
+      expect((await fetch(`${url}remove/a1`, { method: 'POST', headers: { 'x-novi-stage': '1' } })).status).toBe(204);
+      let text = '';
+      while (!text.includes('event: gone')) text += new TextDecoder().decode((await reader.read()).value);
+      expect(text).toMatch(/"id":"a1"/);
+      reader.cancel();
+      expect(stage.items()).toHaveLength(0);
+    } finally { stage.stop(); }
+  });
+  it('"send this to my laptop" on the phone asks the phone to flick', async () => {
+    const s = setup({ viewers: 1 });
+    const asked = [];
+    s.host.runtime.phoneAction = async (a) => { asked.push(a); return { ok: true, note: 'It landed on the laptop.' }; };
+    const out = await s.host.get('flick_from_phone').run({});
+    expect(asked).toEqual([{ do: 'flick' }]);
+    expect(out.text).toMatch(/landed/);
+  });
   it('the stage page reaches the actions through its own POST', async () => {
     const stage = createStage();
     const url = await stage.start();
@@ -293,7 +317,11 @@ describe('flick by voice', () => {
     expect(flickCommand('send the last flick to Rahul')).toEqual({ tool: 'flick_do', args: { action: 'whatsapp', to: 'Rahul' } });
     expect(flickCommand('send it to gemini')).toEqual({ tool: 'flick_do', args: { action: 'ai', app: 'gemini', recent: true } });
     expect(flickCommand('show the last flick in the folder')).toEqual({ tool: 'flick_do', args: { action: 'folder' } });
-    expect(flickCommand('copy this link')).toBeNull(); // the page's link (browser plugin), not a flick
+    expect(flickCommand('copy this link')).toBeNull();
+    expect(flickCommand('send this to my laptop')).toEqual({ tool: 'flick_from_phone', args: {} });
+    expect(flickCommand('Novi, send this photo to the laptop.')).toEqual({ tool: 'flick_from_phone', args: {} });
+    expect(flickCommand('ye laptop pe bhejo')).toEqual({ tool: 'flick_from_phone', args: {} });
+    expect(flickCommand('send this to Rahul')).toBeNull(); // the page's link (browser plugin), not a flick
   });
 
   it('stage open / close and opening the last flick', () => {

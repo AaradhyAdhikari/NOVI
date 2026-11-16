@@ -56,7 +56,7 @@ const STEP_TOOLS = new Set(['open_app', 'open_website', 'screen_type_into', 'scr
 const LAPTOP_QUIET = new Set(['laptop_seek', 'laptop_media', 'laptop_video_mute', 'laptop_select']);
 const QUIET_NOTE = /^(?:Skipped ahead|Went back|Jumped to|Paused|Playing|Next|Previous|Already paused|Muted the video|Unmuted the video|The video is already|Selected)/;
 const SAID_NOT_WRITTEN = /^Copied \d+ lines?\.$/; // nothing to see, so it is said, but not written
-const DIRECT_OK = new Set(['flick_stage', 'flick_open', 'flick_do', 'routine_make', 'routine_list', 'routine_run', 'routine_said', 'routine_pause', 'routine_remove', 'project_stop', 'project_said', 'team_status', 'project_undo', 'team_add', 'team_discover', 'project_import', 'project_run', 'project_agents', 'project_decision', 'live_screen_open', 'text_edit_selection', 'code_start_task', 'code_send_message', 'rename_project', 'file_new_folder', 'open_project', 'file_open', 'file_rename', 'note_write', 'notes_ask', 'note_open', 'whatsapp_send', 'claude_project_make', 'remember_project', 'codemap_build', 'donecheck_run', 'donecheck_fix', 'claude_activity', 'code_changes', 'code_tests', 'code_pull', 'claude_usage']); // whatsapp_send: the user's decision 2026-10-17 — their command is the yes
+const DIRECT_OK = new Set(['flick_stage', 'flick_open', 'flick_do', 'flick_from_phone', 'routine_make', 'routine_list', 'routine_run', 'routine_said', 'routine_pause', 'routine_remove', 'project_stop', 'project_said', 'team_status', 'project_undo', 'team_add', 'team_discover', 'project_import', 'project_run', 'project_agents', 'project_decision', 'live_screen_open', 'text_edit_selection', 'code_start_task', 'code_send_message', 'rename_project', 'file_new_folder', 'open_project', 'file_open', 'file_rename', 'note_write', 'notes_ask', 'note_open', 'whatsapp_send', 'claude_project_make', 'remember_project', 'codemap_build', 'donecheck_run', 'donecheck_fix', 'claude_activity', 'code_changes', 'code_tests', 'code_pull', 'claude_usage']); // whatsapp_send: the user's decision 2026-10-17 — their command is the yes
 const ASK_ANYWAY = new Set(['file_gather', 'file_undo_move', 'laptop_run', 'preview_show', 'preview_open']); // preview_show/open: only its first start of a project's own command asks
 const MAX_ROUNDS = 10; // screen tasks: open the app, look, click, type, …
 const MAX_HISTORY = 40;
@@ -431,6 +431,11 @@ export class Agent {
     // app's mic bubble), or "… on my phone" — before Screen Mode, so it never lands on the laptop.
     const typed = await this._liveTypingCommand(text, from);
     if (typed != null) return this._remember(text, typed);
+    // "Send this to my laptop" said on the phone (Novi Flick): before phone typing, which reads "send" as Enter.
+    if (flickCommand(text)?.tool === 'flick_from_phone' && this.tools.get('flick_from_phone')) {
+      const { output } = await this._runTool({ id: `flick-${Date.now()}`, function: { name: 'flick_from_phone', arguments: '{}' } }, { direct: true });
+      return this._remember(text, output?.note || output?.error || 'Done.');
+    }
     const phone = await this._phoneCommand(text, from, phoneApp);
     if (phone != null) return this._remember(text, phone);
     // "Open youtube type claude code and enter": both halves, with time for the app to come up. A page

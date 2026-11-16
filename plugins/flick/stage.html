@@ -29,21 +29,23 @@
   .landed .ring { animation:none; }
   @keyframes pulse { 50% { transform:scale(1.12); opacity:.55; } }
   .stack { position:fixed; inset:0; perspective:1400px; pointer-events:none; }
-  .card { position:absolute; left:50%; top:44%; width:300px; border-radius:18px; overflow:hidden; pointer-events:auto; cursor:pointer;
+  /* The picture is the star (user, 2026-11-16): a big card, the whole picture, buttons only behind ⋯ / right-click. */
+  .card { position:absolute; left:50%; top:46%; width:min(560px,46vw); border-radius:18px; overflow:hidden; pointer-events:auto; cursor:pointer;
     background:linear-gradient(160deg,#123a46,#061e26); border:1px solid rgba(63,224,255,.35);
     transition:transform .8s cubic-bezier(.2,.9,.25,1.05),opacity .5s; will-change:transform,opacity; backface-visibility:hidden; }
   /* The glow is a fixed shadow on the front card only (shadows on every card, re-painted each frame, were the lag). */
   .card.front { box-shadow:0 24px 48px rgba(0,0,0,.5),0 0 26px rgba(63,224,255,.3); }
-  .card canvas,.card img,.card video { display:block; width:100%; height:220px; object-fit:cover; background:#021015; }
-  .meta { padding:10px 14px 12px; }
+  .card canvas,.card img,.card video { display:block; width:100%; height:auto; max-height:68vh; object-fit:contain; background:#021015; }
+  .meta { padding:8px 14px 10px; }
+  .corner { position:absolute; top:8px; right:8px; display:flex; gap:6px; z-index:2; }
+  .corner button { width:30px; height:30px; border-radius:50%; border:1px solid rgba(63,224,255,.4); background:rgba(2,16,21,.75); color:var(--ink); font:inherit; font-size:15px; line-height:1; cursor:pointer; display:grid; place-items:center; padding:0; }
+  .corner button:hover { border-color:var(--glow); background:rgba(63,224,255,.25); }
+  .card:not(.front) .corner { display:none; }
   .name { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .sub { color:var(--dim); font-size:12.5px; margin-top:2px; }
   .icon { height:170px; display:grid; place-items:center; font-size:62px; background:radial-gradient(circle at 50% 40%,rgba(63,224,255,.22),transparent 70%); }
-  /* Actions: always shown on the front card, on hover on the others. */
-  .acts { display:none; flex-wrap:wrap; gap:6px; padding:0 12px 12px; }
-  .card.front .acts, .card:hover .acts { display:flex; }
-  .acts button, .menu button { border:1px solid rgba(63,224,255,.35); background:rgba(63,224,255,.08); color:var(--ink); border-radius:14px; padding:5px 10px; font:inherit; font-size:12.5px; cursor:pointer; }
-  .acts button:hover, .menu button:hover { background:rgba(63,224,255,.2); border-color:var(--glow); }
+  .menu button { border:1px solid rgba(63,224,255,.35); background:rgba(63,224,255,.08); color:var(--ink); border-radius:14px; padding:5px 10px; font:inherit; font-size:12.5px; cursor:pointer; }
+  .menu button:hover { background:rgba(63,224,255,.2); border-color:var(--glow); }
   .menu { position:fixed; z-index:900; background:var(--panel); border:1px solid rgba(63,224,255,.4); border-radius:14px; padding:8px; display:flex; flex-direction:column; gap:5px; min-width:180px; }
   .menu .ask { display:flex; gap:6px; }
   .menu input { flex:1; min-width:0; background:#021015; color:var(--ink); border:1px solid rgba(63,224,255,.35); border-radius:10px; padding:6px 8px; font:inherit; font-size:13px; }
@@ -88,9 +90,12 @@ async function act(item, body) {
 async function thumb(item, holder) {
   try {
     const blob = await (await fetch(`file/${item.id}`)).blob();
-    const bmp = await createImageBitmap(blob, { resizeWidth: 600, resizeQuality: 'medium' });
+    const bmp = await createImageBitmap(blob, { resizeWidth: 1100, resizeQuality: 'medium' });
     const c = document.createElement('canvas'); c.width = bmp.width; c.height = bmp.height;
     c.getContext('2d').drawImage(bmp, 0, 0); bmp.close?.();
+    // The card takes the picture's shape: a tall screenshot makes a narrow card, so the whole picture shows.
+    const card = holder.parentElement;
+    if (card) card.style.width = `min(560px, 46vw, calc(68vh * ${(c.width / c.height).toFixed(3)}))`;
     holder.replaceWith(c);
   } catch {
     const img = new Image(); img.decoding = 'async'; img.src = `file/${item.id}`; img.alt = item.name; holder.replaceWith(img);
@@ -144,14 +149,35 @@ function el(item) {
   const m = document.createElement('div'); m.className = 'meta';
   const n = document.createElement('div'); n.className = 'name'; n.textContent = item.name;
   const s = document.createElement('div'); s.className = 'sub';
-  s.textContent = item.url ? `${item.host} · tap to open` : item.openable ? 'tap to open · right-click for more' : 'saved in Novi Flick · open it yourself';
+  s.textContent = item.url ? `${item.host} · click to open` : item.openable ? 'click to open · ⋯ for more' : 'saved in Novi Flick · open it yourself';
   m.append(n, s); c.appendChild(m);
-  const acts = document.createElement('div'); acts.className = 'acts';
-  for (const [label, fn] of actions(item)) acts.appendChild(btn(label, fn));
-  c.appendChild(acts);
-  c.addEventListener('click', () => { if (item.openable) act(item, { do: item.url ? 'browser' : 'open' }); });
-  c.addEventListener('contextmenu', (e) => { e.preventDefault(); openMenu(e.clientX, e.clientY, (mm) => actions(item).forEach(([label, fn]) => mm.appendChild(btn(label, fn)))); });
-  return { el: c, item, video };
+  const more = (e) => openMenu(e.clientX, e.clientY, (mm) => actions(item).forEach(([label, fn]) => mm.appendChild(btn(label, fn))));
+  // Top right: ⋯ (the actions) and ✕ (off the stage; the file stays saved).
+  const corner = document.createElement('div'); corner.className = 'corner';
+  const dots = btn('⋯', more); dots.title = 'More';
+  const x = btn('✕', () => remove(item.id, true)); x.title = 'Remove from the stage';
+  corner.append(dots, x); c.appendChild(corner);
+  const card = { el: c, item, video };
+  // An older card comes to the front first (user, 2026-11-16); only the front card opens on a click.
+  c.addEventListener('click', () => {
+    if (cards[cards.length - 1] !== card) { cards.splice(cards.indexOf(card), 1); cards.push(card); layout(); return; }
+    if (item.openable) act(item, { do: item.url ? 'browser' : 'open' });
+  });
+  c.addEventListener('contextmenu', (e) => { e.preventDefault(); more(e); });
+  return card;
+}
+
+function remove(id, tell) {
+  const i = cards.findIndex((c) => c.item.id === id);
+  if (i < 0) return;
+  const [gone] = cards.splice(i, 1);
+  gone.video?.removeAttribute('src');
+  gone.el.style.opacity = 0;
+  gone.el.style.transform += ' translate3d(0,-60px,0) scale(.9)';
+  setTimeout(() => gone.el.remove(), 500);
+  if (tell) post(`remove/${id}`).catch(() => {});
+  layout();
+  if (!cards.length) { document.getElementById('wait').style.opacity = 1; document.body.classList.remove('landed'); }
 }
 
 // Fan the stack: newest in front and centre, older ones tilt back to the left and fade (opacity, no filter).
@@ -196,6 +222,7 @@ const es = new EventSource('events');
 es.addEventListener('hello', (e) => JSON.parse(e.data).slice(-LIVE).forEach((it) => land(it, false)));
 es.addEventListener('item', (e) => land(JSON.parse(e.data)));
 es.addEventListener('bye', () => window.close());
+es.addEventListener('gone', (e) => remove(JSON.parse(e.data).id, false));
 // Close: Novi ends this window itself (an app window often may not close itself); window.close() is the backup.
 const leave = () => { es.close(); post('close').catch(() => {}); setTimeout(() => window.close(), 400); };
 document.getElementById('close').addEventListener('click', (e) => { e.stopPropagation(); leave(); });

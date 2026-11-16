@@ -108,8 +108,8 @@ export function createFlickPlugin({ root = null, stage = null, openWindow = null
           const prep = await rt.callTool('whatsapp_prepare', file ? { to: name, path: item.path } : { to: name, text: item.url });
           const ready = prep?.ready; // callTool / runAsked give the tool's details flat (host mapResult)
           if (!ready) return { note: prep?.error || prep?.note || prep?.text || `I couldn't get WhatsApp ready for ${name}.` };
-          // Sending goes through Novi's normal yes for WhatsApp (one card), never around it.
-          const sent = await rt.runAsked?.('whatsapp_send', {});
+          // No asking (user, 2026-11-16): a tap and a name on the stage is the go-ahead, like a spoken WhatsApp command.
+          const sent = await rt.runAsked?.('whatsapp_send', {}, { direct: true }); // the user's tap + name on the stage is the yes
           if (!sent || sent.declined) return { note: 'Okay, not sent.' };
           return { note: sent.error || sent.note || `Sent to ${ready.name}.` };
         }
@@ -174,6 +174,17 @@ export function createFlickPlugin({ root = null, stage = null, openWindow = null
         async execute() {
           const items = st.items();
           return reply(await openItem(items[items.length - 1]));
+        },
+      });
+      api.registerTool({
+        name: 'flick_from_phone',
+        description: 'Send what is on the phone screen right now (a photo, a screenshot, the page in its browser) to the laptop stage, like a wrist flick. For "send this to my laptop" said on the phone.',
+        parameters: obj({}),
+        async execute() {
+          if (!rt.phoneAction) return reply("I can't reach your phone from here.");
+          const r = await rt.phoneAction({ do: 'flick' });
+          const note = r?.note || (r?.ok ? 'It landed on the laptop.' : "The phone couldn't send it.");
+          return reply(note, { note, ok: Boolean(r?.ok) });
         },
       });
       api.registerTool({

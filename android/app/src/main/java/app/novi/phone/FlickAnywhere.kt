@@ -116,8 +116,13 @@ class FlickAnywhere(private val svc: NoviService, private val store: Store) : Se
 
     // ---- what a flick sends ----
 
-    private fun flicked() {
-        if (busy) return
+    /**
+     * A flick, or "send this to my laptop" said to the Novi mic button (done = the answer for the laptop).
+     * It goes at once (user, 2026-11-16: no asking first); the small card only says what happened.
+     */
+    fun flicked(done: ((Boolean, String) -> Unit)? = null) {
+        val answer = { ok: Boolean, note: String -> done?.invoke(ok, note); Unit }
+        if (busy) return answer(false, "Still sending the last one.")
         val access = NoviAccess.instance
         val front = access?.frontPackage().orEmpty()
         val shotAge = lastShot?.let { SystemClock.elapsedRealtime() - it.at }
@@ -128,43 +133,45 @@ class FlickAnywhere(private val svc: NoviService, private val store: Store) : Se
             link = if (access != null && shotAge?.let { it <= 90_000 } != true) access.browserLink() else null,
             canShoot = access?.canShoot() ?: false,
         )
+        val no = { text: String -> overlay.result(text, false); answer(false, text) }
         when (choice) {
-            FlickSend.PAGE -> MainActivity.flickPage()
-            FlickSend.SCREENSHOT -> lastShot?.let { s -> buzz(); sendLater("the screenshot", onStart = { lastShot = null }) { readUri(s.uri)?.let { Triple(it, s.name, s.type) } } }
-            FlickSend.LINK -> access?.browserLink()?.let { link -> buzz(); sendLater("the link") { Triple(link.toByteArray(), "link", "") } }
-            FlickSend.SCREEN -> { buzz(); access?.shot { bytes -> main.post { if (bytes == null) overlay.result("Couldn't take a picture of the screen.", false) else sendLater("this screen") { Triple(bytes, "Novi flick ${stamp()}.jpg", "image/jpeg") } } } }
-            FlickSend.PRIVATE -> overlay.result("Not from this app: it may show private things.", false)
-            FlickSend.NEED_ACCESS -> overlay.result("To flick what's on screen, turn on Novi typing in ⚙.", false)
-            FlickSend.NOTHING -> overlay.result("Nothing to flick here.", false)
+            FlickSend.PAGE -> { MainActivity.flickPage(); answer(true, "Sent the top card from the flick screen.") }
+            FlickSend.SCREENSHOT -> lastShot?.let { s -> lastShot = null; buzz(); send(answer) { readUri(s.uri)?.let { Triple(it, s.name, s.type) } } } ?: no("Nothing to flick here.")
+            FlickSend.LINK -> access?.browserLink()?.let { link -> buzz(); send(answer) { Triple(link.toByteArray(), "link", "") } } ?: no("Nothing to flick here.")
+            FlickSend.SCREEN -> {
+                buzz()
+                access?.shot { bytes -> main.post { if (bytes == null) no("Couldn't take a picture of the screen.") else send(answer) { Triple(bytes, "Novi flick ${stamp()}.jpg", "image/jpeg") } } }
+            }
+            FlickSend.PRIVATE -> no("Not from this app: it may show private things.")
+            FlickSend.NEED_ACCESS -> no("To flick what's on screen, turn on Novi typing in ⚙.")
+            FlickSend.NOTHING -> no(if (locked()) "Unlock the phone first." else "Nothing to flick here.")
         }
     }
 
-    /** 1.5 s to cancel, then it goes. `what` loads the bytes off the main thread. */
-    private fun sendLater(label: String, onStart: () -> Unit = {}, what: () -> Triple<ByteArray, String, String>?) {
+    /** Sends at once. `what` loads the bytes off the main thread. */
+    private fun send(done: (Boolean, String) -> Unit, what: () -> Triple<ByteArray, String, String>?) {
         busy = true
-        var cancelled = false
-        overlay.sending(label) { cancelled = true; busy = false }
-        main.postDelayed({
-            if (cancelled) return@postDelayed
-            onStart()
-            Thread {
-                val out = runCatching {
-                    val (bytes, name, type) = what() ?: throw IllegalStateException("Couldn't read it.")
-                    val net = svc.netOrNull() ?: throw IllegalStateException("Not connected to Novi.")
-                    net.flick(bytes, name, type, link = name == "link")
-                }
-                main.post {
-                    busy = false
-                    out.onSuccess { r -> if (r.optBoolean("ok", true)) overlay.result("Landed on the laptop", true) else overlay.result(r.optString("error", "The laptop didn't take it."), false) }
-                        .onFailure { overlay.result(it.message ?: "Couldn't reach the laptop.", false) }
-                }
-            }.start()
-        }, 1500)
+        overlay.result("Flicking to the laptop…", true)
+        Thread {
+            val out = runCatching {
+                val (bytes, name, type) = what() ?: throw IllegalStateException("Couldn't read it.")
+                val net = svc.netOrNull() ?: throw IllegalStateException("Not connected to Novi.")
+                net.flick(bytes, name, type, link = name == "link")
+            }
+            main.post {
+                busy = false
+                out.onSuccess { r ->
+                    if (r.optBoolean("ok", true)) { overlay.result("Landed on the laptop", true); done(true, "It landed on the laptop.") }
+                    else r.optString("error", "The laptop didn't take it.").let { overlay.result(it, false); done(false, it) }
+                }.onFailure { (it.message ?: "Couldn't reach the laptop.").let { m -> overlay.result(m, false); done(false, m) } }
+            }
+        }.start()
     }
 
-    /** "Send to Novi" on the screenshot pop-up: straight away, no wait. */
+    /** "Send to Novi" on the screenshot pop-up. */
     private fun sendShot(s: Shot) {
-        sendLater("the screenshot", onStart = { lastShot = null }) { readUri(s.uri)?.let { Triple(it, s.name, s.type) } }
+        lastShot = null
+        send({ _, _ -> }) { readUri(s.uri)?.let { Triple(it, s.name, s.type) } }
     }
 
     private fun readUri(uri: Uri): ByteArray? = runCatching {

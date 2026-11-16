@@ -55,6 +55,9 @@ export function createStage() {
         if (req.method === 'POST' && req.headers['x-novi-stage'] === '1') {
           const open = url.pathname.match(/^\/open\/([\w-]+)$/);
           if (open) { stage.handle.open(open[1]); res.writeHead(204); return res.end(); }
+          // ✕ on a card: off the stage (the file stays saved).
+          const gone = url.pathname.match(/^\/remove\/([\w-]+)$/);
+          if (gone) { stage.remove(gone[1]); res.writeHead(204); return res.end(); }
           if (url.pathname === '/close') { stage.handle.close(); res.writeHead(204); return res.end(); }
           // A card's action (v2): { do, to?, app? } as a small JSON body; the answer is a short note for the page.
           const act = url.pathname.match(/^\/action\/([\w-]+)$/);
@@ -88,6 +91,14 @@ export function createStage() {
       while (items.length > KEEP) items.shift();
       const line = `event: item\ndata: ${JSON.stringify(pub(item))}\n\n`;
       for (const c of clients) c.write(line);
+    },
+    remove(id) {
+      const i = items.findIndex((x) => x.id === id);
+      if (i < 0) return false;
+      items.splice(i, 1);
+      const line = `event: gone\ndata: ${JSON.stringify({ id })}\n\n`;
+      for (const c of clients) c.write(line);
+      return true;
     },
     // Tell the page to close itself (voice "close the stage").
     bye() { for (const c of clients) c.write('event: bye\ndata: {}\n\n'); },
