@@ -9,6 +9,7 @@ import { saveFlick, kindOf, linkItem, safeName, withEnding, autoOpens } from '..
 import { createStage } from '../../plugins/flick/stage.js';
 import { createFlickPlugin } from '../../plugins/flick/index.js';
 import { flickCommand } from '../../server/brain/flickCommand.js';
+import { destination } from '../../plugins/flick/sites.js';
 
 // Novi Flick (2026-11-16, spec docs/superpowers/specs/2026-11-16-novi-flick-design.md): flick a photo, file,
 // link or video from the phone and it lands on the laptop's stage.
@@ -293,6 +294,31 @@ describe('card actions (v2)', () => {
     const out = await s.host.get('flick_from_phone').run({});
     expect(asked).toEqual([{ do: 'flick' }]);
     expect(out.text).toMatch(/landed/);
+  });
+  it('"Send to" box: a typed place becomes an AI site or a WhatsApp contact', () => {
+    expect(destination('ChatGPT')).toEqual({ action: 'ai', app: 'chatgpt' });
+    expect(destination('chat gpt')).toEqual({ action: 'ai', app: 'chatgpt' });
+    expect(destination('send to claude')).toEqual({ action: 'ai', app: 'claude' });
+    expect(destination('Rahul on WhatsApp')).toEqual({ action: 'whatsapp', to: 'Rahul' });
+    expect(destination('Isha')).toEqual({ action: 'whatsapp', to: 'Isha' });
+    expect(destination('  ')).toBeNull();
+  });
+  it('the stage "Send to" box runs through the same actions', async () => {
+    const s = setup({ viewers: 1 });
+    const t = path.join(tmp(), 'up'); fs.writeFileSync(t, 'x');
+    await s.handler({ file: t, name: 'beach.jpg', kind: 'file', from: 'local' });
+    const out = await s.host.get('flick_do').run({ action: 'to', to: 'gemini' });
+    expect(s.ran.filter((r) => r.tool === 'open_website').pop().params.target).toMatch(/gemini/);
+    expect(out.text).toMatch(/gemini/i);
+  });
+  it('a YouTube video flicked from the phone plays on the laptop', async () => {
+    const s = setup({ viewers: 1 });
+    const t = path.join(tmp(), 'up'); fs.writeFileSync(t, 'Lofi beats to study to');
+    const out = await s.handler({ file: t, name: 'youtube', kind: 'youtube', from: { deviceId: 'p1' } });
+    expect(out.ok).toBe(true);
+    expect(s.pushed[0]).toMatchObject({ kind: 'video', name: 'Lofi beats to study to', host: 'youtube.com' });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(s.ran).toContainEqual({ tool: 'play_youtube', params: { query: 'Lofi beats to study to', on: 'laptop' } });
   });
   it('the stage page reaches the actions through its own POST', async () => {
     const stage = createStage();

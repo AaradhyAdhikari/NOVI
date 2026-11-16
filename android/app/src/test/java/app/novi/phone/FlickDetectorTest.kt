@@ -53,6 +53,14 @@ class FlickDetectorTest {
         assertEquals(FlickSend.PRIVATE, flickChoice(false, null, true, "com.google.android.apps.messaging", false, null, true))
     }
 
+    @Test fun videosAndApps() {
+        assertEquals(FlickSend.YOUTUBE, flickChoice(false, null, true, YOUTUBE_PKG, false, null, true, youtubeTitle = "Lofi beats"))
+        assertEquals(FlickSend.SCREEN, flickChoice(false, null, true, YOUTUBE_PKG, false, null, true, youtubeTitle = null))
+        assertEquals(FlickSend.APP, flickChoice(false, null, true, "com.instagram.android", false, null, true))
+        assertEquals("https://www.instagram.com/", appSite("com.instagram.android"))
+        assertEquals(null, appSite("com.instagram.androidx.evil"))
+    }
+
     @Test fun browserBarToLink() {
         org.junit.Assert.assertEquals("https://youtube.com/watch?v=x", browserAddress("youtube.com/watch?v=x"))
         org.junit.Assert.assertEquals("https://a.com/b", browserAddress("https://a.com/b"))

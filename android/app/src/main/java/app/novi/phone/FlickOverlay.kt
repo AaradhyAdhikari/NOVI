@@ -44,6 +44,43 @@ class FlickOverlay(private val svc: NoviService) {
         row.addView(button("Cancel") { hide(); onCancel() })
     }
 
+    /** After a landing: quick buttons for the AIs and a box for anywhere else ("Rahul", "Isha on WhatsApp"). */
+    fun landed(onSend: (String) -> Unit) {
+        show(9000, vertical = true) { col ->
+            col.addView(words("✓ Landed on the laptop", "Send it on to:"))
+            val chips = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
+            for (name in listOf("ChatGPT", "Claude", "Gemini", "Google")) chips.addView(button(name) { hide(); onSend(name.lowercase()) })
+            col.addView(android.widget.HorizontalScrollView(ctx).apply { isHorizontalScrollBarEnabled = false; addView(chips) })
+            val row = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+            val box = android.widget.EditText(ctx).apply {
+                hint = "or type: Rahul on WhatsApp…"
+                textSize = 14f
+                setSingleLine(true)
+                setTextColor(Color.parseColor("#FFE8FBFF"))
+                setHintTextColor(Color.parseColor("#FF8FC7D3"))
+                imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_SEND
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                // Typing needs the keyboard: the card takes the focus only once the box is tapped, and stays up.
+                setOnFocusChangeListener { _, has -> if (has) main.removeCallbacks(hideLater) }
+                setOnClickListener { focusable(true); requestFocus() }
+            }
+            val go = { val t = box.text.toString().trim(); if (t.isNotEmpty()) { hide(); onSend(t) } }
+            box.setOnEditorActionListener { _, _, _ -> go(); true }
+            row.addView(box)
+            row.addView(button("Send") { go() })
+            col.addView(row)
+            col.addView(button("✕") { hide() })
+        }
+    }
+
+    private fun focusable(on: Boolean) {
+        val v = view ?: return
+        val p = v.layoutParams as? WindowManager.LayoutParams ?: return
+        p.flags = if (on) p.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv() else p.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+        runCatching { wm.updateViewLayout(v, p) }
+        if (on) main.removeCallbacks(hideLater)
+    }
+
     fun result(text: String, ok: Boolean) = show(2200) { row ->
         row.addView(words(if (ok) "✓ $text" else text, ""))
     }
@@ -54,13 +91,13 @@ class FlickOverlay(private val svc: NoviService) {
         view = null
     }
 
-    private fun show(ms: Long, fill: (LinearLayout) -> Unit) {
+    private fun show(ms: Long, vertical: Boolean = false, fill: (LinearLayout) -> Unit) {
         if (!android.provider.Settings.canDrawOverlays(svc)) return
         hide()
         val outer = LinearLayout(ctx).apply { setPadding(dp(12), 0, dp(12), 0) }
         val row = LinearLayout(ctx).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
+            orientation = if (vertical) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
+            gravity = if (vertical) Gravity.START else Gravity.CENTER_VERTICAL
             elevation = dp(8).toFloat()
             setPadding(dp(12), dp(8), dp(6), dp(8))
             background = GradientDrawable().apply { setColor(Color.parseColor("#F2061E26")); cornerRadius = dp(18).toFloat(); setStroke(dp(1), Color.parseColor("#FF3FE0FF")) }

@@ -49,7 +49,35 @@ class FlickDetector(
 }
 
 /** What a flick sends when Novi's own flick screen isn't open. */
-enum class FlickSend { PAGE, SCREENSHOT, LINK, SCREEN, PRIVATE, NEED_ACCESS, NOTHING }
+enum class FlickSend { PAGE, SCREENSHOT, LINK, YOUTUBE, APP, SCREEN, PRIVATE, NEED_ACCESS, NOTHING }
+
+/**
+ * Apps whose website the laptop can open when they're flicked (user, 2026-11-16: "if I did that, Instagram should
+ * start running on my laptop"). The app can't say which post is open, so the site opens and a screenshot of the
+ * phone screen lands too.
+ */
+private val APP_SITES = mapOf(
+    "com.instagram.android" to "https://www.instagram.com/",
+    "com.twitter.android" to "https://x.com/",
+    "com.reddit.frontpage" to "https://www.reddit.com/",
+    "com.linkedin.android" to "https://www.linkedin.com/",
+    "com.spotify.music" to "https://open.spotify.com/",
+    "com.facebook.katana" to "https://www.facebook.com/",
+    "com.instagram.barcelona" to "https://www.threads.net/",
+    "com.pinterest" to "https://www.pinterest.com/",
+    "com.netflix.mediaclient" to "https://www.netflix.com/",
+    "com.amazon.avod.thirdpartyclient" to "https://www.primevideo.com/",
+    "in.startv.hotstar" to "https://www.hotstar.com/",
+    "com.google.android.apps.youtube.music" to "https://music.youtube.com/",
+    "com.github.android" to "https://github.com/",
+    "com.discord" to "https://discord.com/app",
+    "com.openai.chatgpt" to "https://chatgpt.com/",
+    "com.anthropic.claude" to "https://claude.ai/",
+    "com.google.android.apps.bard" to "https://gemini.google.com/app",
+    "ai.perplexity.app.android" to "https://www.perplexity.ai/",
+)
+fun appSite(pkg: String): String? = APP_SITES.entries.firstOrNull { pkg == it.key || pkg.startsWith(it.key + ".") }?.value
+const val YOUTUBE_PKG = "com.google.android.youtube"
 
 /**
  * The order (user, 2026-11-16: "whenever I do that gesture it works"): Novi's flick screen open → its top card;
@@ -57,7 +85,7 @@ enum class FlickSend { PAGE, SCREENSHOT, LINK, SCREEN, PRIVATE, NEED_ACCESS, NOT
  * a picture of the screen (needs Novi typing, the Accessibility service). Never a picture of a bank / UPI /
  * password app or of a screen showing a password box.
  */
-fun flickChoice(noviOpen: Boolean, shotAgeMs: Long?, accessOn: Boolean, frontPkg: String, passwordShown: Boolean, link: String?, canShoot: Boolean, locked: Boolean = false): FlickSend = when {
+fun flickChoice(noviOpen: Boolean, shotAgeMs: Long?, accessOn: Boolean, frontPkg: String, passwordShown: Boolean, link: String?, canShoot: Boolean, locked: Boolean = false, youtubeTitle: String? = null): FlickSend = when {
     locked -> FlickSend.NOTHING // never from the lock screen (notifications, codes)
     noviOpen -> FlickSend.PAGE
     // A bank / UPI / password app in front, or a password box: nothing goes, not even an earlier screenshot.
@@ -65,6 +93,9 @@ fun flickChoice(noviOpen: Boolean, shotAgeMs: Long?, accessOn: Boolean, frontPkg
     shotAgeMs != null && shotAgeMs in 0..90_000 -> FlickSend.SCREENSHOT
     !accessOn -> FlickSend.NEED_ACCESS
     !link.isNullOrBlank() -> FlickSend.LINK
+    // A video in the YouTube app: the laptop plays it on YouTube (by its title).
+    frontPkg == YOUTUBE_PKG && !youtubeTitle.isNullOrBlank() -> FlickSend.YOUTUBE
+    appSite(frontPkg) != null -> FlickSend.APP
     // Messages apps show one-time codes: a link from them is fine, a picture of them isn't.
     otpApp(frontPkg) -> FlickSend.PRIVATE
     canShoot -> FlickSend.SCREEN

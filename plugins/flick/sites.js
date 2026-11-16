@@ -9,6 +9,19 @@ export const AI_SITES = {
   google: { name: 'Google', url: 'https://www.google.com/', q: 'https://www.google.com/search?q=', picture: 'https://lens.google.com/' },
 };
 
+const AI_WORDS = { chatgpt: 'chatgpt', 'chat gpt': 'chatgpt', gpt: 'chatgpt', gemini: 'gemini', claude: 'claude', perplexity: 'perplexity', google: 'google', 'google lens': 'google', lens: 'google' };
+
+// The "Send to" box after a flick (user, 2026-11-16): a typed place → an AI site from the list, else a WhatsApp
+// contact ("Rahul", "Rahul on WhatsApp"). Never a website a name chose.
+export function destination(text) {
+  const t = String(text || '').trim().replace(/[.!?]+$/, '').replace(/^(?:send(?: it)?|share|forward)?\s*(?:to\s+)?/i, '').trim();
+  if (!t) return null;
+  const app = AI_WORDS[t.toLowerCase()];
+  if (app) return { action: 'ai', app };
+  const to = t.replace(/\s+on\s+whats\s?app$/i, '').replace(/^whats\s?app\s+/i, '').trim();
+  return to ? { action: 'whatsapp', to: to.slice(0, 60) } : null;
+}
+
 // { url, copy? } for one item on one site.
 export function aiTarget(site, item) {
   if (item.url) return site.q ? { url: site.q + encodeURIComponent(item.url) } : { url: site.url, copy: { text: item.url } };

@@ -37,6 +37,8 @@
   .card.front { box-shadow:0 24px 48px rgba(0,0,0,.5),0 0 26px rgba(63,224,255,.3); }
   .card canvas,.card img,.card video { display:block; width:100%; height:auto; max-height:68vh; object-fit:contain; background:#021015; }
   .meta { padding:8px 14px 10px; }
+  .play { position:absolute; left:50%; top:40%; transform:translate(-50%,-50%); width:64px; height:64px; border-radius:50%; background:rgba(2,16,21,.7); border:1px solid rgba(63,224,255,.5); display:grid; place-items:center; font-size:26px; color:var(--ink); pointer-events:none; }
+  .card.playing .play { display:none; }
   .corner { position:absolute; top:8px; right:8px; display:flex; gap:6px; z-index:2; }
   .corner button { width:30px; height:30px; border-radius:50%; border:1px solid rgba(63,224,255,.4); background:rgba(2,16,21,.75); color:var(--ink); font:inherit; font-size:15px; line-height:1; cursor:pointer; display:grid; place-items:center; padding:0; }
   .corner button:hover { border-color:var(--glow); background:rgba(63,224,255,.25); }
@@ -49,7 +51,15 @@
   .menu { position:fixed; z-index:900; background:var(--panel); border:1px solid rgba(63,224,255,.4); border-radius:14px; padding:8px; display:flex; flex-direction:column; gap:5px; min-width:180px; }
   .menu .ask { display:flex; gap:6px; }
   .menu input { flex:1; min-width:0; background:#021015; color:var(--ink); border:1px solid rgba(63,224,255,.35); border-radius:10px; padding:6px 8px; font:inherit; font-size:13px; }
-  .toast { position:fixed; left:50%; bottom:70px; transform:translate(-50%,20px); z-index:950; background:var(--panel); border:1px solid rgba(63,224,255,.4); border-radius:14px; padding:9px 16px; opacity:0; transition:opacity .25s,transform .25s; pointer-events:none; max-width:70vw; text-align:center; }
+  .sendto { position:fixed; left:50%; bottom:64px; transform:translateX(-50%); z-index:800; display:none; align-items:center; gap:6px; flex-wrap:wrap; justify-content:center;
+    background:var(--panel); border:1px solid rgba(63,224,255,.35); border-radius:18px; padding:8px 10px; max-width:92vw; }
+  .sendto.on { display:flex; }
+  .sendto span { color:var(--dim); font-size:13px; margin:0 4px; }
+  .sendto button { border:1px solid rgba(63,224,255,.35); background:rgba(63,224,255,.08); color:var(--ink); border-radius:14px; padding:5px 10px; font:inherit; font-size:12.5px; cursor:pointer; }
+  .sendto button:hover { background:rgba(63,224,255,.2); border-color:var(--glow); }
+  .sendto input { width:210px; background:#021015; color:var(--ink); border:1px solid rgba(63,224,255,.35); border-radius:12px; padding:6px 9px; font:inherit; font-size:13px; }
+  body.landed .tag { display:none; }
+  .toast { position:fixed; left:50%; bottom:130px; transform:translate(-50%,20px); z-index:950; background:var(--panel); border:1px solid rgba(63,224,255,.4); border-radius:14px; padding:9px 16px; opacity:0; transition:opacity .25s,transform .25s; pointer-events:none; max-width:70vw; text-align:center; }
   .toast.on { opacity:1; transform:translate(-50%,0); }
   .flash { position:fixed; left:50%; bottom:-40px; width:260px; height:260px; margin-left:-130px; border-radius:50%; background:radial-gradient(circle,rgba(63,224,255,.55),transparent 65%); opacity:0; pointer-events:none; will-change:transform,opacity; }
   .flash.on { animation:flash .9s ease-out; }
@@ -64,6 +74,7 @@
 <div class="stack" id="stack"></div>
 <div class="flash" id="flash"></div>
 <div class="toast" id="toast" aria-live="polite"></div>
+<div class="sendto" id="sendto"></div>
 <div class="tag">Create the things you wish existed.</div>
 <script>
 const stack = document.getElementById('stack');
@@ -142,7 +153,9 @@ function el(item) {
   if (item.preview && item.kind === 'photo') {
     const ph = document.createElement('div'); ph.className = 'icon'; ph.textContent = '🖼️'; c.appendChild(ph); thumb(item, ph);
   } else if (item.preview && item.kind === 'video') {
-    video = document.createElement('video'); video.src = `file/${item.id}`; video.muted = true; video.loop = true; video.playsInline = true; video.preload = 'metadata'; c.appendChild(video);
+    video = document.createElement('video'); video.src = `file/${item.id}#t=0.1`; video.playsInline = true; video.preload = 'metadata'; video.controls = false; c.appendChild(video);
+    // A video waits for you (user, 2026-11-16): its first frame and a ▶; click the front card to play it.
+    const play = document.createElement('div'); play.className = 'play'; play.textContent = '▶'; c.appendChild(play);
   } else {
     const i = document.createElement('div'); i.className = 'icon'; i.textContent = ICON[item.kind] || '📦'; c.appendChild(i);
   }
@@ -161,6 +174,7 @@ function el(item) {
   // An older card comes to the front first (user, 2026-11-16); only the front card opens on a click.
   c.addEventListener('click', () => {
     if (cards[cards.length - 1] !== card) { cards.splice(cards.indexOf(card), 1); cards.push(card); layout(); return; }
+    if (video) { if (video.paused) { video.controls = true; video.play().catch(() => {}); c.classList.add('playing'); } else { video.pause(); c.classList.remove('playing'); } return; }
     if (item.openable) act(item, { do: item.url ? 'browser' : 'open' });
   });
   c.addEventListener('contextmenu', (e) => { e.preventDefault(); more(e); });
@@ -190,9 +204,25 @@ function layout() {
     c.el.style.opacity = back > 4 ? 0 : 1 - back * 0.15;
     c.el.style.zIndex = 100 - back;
     c.el.classList.toggle('front', back === 0);
-    // Only the front video plays (several videos decoding at once stutter).
-    if (c.video) { if (back === 0) c.video.play().catch(() => {}); else c.video.pause(); }
+    // A video plays only when its front card is clicked; a card going back stops.
+    if (c.video && back !== 0) { c.video.pause(); c.el.classList.remove('playing'); }
   });
+  sendTo(cards[n - 1]?.item);
+}
+
+// "Send to" under the front card (user, 2026-11-16): quick buttons for the AIs, and a box for anywhere else
+// ("Rahul", "Isha on WhatsApp", "claude").
+function sendTo(item) {
+  const bar = document.getElementById('sendto');
+  bar.textContent = '';
+  if (!item || !item.sendable) { bar.classList.remove('on'); return; }
+  const label = document.createElement('span'); label.textContent = 'Send to'; bar.appendChild(label);
+  AIS.forEach(([id, name]) => bar.appendChild(btn(name, () => act(item, { do:'ai', app:id }))));
+  const input = document.createElement('input'); input.placeholder = 'or type: Rahul on WhatsApp…'; input.maxLength = 60;
+  const go = () => { const to = input.value.trim(); if (to) { act(item, { do:'to', to }); input.value = ''; toast(`Sending to ${to}…`); } };
+  input.addEventListener('keydown', (k) => { k.stopPropagation(); if (k.key === 'Enter') go(); if (k.key === 'Escape') input.blur(); });
+  bar.append(input, btn('Send', go));
+  bar.classList.add('on');
 }
 
 let still = null;

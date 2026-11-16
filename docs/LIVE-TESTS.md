@@ -362,7 +362,7 @@ Restart Novi first (new plugin), then install the new app `android\Novi.apk` (2.
 6. Send a `.exe`: it's saved but never opened (the card says so).
 
 ### Novi Flick v2 (2026-11-16, not live-tested)
-Restart Novi, then install app 2.7.1 from the Update card (if Android says "App was denied access" for Novi typing: Settings → Apps → Novi → ⋮ → Allow restricted settings, then switch it on). In the app's ⚙: allow **Photos: offer to send new screenshots**, keep **Phone typing** on (Android may want Novi switched off and on once in Accessibility, for the new screen-picture permission), keep **Flick anywhere** and **Screenshot pop-up** on.
+Restart Novi, then install app 2.7.2 from the Update card (if Android says "App was denied access" for Novi typing: Settings → Apps → Novi → ⋮ → Allow restricted settings, then switch it on). In the app's ⚙: allow **Photos: offer to send new screenshots**, keep **Phone typing** on (Android may want Novi switched off and on once in Accessibility, for the new screen-picture permission), keep **Flick anywhere** and **Screenshot pop-up** on.
 1. Stage: cards fly in smoothly (no stutter with a few big phone photos). **Close** and **Esc** close it; so does "close the stage".
 2. The picture is the card (whole picture, no buttons). Click an older card: it comes to the front; click the front one: it opens. **✕** (top right) takes it off the stage (the file stays saved). **⋯** or right-click: Open / Open in browser, Copy (paste the picture into Paint or WhatsApp with Ctrl+V), Show in folder, **WhatsApp…** (type a name, Enter: sends straight away), **Send to AI…** → ChatGPT / Gemini / Claude / Perplexity / Google (a link goes into the question; a picture is copied, press Ctrl+V on the site). Right-click any card for the same list.
 3. Voice: "copy the last flick", "send the last flick to ChatGPT", "send it to Rahul on WhatsApp" (sends without asking, like your other WhatsApp commands), "show the last flick in the folder".
@@ -371,3 +371,7 @@ Restart Novi, then install app 2.7.1 from the Update card (if Android says "App 
 6. **Screenshot**: take one: a small pop-up "Flick your phone to send it" + **Send to Novi**. Flick (or tap) within 90 s and it lands.
 7. Privacy: in PhonePe/GPay/a bank app, or with a password box on screen, a flick says "Not from this app" and sends nothing.
 8. Check it doesn't fire while walking, typing or putting the phone down (if it does: thresholds in src/lib/flickGesture.js and FlickDetector.kt).
+9. **YouTube**: play a video in the YouTube app, flick: the phone's video pauses and the same video (found by its title) starts on YouTube on the laptop. Fullscreen may hide the title: then a screenshot goes instead.
+10. **Instagram** (also X, Reddit, LinkedIn, Spotify, ChatGPT, Claude…): flick: the site opens on the laptop and a picture of your phone screen lands on the stage.
+11. **Send to box**: after anything lands, the phone shows "Landed on the laptop" with ChatGPT / Claude / Gemini / Google buttons and a box ("Rahul on WhatsApp"); the stage shows the same bar under the front card.
+12. **A video file** (flicked from the Novi flick screen or shared): it lands paused with a ▶; click it on the stage to play, click again to pause. A video playing in Gallery/Photos can't be named by Android, so a flick sends a screenshot of it: use Share → Send to Novi for the file.

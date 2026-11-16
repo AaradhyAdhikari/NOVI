@@ -10,7 +10,7 @@ import { definePluginEntry } from '#plugin-sdk';
 import { saveFlick, kindOf, linkItem, defaultRoot, withEnding, autoOpens } from './store.js';
 import { createStage } from './stage.js';
 import { defaultCopy, defaultShowInFolder } from './clipboard.js';
-import { AI_SITES, aiTarget } from './sites.js';
+import { AI_SITES, aiTarget, destination } from './sites.js';
 
 const EDGE = path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'Microsoft', 'Edge', 'Application', 'msedge.exe');
 const PROFILE = 'novi-flick-edge';
@@ -82,6 +82,12 @@ export function createFlickPlugin({ root = null, stage = null, openWindow = null
         if (!item) return { note: 'Nothing has been flicked yet.' };
         const file = !item.url;
         if (action === 'open') return { note: await openItem(item) };
+        // The "Send to" box: where the user typed (an AI site, or a WhatsApp contact).
+        if (action === 'to') {
+          const d = destination(to);
+          if (!d) return { note: 'Where should it go? ChatGPT, Claude, Gemini, Perplexity, Google, or a name for WhatsApp.' };
+          return act(item, { action: d.action, to: d.to, app: d.app, handoff });
+        }
         if (action === 'browser') {
           if (file) return { note: `${item.name} is a file, not a link. Say "open the last flick" to open it in its app.` };
           await rt.callTool?.('open_website', { target: item.url, on: 'laptop' });
@@ -140,7 +146,14 @@ export function createFlickPlugin({ root = null, stage = null, openWindow = null
         handler: async ({ file, name, kind, type }) => {
           const id = crypto.randomBytes(6).toString('hex');
           let item;
-          if (kind === 'link') {
+          let playTitle = null;
+          if (kind === 'youtube') {
+            // A video playing in the phone's YouTube app (user, 2026-11-16): its title; the laptop plays it on YouTube.
+            const title = fs.readFileSync(file, 'utf8').replace(/[\r\n\t]+/g, ' ').replace(/[\u0000-\u001f]/g, '').trim().slice(0, 200);
+            if (!title) return { ok: false, error: 'No video title came with it.' };
+            playTitle = title;
+            item = { id, kind: 'video', name: title, host: 'youtube.com', url: `https://www.youtube.com/results?search_query=${encodeURIComponent(title)}`, at: Date.now() };
+          } else if (kind === 'link') {
             const link = linkItem(fs.readFileSync(file, 'utf8').slice(0, 4000));
             if (!link) return { ok: false, error: 'That is not a web link.' };
             item = { id, ...link, at: Date.now() };
@@ -152,7 +165,8 @@ export function createFlickPlugin({ root = null, stage = null, openWindow = null
           st.push(item);
           touch();
           log(`${item.kind} landed`);
-          if (item.url && autoOpens(item.url)) setTimeout(() => { openItem(item).catch(() => {}); }, linkDelayMs);
+          if (playTitle) setTimeout(() => { Promise.resolve(rt.callTool?.('play_youtube', { query: playTitle, on: 'laptop' })).catch(() => {}); }, linkDelayMs);
+          else if (item.url && autoOpens(item.url)) setTimeout(() => { openItem(item).catch(() => {}); }, linkDelayMs);
           return { ok: true, id, kind: item.kind, name: item.name };
         },
       });
@@ -191,8 +205,8 @@ export function createFlickPlugin({ root = null, stage = null, openWindow = null
         name: 'flick_do',
         description: 'Do something with the newest thing flicked from the phone: open it, open a link in the browser, copy it to the clipboard (a photo as the picture), show it in its folder, send it to someone on WhatsApp (to), or send it to an AI site (app).',
         parameters: obj({
-          action: { type: 'string', enum: ['open', 'browser', 'copy', 'folder', 'whatsapp', 'ai'] },
-          to: { type: 'string', description: 'WhatsApp contact name' },
+          action: { type: 'string', enum: ['open', 'browser', 'copy', 'folder', 'whatsapp', 'ai', 'to'] },
+          to: { type: 'string', description: 'WhatsApp contact name, or (action "to") where the user typed: an AI site or a contact' },
           app: { type: 'string', enum: Object.keys(AI_SITES) },
           recent: { type: 'boolean', description: 'Only if something landed in the last 10 minutes' },
           handoff: { type: 'boolean', description: 'WhatsApp: only say what to send (the caller sends it)' },

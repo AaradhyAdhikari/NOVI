@@ -132,12 +132,30 @@ class FlickAnywhere(private val svc: NoviService, private val store: Store) : Se
             passwordShown = access?.passwordShown() ?: false,
             link = if (access != null && shotAge?.let { it <= 90_000 } != true) access.browserLink() else null,
             canShoot = access?.canShoot() ?: false,
+            youtubeTitle = access?.youtubeTitle(),
         )
         val no = { text: String -> overlay.result(text, false); answer(false, text) }
         when (choice) {
             FlickSend.PAGE -> { MainActivity.flickPage(); answer(true, "Sent the top card from the flick screen.") }
             FlickSend.SCREENSHOT -> lastShot?.let { s -> lastShot = null; buzz(); send(answer) { readUri(s.uri)?.let { Triple(it, s.name, s.type) } } } ?: no("Nothing to flick here.")
-            FlickSend.LINK -> access?.browserLink()?.let { link -> buzz(); send(answer) { Triple(link.toByteArray(), "link", "") } } ?: no("Nothing to flick here.")
+            FlickSend.LINK -> access?.browserLink()?.let { link -> buzz(); send(answer, kind = "link") { Triple(link.toByteArray(), "link", "") } } ?: no("Nothing to flick here.")
+            FlickSend.YOUTUBE -> access?.youtubeTitle()?.let { title ->
+                buzz()
+                pausePhone()
+                send(answer, kind = "youtube") { Triple(title.toByteArray(), "youtube", "") }
+            } ?: no("Nothing to flick here.")
+            // Instagram and other apps: their website opens on the laptop, and a picture of the phone screen lands too.
+            FlickSend.APP -> {
+                buzz()
+                val site = appSite(front)
+                access?.shot { bytes ->
+                    main.post {
+                        if (bytes != null) send(answer, then = { site?.let { s -> sendQuiet(s) } }) { Triple(bytes, "Novi flick ${stamp()}.jpg", "image/jpeg") }
+                        else if (site != null) send(answer, kind = "link") { Triple(site.toByteArray(), "link", "") }
+                        else no("Couldn't take a picture of the screen.")
+                    }
+                }
+            }
             FlickSend.SCREEN -> {
                 buzz()
                 access?.shot { bytes -> main.post { if (bytes == null) no("Couldn't take a picture of the screen.") else send(answer) { Triple(bytes, "Novi flick ${stamp()}.jpg", "image/jpeg") } } }
@@ -149,23 +167,38 @@ class FlickAnywhere(private val svc: NoviService, private val store: Store) : Se
     }
 
     /** Sends at once. `what` loads the bytes off the main thread. */
-    private fun send(done: (Boolean, String) -> Unit, what: () -> Triple<ByteArray, String, String>?) {
+    private fun send(done: (Boolean, String) -> Unit, kind: String = "file", then: () -> Unit = {}, what: () -> Triple<ByteArray, String, String>?) {
         busy = true
         overlay.result("Flicking to the laptop…", true)
         Thread {
             val out = runCatching {
                 val (bytes, name, type) = what() ?: throw IllegalStateException("Couldn't read it.")
                 val net = svc.netOrNull() ?: throw IllegalStateException("Not connected to Novi.")
-                net.flick(bytes, name, type, link = name == "link")
+                net.flick(bytes, name, type, kind)
             }
             main.post {
                 busy = false
                 out.onSuccess { r ->
-                    if (r.optBoolean("ok", true)) { overlay.result("Landed on the laptop", true); done(true, "It landed on the laptop.") }
+                    if (r.optBoolean("ok", true)) {
+                        then()
+                        // "Send to" (user, 2026-11-16): where the thing that just landed goes next.
+                        if (kind == "youtube") overlay.result("Playing on the laptop", true) else overlay.landed { where -> svc.sendText("send the last flick to $where") }
+                        done(true, if (kind == "youtube") "It is playing on the laptop." else "It landed on the laptop.")
+                    }
                     else r.optString("error", "The laptop didn't take it.").let { overlay.result(it, false); done(false, it) }
                 }.onFailure { (it.message ?: "Couldn't reach the laptop.").let { m -> overlay.result(m, false); done(false, m) } }
             }
         }.start()
+    }
+
+    /** A second thing that goes with the first (an app's website after its screenshot), with no card of its own. */
+    private fun sendQuiet(link: String) = Thread { runCatching { svc.netOrNull()?.flick(link.toByteArray(), "link", "", "link") } }.start()
+
+    /** The phone's video stops when it starts on the laptop. */
+    private fun pausePhone() = runCatching {
+        val am = svc.getSystemService(android.media.AudioManager::class.java)
+        am.dispatchMediaKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_MEDIA_PAUSE))
+        am.dispatchMediaKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_MEDIA_PAUSE))
     }
 
     /** "Send to Novi" on the screenshot pop-up. */

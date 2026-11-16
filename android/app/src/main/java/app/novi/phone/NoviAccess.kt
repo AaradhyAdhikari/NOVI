@@ -182,6 +182,18 @@ class NoviAccess : AccessibilityService() {
     }
 
     fun canShoot(): Boolean = Build.VERSION.SDK_INT >= 30
+
+    /** The video open in the YouTube app: its title (the watch page or the player's own title line), else null. */
+    fun youtubeTitle(): String? {
+        val root = rootInActiveWindow ?: return null
+        if (root.packageName?.toString() != YOUTUBE_PKG) return null
+        for (id in listOf("player_video_title_view", "video_title", "title", "watch_title")) {
+            val hit = root.findAccessibilityNodeInfosByViewId("$YOUTUBE_PKG:id/$id")
+                .firstOrNull { it.isVisibleToUser && (it.text?.length ?: 0) >= 4 }
+            if (hit != null) return hit.text.toString().trim().take(200)
+        }
+        return null
+    }
     private val shotPool = java.util.concurrent.Executors.newSingleThreadExecutor()
 }
 
