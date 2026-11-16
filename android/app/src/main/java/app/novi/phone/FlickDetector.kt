@@ -176,3 +176,39 @@ fun browserAddress(text: String?): String? {
     if (Regex("""^[a-z0-9-]+(\.[a-z0-9-]+)+(/\S*)?$""", RegexOption.IGNORE_CASE).matches(t)) return "https://$t"
     return null
 }
+
+private val MONTHS = listOf("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
+
+/**
+ * When the open photo/video was taken, from what the gallery shows on top ("16 November 2026", "Nov 16, 2026",
+ * "Today", "Yesterday", "10:23 PM", "22:23"). A time narrows it to that minute (± 1 min), a date alone to that day.
+ * Null when no date shows. Times are in the phone's own zone.
+ */
+fun shownWhen(words: List<String>, now: java.util.Calendar = java.util.Calendar.getInstance()): LongRange? {
+    val text = words.joinToString("  ")
+    val cal = now.clone() as java.util.Calendar
+    var day = false
+    val low = text.lowercase()
+    val mName = Regex("""\b(\d{1,2})\s+([a-z]{3,9})\.?,?\s*(\d{4})?""").findAll(low).firstOrNull { it.groupValues[2].take(3) in MONTHS }
+    val nameM = Regex("""\b([a-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s*(\d{4})?""").findAll(low).firstOrNull { it.groupValues[1].take(3) in MONTHS }
+    when {
+        Regex("""\btoday\b""").containsMatchIn(low) -> day = true
+        Regex("""\byesterday\b""").containsMatchIn(low) -> { cal.add(java.util.Calendar.DAY_OF_MONTH, -1); day = true }
+        mName != null -> { cal.set(java.util.Calendar.MONTH, MONTHS.indexOf(mName.groupValues[2].take(3))); cal.set(java.util.Calendar.DAY_OF_MONTH, mName.groupValues[1].toInt()); mName.groupValues[3].toIntOrNull()?.let { cal.set(java.util.Calendar.YEAR, it) }; day = true }
+        nameM != null -> { cal.set(java.util.Calendar.MONTH, MONTHS.indexOf(nameM.groupValues[1].take(3))); cal.set(java.util.Calendar.DAY_OF_MONTH, nameM.groupValues[2].toInt()); nameM.groupValues[3].toIntOrNull()?.let { cal.set(java.util.Calendar.YEAR, it) }; day = true }
+    }
+    if (!day) return null
+    val t = Regex("""\b(\d{1,2}):(\d{2})\s*([ap])?\.?\s*m?\b""", RegexOption.IGNORE_CASE).find(text)
+    if (t == null) {
+        cal.set(java.util.Calendar.HOUR_OF_DAY, 0); cal.set(java.util.Calendar.MINUTE, 0); cal.set(java.util.Calendar.SECOND, 0); cal.set(java.util.Calendar.MILLISECOND, 0)
+        val start = cal.timeInMillis
+        return start until start + 24 * 3600_000L
+    }
+    var h = t.groupValues[1].toInt(); val m = t.groupValues[2].toInt()
+    val ap = t.groupValues[3].lowercase()
+    if (ap == "p" && h < 12) h += 12
+    if (ap == "a" && h == 12) h = 0
+    cal.set(java.util.Calendar.HOUR_OF_DAY, h); cal.set(java.util.Calendar.MINUTE, m); cal.set(java.util.Calendar.SECOND, 0); cal.set(java.util.Calendar.MILLISECOND, 0)
+    val at = cal.timeInMillis
+    return (at - 60_000L) until (at + 120_000L)
+}

@@ -27,10 +27,16 @@ class ClipActivity : Activity() {
 class ProcessTextActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val words = intent.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT)?.toString()?.trim().orEmpty()
+        // Some apps hand the words differently; this screen is in front, so the clipboard can be read too.
+        val words = listOfNotNull(
+            intent.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT)?.toString(),
+            intent.getStringExtra(Intent.EXTRA_PROCESS_TEXT),
+            intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString(),
+        ).map { it.trim() }.firstOrNull { it.isNotEmpty() }
+            ?: runCatching { getSystemService(android.content.ClipboardManager::class.java).primaryClip?.getItemAt(0)?.coerceToText(this)?.toString()?.trim() }.getOrNull().orEmpty()
         val svc = NoviService.instance
-        if (words.isNotEmpty() && svc != null) svc.flickWords(words)
-        else android.widget.Toast.makeText(this, if (svc == null) "Open Novi first." else "Nothing selected.", android.widget.Toast.LENGTH_SHORT).show()
+        if (words.isNotEmpty() && svc != null) { svc.flickWords(words.take(20000)); android.widget.Toast.makeText(this, "Sent to the laptop", android.widget.Toast.LENGTH_SHORT).show() }
+        else android.widget.Toast.makeText(this, if (svc == null) "Open Novi first." else "This app didn't pass the text. Tap Copy, then Send to Novi again.", android.widget.Toast.LENGTH_SHORT).show()
         finish()
     }
 }

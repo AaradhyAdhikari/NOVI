@@ -57,11 +57,24 @@ class NoviAccess : AccessibilityService() {
     private fun copyNode(): AccessibilityNodeInfo? {
         val root = rootInActiveWindow ?: return null
         val all = windows.mapNotNull { it.root } + root
+        // Samsung's floating menu often names it only in the description (its text is empty), others only in the text.
         return all.asSequence().flatMap { nodes(it).asSequence() }.firstOrNull { n ->
-            n.isVisibleToUser && (n.text?.toString() ?: n.contentDescription?.toString()).orEmpty().trim().equals("Copy", ignoreCase = true)
+            n.isVisibleToUser && listOf(n.text?.toString(), n.contentDescription?.toString(), n.viewIdResourceName?.substringAfterLast('/'))
+                .any { it?.trim()?.lowercase() in setOf("copy", "copy text", "copy_text", "action_copy", "android:id/copy") }
         }
     }
     fun copyShown(): Boolean = copyNode() != null
+
+    /** A video is open (a player, a seek bar, or a Pause/Play button on screen). */
+    fun videoShown(): Boolean {
+        val root = rootInActiveWindow ?: return false
+        return nodes(root).any { n ->
+            if (!n.isVisibleToUser) return@any false
+            val cls = n.className?.toString().orEmpty()
+            val words = "${n.contentDescription ?: ""} ${n.viewIdResourceName ?: ""}".lowercase()
+            Regex("VideoView|SeekBar|ExoPlayer|PlayerView").containsMatchIn(cls) || Regex("""\b(pause|play video|seek|video_view|player)\b""").containsMatchIn(words)
+        }
+    }
     fun pressCopy(): Boolean = copyNode()?.let { n -> (generateSequence(n) { it.parent }.take(4).firstOrNull { it.isClickable } ?: n).performAction(AccessibilityNodeInfo.ACTION_CLICK) } ?: false
 
     /** Words on screen: (selected / checked items, everything shown), for finding the open or picked file. */

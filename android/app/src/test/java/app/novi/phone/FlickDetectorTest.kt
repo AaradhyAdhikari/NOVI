@@ -69,6 +69,17 @@ class FlickDetectorTest {
         assertEquals(FlickSend.SCREENSHOT, flickChoice(false, 1000, true, "com.whatsapp", false, null, true))
     }
 
+    @Test fun galleryDateAndTime() {
+        val now = java.util.Calendar.getInstance().apply { set(2026, 10, 17, 9, 0, 0); set(java.util.Calendar.MILLISECOND, 0) }
+        fun at(y: Int, mo: Int, d: Int, h: Int, mi: Int) = java.util.Calendar.getInstance().apply { set(y, mo, d, h, mi, 0); set(java.util.Calendar.MILLISECOND, 0) }.timeInMillis
+        val r = shownWhen(listOf("16 November 2026", "10:23 PM", "Pune"), now)!!
+        assertTrue(at(2026, 10, 16, 22, 23) in r && at(2026, 10, 16, 22, 30) !in r)
+        assertTrue(at(2026, 10, 16, 22, 23) in shownWhen(listOf("Nov 16, 2026 • 22:23"), now)!!)
+        assertTrue(at(2026, 10, 16, 15, 0) in shownWhen(listOf("Yesterday"), now)!!)
+        assertTrue(at(2026, 10, 17, 8, 5) in shownWhen(listOf("Today", "8:05 am"), now)!!)
+        assertEquals(null, shownWhen(listOf("Share", "Edit", "Delete"), now))
+    }
+
     @Test fun copyAndFiles() {
         assertEquals(FlickSend.COPY, flickChoice(false, null, true, "com.whatsapp", false, null, true, copyShown = true))
         assertEquals(FlickSend.TEXT, flickChoice(false, null, true, "com.whatsapp", false, null, true, selection = "hi", copyShown = true))

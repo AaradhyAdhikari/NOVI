@@ -167,7 +167,18 @@ class FlickAnywhere(private val svc: NoviService, private val store: Store) : Se
             }
             FlickSend.PICTURE -> {
                 buzz()
-                access?.shot(trim = true) { bytes -> main.post { if (bytes == null) no("Couldn't take the picture.") else send(answer) { Triple(bytes, "Novi photo ${stamp()}.jpg", "image/jpeg") } } }
+                val words = access?.screenWords()?.second.orEmpty()
+                val video = access?.videoShown() == true
+                Thread {
+                    val media = shownMedia(words, video)
+                    main.post {
+                        when {
+                            media != null -> sendFileTriples(listOf(media), answer)
+                            video -> no("Couldn't tell which video this is. Use Share → Send to Novi for it.")
+                            else -> access?.shot(trim = true) { bytes -> main.post { if (bytes == null) no("Couldn't take the picture.") else send(answer) { Triple(bytes, "Novi photo ${stamp()}.jpg", "image/jpeg") } } }
+                        }
+                    }
+                }.start()
             }
             FlickSend.YOUTUBE -> access?.youtubeTitle()?.let { title ->
                 buzz()
@@ -295,6 +306,33 @@ class FlickAnywhere(private val svc: NoviService, private val store: Store) : Se
         }.start()
     }
 
+    /**
+     * The original photo/video a gallery has open: the media item taken at the date + time shown on screen
+     * (videos first when a player shows), copied into Novi's cache to send. Null when it can't tell.
+     */
+    private fun shownMedia(words: List<String>, video: Boolean): Triple<java.io.File, String, String>? = runCatching {
+        val range = shownWhen(words) ?: return null
+        val uri = MediaStore.Files.getContentUri("external")
+        val cols = arrayOf(MediaStore.Files.FileColumns._ID, MediaStore.Files.FileColumns.DISPLAY_NAME, MediaStore.Files.FileColumns.MIME_TYPE, MediaStore.Files.FileColumns.MEDIA_TYPE, MediaStore.MediaColumns.DATE_TAKEN)
+        val kinds = if (video) "${MediaStore.Files.FileColumns.MEDIA_TYPE} = ${MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO}"
+            else "(${MediaStore.Files.FileColumns.MEDIA_TYPE} = ${MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE} OR ${MediaStore.Files.FileColumns.MEDIA_TYPE} = ${MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO})"
+        val mid = range.first + (range.last - range.first) / 2
+        data class M(val id: Long, val name: String, val type: String, val kind: Int, val at: Long)
+        val found = mutableListOf<M>()
+        svc.contentResolver.query(uri, cols, "$kinds AND ${MediaStore.MediaColumns.DATE_TAKEN} BETWEEN ? AND ?", arrayOf(range.first.toString(), range.last.toString()), null)?.use { c ->
+            while (c.moveToNext()) found.add(M(c.getLong(0), c.getString(1).orEmpty(), c.getString(2).orEmpty(), c.getInt(3), c.getLong(4)))
+        }
+        // A whole day (no time shown) with several items is a guess: only one item that day counts.
+        val dayOnly = range.last - range.first > 10 * 60_000L
+        val pick = (if (dayOnly && found.size != 1) null else found.minByOrNull { kotlin.math.abs(it.at - mid) }) ?: return null
+        val itemUri = ContentUris.withAppendedId(if (pick.kind == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO) MediaStore.Video.Media.EXTERNAL_CONTENT_URI else MediaStore.Images.Media.EXTERNAL_CONTENT_URI, pick.id)
+        val dir = java.io.File(svc.cacheDir, "flick-out").apply { mkdirs(); listFiles()?.forEach { it.delete() } }
+        val out = java.io.File(dir, pick.name.replace(Regex("""[\\/:*?"<>|]"""), "_").ifBlank { "Novi media" })
+        svc.contentResolver.openInputStream(itemUri)?.use { input -> out.outputStream().use { input.copyTo(it) } } ?: return null
+        if (out.length() == 0L || out.length() > 300L * 1024 * 1024) return null
+        Triple(out, out.name, pick.type)
+    }.getOrNull()
+
     /** The files with these names on the phone (Download, Documents, DCIM, Pictures, WhatsApp…), newest first. */
     private fun findFiles(names: List<String>): List<java.io.File> {
         if (names.isEmpty()) return emptyList()
@@ -358,8 +396,9 @@ class FlickAnywhere(private val svc: NoviService, private val store: Store) : Se
     }
 
     companion object {
+        // Android 13+: photos and videos are two permissions; the screenshot check needs photos only.
         fun shotPermission(): String = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_IMAGES else Manifest.permission.READ_EXTERNAL_STORAGE
-        fun shotPermissions(): Array<String> = if (Build.VERSION.SDK_INT >= 34) arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) else arrayOf(shotPermission())
+        fun shotPermissions(): Array<String> = if (Build.VERSION.SDK_INT >= 34) arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) else arrayOf(shotPermission())
         fun canReadShots(c: Context) = c.checkSelfPermission(shotPermission()) == PackageManager.PERMISSION_GRANTED
     }
 }

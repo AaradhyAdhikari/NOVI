@@ -15,6 +15,7 @@
     <!-- Novi Flick v2: spot a new screenshot to offer "Send to Novi". -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <!-- Novi Flick: a flick in a file manager / document viewer sends the real file, found by its name. -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
