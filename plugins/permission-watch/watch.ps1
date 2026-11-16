@@ -60,21 +60,28 @@ function Scan {
   return ,$boxes
 }
 
-function Press($hwnd, $button, $expect) {
+function Squash($t) { return (([string]$t) -replace '\d+', '#' -replace '\s+', ' ').Trim() }
+
+# → @{ ok; why } (why = the reason a press didn't happen, for Novi's log).
+function Press($hwnd, $button, $expect, $key) {
   try {
     $w = $AE::FromHandle([IntPtr][int64]$hwnd)
-    # Read the box again, right now: only the words on the card get this answer, and only inside this box.
+    # Read the box again, right now: only the question on the card gets this answer, and only inside this box.
     $box = Find-Box $w
-    if (-not $box -or [string]$box.text -cne [string]$expect) { return $false }
+    if (-not $box) { return @{ ok = $false; why = 'the box is gone' } }
+    # Same words (numbers aside: a timer ticks in the Claude app), or the card's question still in it (other lines moved on).
+    $same = (Squash $box.text) -ceq (Squash $expect)
+    $still = ([string]$key).Length -ge 12 -and ([string]$box.text).Contains([string]$key)
+    if (-not ($same -or $still)) { return @{ ok = $false; why = 'the box shows a different question now' } }
     $hit = @($box.node.FindAll($Scope::Descendants, $isPress) | Where-Object { [string]$_.Current.Name -ceq $button })
-    if ($hit.Count -ne 1) { return $false } # gone, or two with that name: press nothing rather than guess
+    if ($hit.Count -ne 1) { return @{ ok = $false; why = "found $($hit.Count) buttons named $button" } } # gone, or two: press nothing rather than guess
     $pattern = $null
-    if ($hit[0].TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$pattern)) { $pattern.Invoke(); return $true }
+    if ($hit[0].TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$pattern)) { $pattern.Invoke(); return @{ ok = $true } }
     # A standard Windows button: a click message to that control, so the mouse never moves.
     $handle = $hit[0].Current.NativeWindowHandle
-    if (-not $handle) { return $false }
-    return [NoviWatch.Win32]::PostMessage([IntPtr][int64]$handle, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)
-  } catch { return $false }
+    if (-not $handle) { return @{ ok = $false; why = 'the button takes no click' } }
+    return @{ ok = [NoviWatch.Win32]::PostMessage([IntPtr][int64]$handle, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero); why = 'click message' }
+  } catch { return @{ ok = $false; why = [string]$_.Exception.Message } }
 }
 
 function Say($object) { [Console]::Out.WriteLine(($object | ConvertTo-Json -Compress -Depth 6)); [Console]::Out.Flush() }
@@ -90,7 +97,7 @@ while ($true) {
     if ($null -eq $line) { break }
     try {
       $msg = $line | ConvertFrom-Json
-      if ($msg.press) { Say @{ pressed = @{ id = $msg.press.id; ok = (Press $msg.press.hwnd $msg.press.button $msg.press.expect) } }; $nextScan = (Get-Date).AddMilliseconds(400) }
+      if ($msg.press) { $r = Press $msg.press.hwnd $msg.press.button $msg.press.expect $msg.press.key; Say @{ pressed = @{ id = $msg.press.id; ok = [bool]$r.ok; why = [string]$r.why } }; $nextScan = (Get-Date).AddMilliseconds(400) }
     } catch { }
     $reading = $input2.ReadLineAsync()
   }

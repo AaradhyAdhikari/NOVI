@@ -159,6 +159,22 @@ export function createNovi(config, overrides = {}) {
         if (gate.block || gate.approval) throw new Error(`${name} needs approval, so a plugin can't run it`);
         return tool.run(params);
       },
+      // A plugin action that needs the user's yes (Novi Flick v2: a stage card's "Send to WhatsApp"): the tool's
+      // own approval shows as a normal card, and it runs only after a yes. Never for high-risk, PIN, delete or
+      // payment cards (those stay on their own paths). → the tool's result, or { declined: true }.
+      runAsked: async (name, params = {}) => {
+        const tool = plugins.get(name);
+        if (!tool) throw new Error(`Unknown tool ${name}`);
+        const gate = await tool.gate(params);
+        if (gate.block) return { error: gate.blockReason || 'Not allowed.' };
+        if (gate.approval) {
+          const a = gate.approval;
+          if (a.tier === 'high' || a.pin || a.kind) throw new Error(`${name} needs a stronger yes, so a plugin can't ask for it`);
+          const d = await approvals.decide({ ...a, grantable: false, source: 'novi' });
+          if (!d?.allow) return { declined: true };
+        }
+        return tool.run(params);
+      },
       // A tool's description and parameters (read-only), e.g. for routines planning with look-up tools.
       toolInfo: (name) => { const t = plugins.get(name); return t ? { description: t.description || '', parameters: t.parameters || {} } : null; },
       // Signed-in Google API calls for plugins (Calendar, Tasks) on the account connected for Gmail.

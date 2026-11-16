@@ -39,6 +39,9 @@ class MainActivity : ComponentActivity() {
     companion object {
         /** The Novi page is on screen (NoviService then leaves the cards to it). */
         @Volatile var visible = false
+        @Volatile private var current: MainActivity? = null
+        /** A wrist flick while the Novi page is open: the flick screen sends its top card (window.__noviFlick). */
+        fun flickPage() { current?.let { a -> a.runOnUiThread { a.web?.evaluateJavascript("window.__noviFlick ? !!window.__noviFlick() : false", null) } } }
     }
 
     private lateinit var store: Store
@@ -189,11 +192,13 @@ class MainActivity : ComponentActivity() {
         }
         if (web == null || loadedBase != store.base) show()
         visible = true
+        current = this
         NoviService.instance?.pageShown(true)
     }
 
     override fun onPause() {
         visible = false
+        current = null
         NoviService.instance?.pageShown(false)
         speech.release() // listening stops and the sounds it muted come back when Novi isn't on screen
         super.onPause()

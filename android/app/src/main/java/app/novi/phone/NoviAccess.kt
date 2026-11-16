@@ -143,4 +143,56 @@ class NoviAccess : AccessibilityService() {
         repeat(times.coerceIn(1, 10)) { list.performAction(action) }
         return true to if (up) "Scrolled up." else "Scrolled down."
     }
+
+    // ---- Novi Flick v2: what a wrist flick sends when Novi isn't open ----
+
+    /** A password, card or code box on the screen (never a picture of it). */
+    fun passwordShown(): Boolean = rootInActiveWindow?.let { r ->
+        nodes(r).any { n -> n.isVisibleToUser && (n.isPassword || (n.isEditable && SECRET_BOX.containsMatchIn(listOfNotNull(n.hintText, n.contentDescription, n.viewIdResourceName).joinToString(" ")))) }
+    } ?: false
+
+    /** The address in the browser in front (Chrome, Edge, Brave, Samsung Internet, Firefox), else null. */
+    fun browserLink(): String? {
+        val root = rootInActiveWindow ?: return null
+        val pkg = root.packageName?.toString().orEmpty()
+        val id = BROWSER_BARS[pkg] ?: return null
+        val bar = root.findAccessibilityNodeInfosByViewId(id).firstOrNull() ?: return null
+        if (bar.isFocused) return null // the user is typing an address, not looking at a page
+        return browserAddress(bar.text?.toString())
+    }
+
+    /** A picture of the screen as PNG bytes (Android 11+; the user's own screen, for their own laptop). */
+    fun shot(done: (ByteArray?) -> Unit) {
+        if (Build.VERSION.SDK_INT < 30) return done(null)
+        // Compressing a screen picture takes ~100 ms: off the main thread (review 2026-11-16).
+        takeScreenshot(android.view.Display.DEFAULT_DISPLAY, shotPool, object : TakeScreenshotCallback {
+            override fun onSuccess(result: ScreenshotResult) {
+                val bytes = runCatching {
+                    val hw = try { android.graphics.Bitmap.wrapHardwareBuffer(result.hardwareBuffer, result.colorSpace) } finally { }
+                    val soft = try { hw?.copy(android.graphics.Bitmap.Config.ARGB_8888, false) } finally { result.hardwareBuffer.close() }
+                    val out = java.io.ByteArrayOutputStream()
+                    soft?.compress(android.graphics.Bitmap.CompressFormat.JPEG, 88, out)
+                    soft?.recycle()
+                    out.toByteArray().takeIf { it.isNotEmpty() }
+                }.getOrNull()
+                done(bytes)
+            }
+            override fun onFailure(errorCode: Int) = done(null)
+        })
+    }
+
+    fun canShoot(): Boolean = Build.VERSION.SDK_INT >= 30
+    private val shotPool = java.util.concurrent.Executors.newSingleThreadExecutor()
 }
+
+/** Boxes for codes and cards count like password boxes (review 2026-11-16). */
+private val SECRET_BOX = Regex("""otp|one.?time|verification code|cvv|cvc|card.?number|expiry|upi pin|\bpin\b""", RegexOption.IGNORE_CASE)
+
+private val BROWSER_BARS = mapOf(
+    "com.android.chrome" to "com.android.chrome:id/url_bar",
+    "com.chrome.beta" to "com.chrome.beta:id/url_bar",
+    "com.microsoft.emmx" to "com.microsoft.emmx:id/url_bar",
+    "com.brave.browser" to "com.brave.browser:id/url_bar",
+    "com.sec.android.app.sbrowser" to "com.sec.android.app.sbrowser:id/location_bar_edit_text",
+    "org.mozilla.firefox" to "org.mozilla.firefox:id/mozac_browser_toolbar_url_view",
+)

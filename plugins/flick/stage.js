@@ -12,10 +12,10 @@ import crypto from 'node:crypto';
 
 const PAGE = path.join(path.dirname(fileURLToPath(import.meta.url)), 'stage.html');
 const TYPES = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp', '.avif': 'image/avif', '.heic': 'image/heic', '.mp4': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime', '.m4v': 'video/mp4' };
-const KEEP = 12;
+const KEEP = 8;
 
 // What the page may see of an item: never the laptop path.
-const pub = ({ id, kind, name, url, host, at }) => ({ id, kind, name, url, host, at, openable: Boolean(url) || ['photo', 'video', 'doc'].includes(kind), preview: !url && (kind === 'photo' || kind === 'video') }); // a link (YouTube…) has no file to show
+const pub = ({ id, kind, name, url, host, at }) => ({ id, kind, name, url, host, at, openable: Boolean(url) || ['photo', 'video', 'doc'].includes(kind), sendable: Boolean(url) || ['photo', 'video', 'doc'].includes(kind), preview: !url && (kind === 'photo' || kind === 'video') }); // a link (YouTube…) has no file to show
 
 export function createStage() {
   const items = [];
@@ -24,7 +24,7 @@ export function createStage() {
   let base = null;
   let secret = null;
   const stage = {
-    handle: { open: () => {}, close: () => {} },
+    handle: { open: () => {}, close: () => {}, action: async () => null },
     async start() {
       if (base) return base;
       secret = crypto.randomBytes(16).toString('hex');
@@ -49,13 +49,27 @@ export function createStage() {
         if (req.method === 'GET' && file) {
           const it = items.find((i) => i.id === file[1]);
           if (!it || !pub(it).preview || !it.path || !fs.existsSync(it.path)) { res.writeHead(404); return res.end(); }
-          res.writeHead(200, { 'Content-Type': TYPES[path.extname(it.path).toLowerCase()] || 'application/octet-stream', 'Cache-Control': 'no-store' });
+          res.writeHead(200, { 'Content-Type': TYPES[path.extname(it.path).toLowerCase()] || 'application/octet-stream', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
           return fs.createReadStream(it.path).pipe(res);
         }
         if (req.method === 'POST' && req.headers['x-novi-stage'] === '1') {
           const open = url.pathname.match(/^\/open\/([\w-]+)$/);
           if (open) { stage.handle.open(open[1]); res.writeHead(204); return res.end(); }
           if (url.pathname === '/close') { stage.handle.close(); res.writeHead(204); return res.end(); }
+          // A card's action (v2): { do, to?, app? } as a small JSON body; the answer is a short note for the page.
+          const act = url.pathname.match(/^\/action\/([\w-]+)$/);
+          if (act) {
+            let body = '';
+            req.on('data', (c) => { body += c; if (body.length > 2048) req.destroy(); });
+            req.on('end', async () => {
+              let data = {};
+              try { data = JSON.parse(body || '{}'); } catch { data = {}; }
+              const out = await Promise.resolve(stage.handle.action?.(act[1], { do: String(data.do || ''), to: data.to ? String(data.to) : undefined, app: data.app ? String(data.app) : undefined })).catch(() => null);
+              res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+              res.end(JSON.stringify(out || { note: "That didn't work." }));
+            });
+            return;
+          }
         }
         res.writeHead(404); res.end();
       });

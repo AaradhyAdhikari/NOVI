@@ -64,6 +64,9 @@ class NoviService : Service() {
     private val announced = HashSet<String>()
     private lateinit var overlay: CardOverlay
     private lateinit var noticeOverlay: NoticeOverlay
+    private lateinit var flick: FlickAnywhere
+    /** The flick setting or the screenshot permission changed (setup screen). */
+    fun flickRefresh() = main.post { flick.refresh() }
     private val notices = ArrayList<Notice>()
     private var noticePosted: String? = null
     private lateinit var bubble: MicBubble
@@ -101,6 +104,7 @@ class NoviService : Service() {
         overlay = CardOverlay(this)
         noticeOverlay = NoticeOverlay(this)
         bubble = MicBubble(this) { bubbleListen() }
+        flick = FlickAnywhere(this, store).also { it.start() }
         tts = TextToSpeech(this) { }
         getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(netWatch)
         connect()
@@ -122,6 +126,7 @@ class NoviService : Service() {
         overlay.hide()
         noticeOverlay.hide()
         bubble.remove()
+        flick.close()
         tts?.shutdown()
         stateText = "Not running"
         onState?.invoke()

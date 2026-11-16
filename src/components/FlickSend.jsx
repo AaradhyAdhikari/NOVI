@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { X, ImagePlus, Link2, ArrowUp } from 'lucide-react';
-import { isFlick, flickRequest, itemKind } from '../lib/flickGesture.js';
+import { isFlick, flickRequest, itemKind, createFlickDetector, motionSample } from '../lib/flickGesture.js';
 
 // Novi Flick, phone side (2026-11-16): pick photos/files or paste a link, then flick the card up and it
 // lands on the laptop's stage. One card at a time, the rest wait underneath.
+// v2: the real flick: flick the phone itself toward the laptop (wrist flick) and the top card goes. In the Novi app the
+// app's own sensors spot it and call window.__noviFlick (the same gesture works anywhere on the phone); in a
+// browser the page listens to the motion sensors itself. The swipe up stays as a backup.
 const ICON = { doc: '📄', file: '📦', link: '🔗', video: '▶️' };
 let seq = 0;
 
@@ -59,17 +62,43 @@ export default function FlickSend({ api, onClose }) {
 
   const down = (e) => { if (!top || drag.flying) return; start.current = { y: e.clientY, t: performance.now() }; e.currentTarget.setPointerCapture?.(e.pointerId); };
   const move = (e) => { if (start.current) setDrag({ dy: Math.min(40, e.clientY - start.current.y), flying: false }); };
+  const flying = useRef(false);
+  const flyAway = () => {
+    const item = topRef.current;
+    if (!item || flying.current) return false;
+    flying.current = true;
+    navigator.vibrate?.(25);
+    setDrag({ dy: 0, flying: true });
+    setTimeout(() => { setQueue((q) => q.slice(1)); setDrag({ dy: 0, flying: false }); flying.current = false; }, 420);
+    send(item);
+    return true;
+  };
   const up = (e) => {
     if (!start.current) return;
     const dy = e.clientY - start.current.y, ms = performance.now() - start.current.t;
     start.current = null;
     if (!isFlick({ dy, ms })) { setDrag({ dy: 0, flying: false }); return; }
-    navigator.vibrate?.(25);
-    const item = top;
-    setDrag({ dy: 0, flying: true });
-    setTimeout(() => { setQueue((q) => q.slice(1)); setDrag({ dy: 0, flying: false }); }, 420);
-    send(item);
+    flyAway();
   };
+  const topRef = useRef(null);
+  topRef.current = top;
+  const flyRef = useRef(flyAway);
+  flyRef.current = flyAway;
+  const [motion, setMotion] = useState(window.NoviApp ? 'app' : typeof DeviceMotionEvent === 'undefined' ? 'none' : typeof DeviceMotionEvent.requestPermission === 'function' ? 'ask' : 'on');
+  // The app's sensors (any screen) call this; it says whether a card went (else the app sends what's on screen).
+  useEffect(() => {
+    window.__noviFlick = () => flyRef.current();
+    return () => { delete window.__noviFlick; };
+  }, []);
+  // In a browser: the motion sensors here.
+  useEffect(() => {
+    if (motion !== 'on') return undefined;
+    const d = createFlickDetector();
+    const on = (e) => { if (d.feed(motionSample(e))) flyRef.current(); };
+    window.addEventListener('devicemotion', on);
+    return () => window.removeEventListener('devicemotion', on);
+  }, [motion]);
+  const askMotion = async () => { try { setMotion((await DeviceMotionEvent.requestPermission()) === 'granted' ? 'on' : 'none'); } catch { setMotion('none'); } };
 
   const style = drag.flying
     ? { transform: 'translateY(-115vh) rotate(-8deg) scale(.6)', opacity: 0, transition: 'transform .42s cubic-bezier(.3,.7,.2,1), opacity .42s' }
@@ -90,7 +119,7 @@ export default function FlickSend({ api, onClose }) {
             {top.kind === 'video' && <video src={top.preview} muted autoPlay loop playsInline />}
             {top.kind !== 'photo' && top.kind !== 'video' && <div className="flick-icon">{ICON[top.kind] || '📦'}</div>}
             <div className="flick-name">{top.name}</div>
-            <div className="flick-hint"><ArrowUp size={14} /> Give it a little flick</div>
+            <div className="flick-hint"><ArrowUp size={14} /> {motion === 'app' || motion === 'on' ? 'Flick your phone toward the laptop, or swipe up' : 'Give it a little flick'}</div>
           </div>
         ) : (
           <div className="flick-empty">Pick photos or files, or paste a link.</div>
@@ -98,6 +127,7 @@ export default function FlickSend({ api, onClose }) {
       </div>
       {queue.length > 1 && <div className="flick-more">{queue.length - 1} more waiting</div>}
       <div className="flick-status" aria-live="polite">{status}</div>
+      {motion === 'ask' && <button className="flick-btn" onClick={askMotion}>Turn on the wrist flick</button>}
       <div className="flick-tools">
         <input ref={picker} type="file" multiple hidden onChange={pick} />
         <button className="flick-btn" onClick={() => picker.current?.click()}><ImagePlus size={18} /> Photos & files</button>

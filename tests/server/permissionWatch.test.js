@@ -131,12 +131,17 @@ describe('watching', () => {
     await tick();
     expect(s.asked).toEqual([]);
   });
+  it('a ticking timer in the box is the same box (live 2026-11-16: the Claude app made a new card each tick)', () => {
+    expect(boxKey({ ...CLAUDE, text: CLAUDE.text + ' | Running 12s' })).toBe(boxKey({ ...CLAUDE, text: CLAUDE.text + ' | Running 47s' }));
+    expect(boxKey({ ...CLAUDE, text: 'Something else entirely' })).not.toBe(boxKey(CLAUDE));
+  });
   it('a yes carries the words the card showed, so a changed box is not pressed', async () => {
     const s = setup();
     await s.start();
     s.boxes([CLAUDE]);
     await tick();
     expect(s.pressed[0].expect).toBe(CLAUDE.text);
+    expect(s.pressed[0].key).toBe('Claude wants to use a folder on your computer'); // the question, for a box whose other lines moved on
   });
   it('a box whose words change gets a new card, even with the same first line', async () => {
     const s = setup({ answers: [] });
@@ -178,6 +183,22 @@ describe('watching', () => {
     s.boxes([CLAUDE]);
     await tick();
     expect(s.asked.length).toBe(1);
+  });
+  it('an answered question in the same window never comes back, even when other words around it change', async () => {
+    // Live 2026-11-16: a sample card picture in the Claude app came back ten times after each yes.
+    const s = setup();
+    await s.start();
+    s.boxes([CLAUDE]);
+    await tick();
+    expect(s.pressed).toHaveLength(1);
+    s.boxes([]);
+    await new Promise((r) => setTimeout(r, 30));
+    s.boxes([{ ...CLAUDE, text: `${CLAUDE.text} | Your video keeps showing here` }]);
+    await tick();
+    expect(s.asked.length).toBe(1);
+    s.boxes([{ ...CLAUDE, text: 'Claude wants to delete everything | Really?' }]); // a different question still asks
+    await tick();
+    expect(s.asked.length).toBe(2);
   });
 });
 

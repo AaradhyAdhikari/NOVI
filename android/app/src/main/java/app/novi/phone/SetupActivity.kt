@@ -106,6 +106,18 @@ class SetupActivity : ComponentActivity() {
             setOnCheckedChangeListener { _, on -> store.earbudsOnly = on }
         })
 
+        // Novi Flick v2 (2026-11-16): the wrist flick on any screen, and the pop-up after a screenshot.
+        col.addView(android.widget.Switch(this).apply {
+            text = "Flick anywhere: flick your phone toward the laptop to send what is on screen"
+            isChecked = store.flickAnywhere
+            setOnCheckedChangeListener { _, on -> store.flickAnywhere = on; NoviService.instance?.flickRefresh() }
+        })
+        col.addView(android.widget.Switch(this).apply {
+            text = "Screenshot pop-up: Send to Novi after each screenshot"
+            isChecked = store.screenshotPopup
+            setOnCheckedChangeListener { _, on -> store.screenshotPopup = on; NoviService.instance?.flickRefresh() }
+        })
+
         col.addView(heading("3. Try it"))
         col.addView(row(
             button("Send a test card") {
@@ -129,6 +141,7 @@ class SetupActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         NoviService.onState = { refresh() }
+        NoviService.instance?.flickRefresh() // photos permission may have been given in Android Settings
         refresh()
     }
 
@@ -176,8 +189,13 @@ class SetupActivity : ComponentActivity() {
             requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 3)
         }
         // Phone typing (2026-10-29): Android lets only the user switch an Accessibility service on.
-        permission("Phone typing: Settings → Accessibility → Novi", NoviAccess.instance != null) {
+        permission("Phone typing + flick what is on screen: Settings → Accessibility → Novi", NoviAccess.instance != null) {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        }
+        // Novi Flick v2: reading new screenshots (only to offer sending them; nothing leaves without a flick or a tap).
+        // Android 14 "Select photos" gives only chosen photos: a new screenshot needs "Allow all".
+        permission("Photos (Allow all): offer to send new screenshots", FlickAnywhere.canReadShots(this)) {
+            requestPermissions(FlickAnywhere.shotPermissions(), 4)
         }
         // Fingerprint instead of the PIN on risky cards (2026-11-11); set up again after a new fingerprint is added.
         if (Fingerprint.canUse(this)) {
@@ -206,6 +224,7 @@ class SetupActivity : ComponentActivity() {
     @Deprecated("old API, enough for three permission buttons")
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 4) NoviService.instance?.flickRefresh()
         refresh()
     }
 

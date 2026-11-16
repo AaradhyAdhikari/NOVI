@@ -24,10 +24,27 @@ export function safeName(name) {
 }
 
 export function kindOf(name, type = '') {
+  // Only the name's own ending counts (security review): the phone's type header never makes a file a photo or
+  // video, since Windows opens a file by its ending, not by what the phone called it. `type` is kept for callers.
+  void type;
   for (const [k, re] of Object.entries(KINDS)) if (re.test(name)) return k;
-  if (/^image\//.test(type)) return 'photo';
-  if (/^video\//.test(type)) return 'video';
   return 'file';
+}
+
+const ENDINGS = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/gif': '.gif', 'image/heic': '.heic', 'video/mp4': '.mp4', 'video/quicktime': '.mov', 'video/webm': '.webm' };
+// A name with no ending gets one from a picture or video type, so it is saved (and opens) as what it is.
+export function withEnding(name, type = '') {
+  const n = String(name || 'file');
+  return /\.[a-z0-9]{1,5}$/i.test(n) ? n : n + (ENDINGS[String(type).toLowerCase()] || '');
+}
+
+// A link opens by itself on the laptop only when it can't be a one-time sign-in or reset link (opening one there
+// could use it up, security review); those wait for a tap on the stage.
+export function autoOpens(url) {
+  let u;
+  try { u = new URL(url); } catch { return false; }
+  if (u.search.length > 100) return false;
+  return !/(token|reset|magic|auth|login|signin|sign-in|verify|otp|code=|session|password|invite)/i.test(u.pathname + u.search);
 }
 
 const day = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;

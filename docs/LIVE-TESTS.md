@@ -352,11 +352,22 @@ Use a throwaway git project with a GitHub link (or a local "remote") so a push c
 - Ask Claude for a job with a hard part and small parts ("make the Team Test page: a hero with scroll motion, change the button text to Start, add a footer"). Approve the plan. The feed shows "Step 1 of 3 on opus (high effort)…", then "Step 2 of 3 on haiku (low effort)…". The task finishes after the last step.
 - During an Opus step, small edits may show as done by the novi-quick helper.
 
-## Novi Flick: phone to laptop (2026-11-16, not live-tested)
+## Novi Flick: phone to laptop (2026-11-16; v1 tried live: laggy, Close did nothing)
 Restart Novi first (new plugin), then install the new app `android\Novi.apk` (2.6.0; the Update card should offer it).
 1. On the phone, tap the new **send arrow** in Novi's top bar, then **Photos & files**, and pick a photo. Flick the card up. The laptop should go full screen (dark teal grid) and the photo should fly in. It's saved in `Downloads\Novi Flick\<today>`.
 2. Flick two or three more: they fan into a stack. Tap one on the laptop and it opens in its app.
 3. Paste a YouTube link with a time (`…?t=90`) and flick it: a card lands, then YouTube opens on the laptop at that second.
-4. From the Photos or YouTube app: **Share → Flick to Novi**. Novi opens on the flick screen with the item ready. Flick it.
+4. From the Photos or YouTube app: **Share → Send to Novi (was Flick to Novi)**. Novi opens on the flick screen with the item ready. Flick it.
 5. Voice: "open the stage", "close the stage", "open the last flick". Esc or the Close button closes the stage too. It closes by itself after 5 minutes with nothing new.
 6. Send a `.exe`: it's saved but never opened (the card says so).
+
+### Novi Flick v2 (2026-11-16, not live-tested)
+Restart Novi, then install app 2.7.0 from the Update card. In the app's ⚙: allow **Photos: offer to send new screenshots**, keep **Phone typing** on (Android may want Novi switched off and on once in Accessibility, for the new screen-picture permission), keep **Flick anywhere** and **Screenshot pop-up** on.
+1. Stage: cards fly in smoothly (no stutter with a few big phone photos). **Close** and **Esc** close it; so does "close the stage".
+2. On the front card: Open / Open in browser, Copy (paste the picture into Paint or WhatsApp with Ctrl+V), Show in folder, **WhatsApp…** (type a name, Enter: one card asks before it sends), **Send to AI…** → ChatGPT / Gemini / Claude / Perplexity / Google (a link goes into the question; a picture is copied, press Ctrl+V on the site). Right-click any card for the same list.
+3. Voice: "copy the last flick", "send the last flick to ChatGPT", "send it to Rahul on WhatsApp" (sends without asking, like your other WhatsApp commands), "show the last flick in the folder".
+4. **Wrist flick in Novi**: on the flick screen, flick the phone itself toward the laptop: the top card flies off with a buzz. The swipe up still works.
+5. **Wrist flick anywhere**: open a photo in Gallery and flick the phone: "Flicking this screen to the laptop… Cancel" for 1.5 s, then it lands. With a page open in Chrome the link goes instead.
+6. **Screenshot**: take one: a small pop-up "Flick your phone to send it" + **Send to Novi**. Flick (or tap) within 90 s and it lands.
+7. Privacy: in PhonePe/GPay/a bank app, or with a password box on screen, a flick says "Not from this app" and sends nothing.
+8. Check it doesn't fire while walking, typing or putting the phone down (if it does: thresholds in src/lib/flickGesture.js and FlickDetector.kt).

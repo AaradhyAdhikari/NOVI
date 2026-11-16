@@ -41,3 +41,28 @@ devices other than the paired phone.
 
 ## Left to the builder
 Exact animation curves, card sizes, how many cards stay on the stage (≤ 12, oldest fades), idle close (5 min).
+
+
+## v2 (2026-11-16, after the first live try)
+- **Lag** (stage): v1 animated the floor grid's background-position on a huge masked, tilted layer (a full repaint
+  every frame), decoded full-size phone photos on every card, and transitioned shadows/filters on 12 cards. Now only
+  transform/opacity animate, the floor's inner tile layer slides and only for 4 s after a landing, photos are shrunk
+  once with createImageBitmap (resizeWidth 600), only the front video plays, 6 cards stay on the page, the server keeps 8.
+- **Close**: the card layer (position: fixed, later in the page) covered the Close button, so the click never reached
+  it; Esc failed when the window started without the keyboard. Close now sits above everything, the stack lets clicks
+  through, the page focuses itself, Novi focuses the "Novi Stage" window 2.5 s after opening it, and closing ends the
+  stage's Edge by its profile with taskkill /T.
+- **Actions** (card buttons, right-click, voice; tool flick_do): open, open in browser (links), copy (a photo as the
+  picture, a link as text, other files as a file), show in folder, WhatsApp (stage: one approval card via
+  runtime.runAsked; voice: the agent sends it like any spoken WhatsApp command), send to an AI from a fixed list
+  (sites.js: ChatGPT, Gemini, Claude, Perplexity, Google; a link goes in ?q= where the site takes it, else it is
+  copied and the site opens for Ctrl+V). Programs and macro files are never opened or passed on.
+- **Real flick** (user: flick first, "Send to Novi" second, on any screen): createFlickDetector (JS) and FlickDetector
+  (Kotlin), same numbers: within 300 ms a jolt ≥ 14 m/s² and a pitch ≥ 240°/s mostly about x, right after 300 ms of
+  stillness; 1.5 s apart. In the app the foreground service listens (linear acceleration + gyroscope, screen on only):
+  Novi open → the flick screen's top card (window.__noviFlick); else a screenshot from the last 90 s, else the browser's
+  link, else a picture of the screen (Accessibility takeScreenshot, Android 11+). Never in bank / UPI / password apps
+  or with a password box on screen; 1.5 s to cancel. In a browser the page reads devicemotion.
+- **Screenshots**: a MediaStore observer (READ_MEDIA_IMAGES, asked on ⚙) spots a new file in a Screenshots folder and
+  shows a small pop-up ("Flick your phone to send it" + Send to Novi) for 6 s. The share entry is now "Send to Novi".
+- Later: laptop → phone, the TV, choosing which screen.

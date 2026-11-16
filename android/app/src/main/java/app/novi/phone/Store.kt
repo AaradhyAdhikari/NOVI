@@ -40,6 +40,15 @@ class Store(context: Context) {
         get() = prefs.getBoolean("earbudsOnly", true)
         set(v) = prefs.edit().putBoolean("earbudsOnly", v).apply()
 
+    /** Novi Flick v2: the wrist flick works on any screen (user, 2026-11-16). */
+    var flickAnywhere: Boolean
+        get() = prefs.getBoolean("flickAnywhere", true)
+        set(v) = prefs.edit().putBoolean("flickAnywhere", v).apply()
+    /** A small "Send to Novi" pop-up after each screenshot. */
+    var screenshotPopup: Boolean
+        get() = prefs.getBoolean("screenshotPopup", true)
+        set(v) = prefs.edit().putBoolean("screenshotPopup", v).apply()
+
     val paired: Boolean get() = !base.isNullOrEmpty() && !token.isNullOrEmpty()
 
     fun forget() = prefs.edit().clear().apply()

@@ -42,15 +42,17 @@ const appName = ({ process = '', title = '' }) => {
 };
 // The box's question: not the window's own name or a button label (live: Notepad's card said "Notepad: Notepad").
 // The line ending in "?" when there is one, else the longest.
-function questionLine(box, app) {
+export function questionLine(box, app = appName(box)) {
   const skip = new Set([app, box.title, String(box.process || '').replace(/\.exe$/i, ''), ...(box.buttons || [])].filter(Boolean).map((s) => String(s).toLowerCase()));
   const lines = String(box.text || '').split(/[|\r\n]/).map((s) => s.trim()).filter((s) => s && !skip.has(s.toLowerCase()) && s.split(/\s+/).length > 1);
   const pick = lines.find((s) => s.endsWith('?')) || [...lines].sort((a, b) => b.length - a.length)[0] || '';
   return pick.replace(/[.!?:]+$/, '').slice(0, 90);
 }
 
-// All of its words: a box that changes is a new question and gets a new card.
-export const boxKey = (box) => `${box.hwnd}:${box.process || ''}:${[...(box.buttons || [])].sort().join('+')}:${box.text || ''}`;
+// All of its words: a box that changes is a new question and gets a new card. Numbers don't count (live
+// 2026-11-16: a box inside the Claude app holds a ticking timer, and each tick made a new card the press then refused).
+export const squash = (text) => String(text || '').replace(/\d+/g, '#').replace(/\s+/g, ' ').trim();
+export const boxKey = (box) => `${box.hwnd}:${box.process || ''}:${[...(box.buttons || [])].sort().join('+')}:${squash(box.text)}`;
 
 export function cardFor(box) {
   const app = appName(box);

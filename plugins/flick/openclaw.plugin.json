@@ -3,7 +3,7 @@
   "name": "Flick",
   "description": "Flick photos, files, links and videos from the phone onto the laptop stage.",
   "categories": ["productivity"],
-  "contracts": { "tools": ["flick_stage", "flick_open"] },
+  "contracts": { "tools": ["flick_stage", "flick_open", "flick_do"] },
   "activation": { "onStartup": true },
   "configSchema": { "type": "object", "additionalProperties": false }
 }

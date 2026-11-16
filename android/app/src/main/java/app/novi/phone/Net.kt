@@ -80,6 +80,20 @@ class Net(private val base: String, private val token: String?, pin: String?) {
     /** Speech to text on the laptop (same as the web talk button). */
     fun stt(wav: ByteArray): String = call(request("/api/stt").post(wav.toRequestBody("audio/wav".toMediaType())).build()).optString("text")
 
+    /**
+     * Novi Flick: a picture, file or link straight to the laptop's stage (same route and headers as the page's
+     * flick). Bytes always go as octet-stream so nothing on the way parses them.
+     */
+    fun flick(bytes: ByteArray, name: String, type: String, link: Boolean = false): JSONObject {
+        val req = request("/api/plugin-upload/flick")
+            .header("x-novi-kind", if (link) "link" else "file")
+            .header("x-novi-name", java.net.URLEncoder.encode(name, "UTF-8").replace("+", "%20"))
+            .header("x-novi-type", type)
+            .post(bytes.toRequestBody("application/octet-stream".toMediaType()))
+            .build()
+        return call(req)
+    }
+
     fun socket(listener: WebSocketListener): WebSocket = client.newWebSocket(Request.Builder().url(wsUrl(base)).build(), listener)
 
     companion object {

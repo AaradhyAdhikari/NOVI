@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { definePluginEntry } from '#plugin-sdk';
-import { pickButtons, isPrivateBox, cardFor, boxKey } from './boxes.js';
+import { pickButtons, isPrivateBox, cardFor, boxKey , questionLine } from './boxes.js';
 
 // Any app's Allow box on the phone (user, 2026-11-05): "all the other sessions permission to go through
 // novi". watch.ps1 reads the buttons of the open windows through Windows accessibility in its own process;
@@ -53,22 +53,39 @@ export function createPermissionWatchPlugin({ platform = process.platform, creat
       let helper = null;
       let presses = 0;
       const waitingPress = new Map();
+      // window + buttons + question → { missing: since when it's off screen }. An answered box is never asked again
+      // while it stays on screen; once it has really closed, the same question may ask again later.
+      const answered = new Map();
+      const sameAsk = (box) => `${box.hwnd}:${[...(box.buttons || [])].sort().join('+')}:${questionLine(box)}`;
 
       async function askAbout(key, box, buttons) {
         const d = await rt.ask(cardFor(box));
         const entry = open.get(key);
         if (!entry || entry.gone) return; // answered on the laptop
         if (!d?.allow && (d?.timedOut || d?.closed)) return; // nobody said no: press nothing
+        // Answered: the same question in the same window doesn't come back for 10 minutes (live 2026-11-16: a
+        // picture of a sample card inside the Claude app had Approve/Deny "buttons" that pressing never cleared,
+        // and it came back as a new card ten times).
+        answered.set(sameAsk(box), { missing: null });
         const id = ++presses;
         waitingPress.set(id, box);
         // `expect`: the helper re-reads the box and presses only if the words are still the ones on the card.
-        helper?.send({ press: { id, hwnd: box.hwnd, button: d?.allow ? buttons.yes : buttons.no, expect: box.text || '' } });
+        // `key`: the question the card showed. A box whose other words moved on (a timer, a line streaming in the
+        // Claude app) still gets the answer when that question and its buttons are still there.
+        helper?.send({ press: { id, hwnd: box.hwnd, button: d?.allow ? buttons.yes : buttons.no, expect: box.text || '', key: questionLine(box) } });
       }
 
       function onBoxes(boxes) {
+        const showing = new Set(boxes.map(sameAsk));
+        for (const [k, a] of answered) {
+          if (showing.has(k)) a.missing = null;
+          else if (a.missing == null) a.missing = Date.now();
+          else if (Date.now() - a.missing > goneMs) answered.delete(k);
+        }
         const now = new Map();
         for (const box of boxes) {
           const buttons = pickButtons(box.buttons);
+          if (answered.has(sameAsk(box))) continue; // already answered and still showing: never asked twice
           if (buttons && !isPrivateBox(box)) now.set(boxKey(box), { box, buttons });
         }
         for (const [key, { box, buttons }] of now) {
@@ -98,6 +115,7 @@ export function createPermissionWatchPlugin({ platform = process.platform, creat
         if (e.pressed) {
           const box = waitingPress.get(e.pressed.id);
           waitingPress.delete(e.pressed.id);
+          if (box && !e.pressed.ok) api.logger?.warn?.(`[watch] press in ${box.process || 'an app'} failed: ${String(e.pressed.why || 'unknown').slice(0, 120)}`);
           if (box && !e.pressed.ok) rt.say?.(`I couldn't press the button in ${box.title || 'that window'}. Answer it on the laptop.`, { kind: null });
         }
       };

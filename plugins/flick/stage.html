@@ -2,109 +2,205 @@
 <html lang="en"><head><meta charset="utf-8"><title>Novi Stage</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-  :root { --bg:#041a20; --grid:rgba(64,224,255,.24); --glow:#3fe0ff; --ink:#e8fbff; --dim:#8fc7d3; }
+  /* v2 (smooth on a low-memory laptop): only transform and opacity ever animate; no blur, filter or animated
+     shadows; pictures are shrunk once off the main thread; the floor moves only for a few seconds after a landing. */
+  :root { --bg:#041a20; --grid:rgba(64,224,255,.24); --glow:#3fe0ff; --ink:#e8fbff; --dim:#8fc7d3; --panel:rgba(6,30,38,.96); }
   * { box-sizing:border-box; }
   html,body { margin:0; height:100%; overflow:hidden; background:var(--bg); color:var(--ink); font:15px/1.4 "Segoe UI Variable","Segoe UI",system-ui,sans-serif; cursor:default; }
-  /* The glowing floor grid, tilted away like a hologram table. */
-  .floor { position:fixed; inset:-40% -20% -10%; transform:perspective(900px) rotateX(58deg); transform-origin:50% 100%;
-    background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);
-    background-size:64px 64px; animation:drift 14s linear infinite; mask-image:linear-gradient(to top,#000 30%,transparent 85%); }
-  @keyframes drift { to { background-position:0 64px,0 0; } }
-  /* A faint grid on the back wall too, like the reel's hologram room. */
-  .back { position:fixed; inset:0; background-image:linear-gradient(rgba(64,224,255,.07) 1px,transparent 1px),linear-gradient(90deg,rgba(64,224,255,.07) 1px,transparent 1px);
-    background-size:64px 64px; mask-image:linear-gradient(to bottom,#000 10%,transparent 70%); pointer-events:none; }
-  .wall { position:fixed; inset:0; background:
-    radial-gradient(ellipse 60% 45% at 50% 38%,rgba(63,224,255,.16),transparent 70%),
-    radial-gradient(ellipse at 50% 120%,rgba(0,0,0,.6),transparent 60%); pointer-events:none; }
+  .room { position:fixed; inset:0; pointer-events:none; contain:strict; }
+  .back { position:absolute; inset:0; background-image:linear-gradient(rgba(64,224,255,.07) 1px,transparent 1px),linear-gradient(90deg,rgba(64,224,255,.07) 1px,transparent 1px);
+    background-size:64px 64px; mask-image:linear-gradient(to bottom,#000 10%,transparent 70%); }
+  /* The glowing floor grid, tilted away like a hologram table. The tilted box is still; only its inner tile
+     layer slides (a GPU transform, no repaint), and only while .moving is on. */
+  .floor { position:absolute; left:-20%; right:-20%; bottom:0; height:75%; transform:perspective(900px) rotateX(58deg); transform-origin:50% 100%;
+    overflow:hidden; mask-image:linear-gradient(to top,#000 30%,transparent 85%); }
+  .tiles { position:absolute; left:0; right:0; top:-64px; bottom:0; will-change:transform;
+    background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px); background-size:64px 64px; }
+  .moving .tiles { animation:drift 1.6s linear infinite; }
+  @keyframes drift { to { transform:translateY(64px); } }
+  .wall { position:absolute; inset:0; background:radial-gradient(ellipse 60% 45% at 50% 38%,rgba(63,224,255,.16),transparent 70%),radial-gradient(ellipse at 50% 120%,rgba(0,0,0,.6),transparent 60%); }
   .brand { position:fixed; top:22px; left:28px; font-weight:600; letter-spacing:.32em; font-size:14px; color:var(--glow); text-shadow:0 0 14px rgba(63,224,255,.7); }
-  .tag { position:fixed; bottom:26px; width:100%; text-align:center; font-family:Georgia,serif; font-size:20px; color:var(--dim); letter-spacing:.02em; }
-  .close { position:fixed; top:18px; right:22px; border:1px solid rgba(63,224,255,.35); background:rgba(4,26,32,.6); color:var(--dim); border-radius:20px; padding:6px 14px; font:inherit; font-size:13px; cursor:pointer; }
+  .tag { position:fixed; bottom:26px; width:100%; text-align:center; font-family:Georgia,serif; font-size:20px; color:var(--dim); pointer-events:none; }
+  /* Above everything (v1's card layer covered it, so Close never got the click). */
+  .close { position:fixed; top:18px; right:22px; z-index:1000; border:1px solid rgba(63,224,255,.35); background:rgba(4,26,32,.85); color:var(--dim); border-radius:20px; padding:7px 16px; font:inherit; font-size:13px; cursor:pointer; }
   .close:hover { color:var(--ink); border-color:var(--glow); }
-  .wait { position:fixed; left:50%; top:42%; transform:translate(-50%,-50%); text-align:center; color:var(--dim); transition:opacity .5s; }
+  .wait { position:fixed; left:50%; top:42%; transform:translate(-50%,-50%); text-align:center; color:var(--dim); transition:opacity .5s; pointer-events:none; }
   .ring { width:120px; height:120px; margin:0 auto 18px; border-radius:50%; border:2px solid rgba(63,224,255,.5); box-shadow:0 0 30px rgba(63,224,255,.35),inset 0 0 30px rgba(63,224,255,.2); animation:pulse 2.2s ease-in-out infinite; }
+  .landed .ring { animation:none; }
   @keyframes pulse { 50% { transform:scale(1.12); opacity:.55; } }
-  .stack { position:fixed; inset:0; perspective:1400px; }
-  .card { position:absolute; left:50%; top:44%; width:300px; border-radius:18px; overflow:hidden; cursor:pointer;
-    background:linear-gradient(160deg,rgba(18,58,70,.95),rgba(6,30,38,.95)); border:1px solid rgba(63,224,255,.35);
-    box-shadow:0 30px 60px rgba(0,0,0,.55),0 0 26px rgba(63,224,255,.28);
-    transition:transform .9s cubic-bezier(.2,.9,.25,1.05),opacity .6s,filter .6s; will-change:transform; }
-  .card:hover { box-shadow:0 30px 60px rgba(0,0,0,.55),0 0 40px rgba(63,224,255,.6); }
-  .card img,.card video { display:block; width:100%; max-height:380px; object-fit:cover; background:#021015; }
-  .meta { padding:12px 14px 14px; }
+  .stack { position:fixed; inset:0; perspective:1400px; pointer-events:none; }
+  .card { position:absolute; left:50%; top:44%; width:300px; border-radius:18px; overflow:hidden; pointer-events:auto; cursor:pointer;
+    background:linear-gradient(160deg,#123a46,#061e26); border:1px solid rgba(63,224,255,.35);
+    transition:transform .8s cubic-bezier(.2,.9,.25,1.05),opacity .5s; will-change:transform,opacity; backface-visibility:hidden; }
+  /* The glow is a fixed shadow on the front card only (shadows on every card, re-painted each frame, were the lag). */
+  .card.front { box-shadow:0 24px 48px rgba(0,0,0,.5),0 0 26px rgba(63,224,255,.3); }
+  .card canvas,.card img,.card video { display:block; width:100%; height:220px; object-fit:cover; background:#021015; }
+  .meta { padding:10px 14px 12px; }
   .name { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .sub { color:var(--dim); font-size:12.5px; margin-top:2px; }
   .icon { height:170px; display:grid; place-items:center; font-size:62px; background:radial-gradient(circle at 50% 40%,rgba(63,224,255,.22),transparent 70%); }
-  .flash { position:fixed; left:50%; bottom:-40px; width:260px; height:260px; margin-left:-130px; border-radius:50%; background:radial-gradient(circle,rgba(63,224,255,.55),transparent 65%); opacity:0; pointer-events:none; }
+  /* Actions: always shown on the front card, on hover on the others. */
+  .acts { display:none; flex-wrap:wrap; gap:6px; padding:0 12px 12px; }
+  .card.front .acts, .card:hover .acts { display:flex; }
+  .acts button, .menu button { border:1px solid rgba(63,224,255,.35); background:rgba(63,224,255,.08); color:var(--ink); border-radius:14px; padding:5px 10px; font:inherit; font-size:12.5px; cursor:pointer; }
+  .acts button:hover, .menu button:hover { background:rgba(63,224,255,.2); border-color:var(--glow); }
+  .menu { position:fixed; z-index:900; background:var(--panel); border:1px solid rgba(63,224,255,.4); border-radius:14px; padding:8px; display:flex; flex-direction:column; gap:5px; min-width:180px; }
+  .menu .ask { display:flex; gap:6px; }
+  .menu input { flex:1; min-width:0; background:#021015; color:var(--ink); border:1px solid rgba(63,224,255,.35); border-radius:10px; padding:6px 8px; font:inherit; font-size:13px; }
+  .toast { position:fixed; left:50%; bottom:70px; transform:translate(-50%,20px); z-index:950; background:var(--panel); border:1px solid rgba(63,224,255,.4); border-radius:14px; padding:9px 16px; opacity:0; transition:opacity .25s,transform .25s; pointer-events:none; max-width:70vw; text-align:center; }
+  .toast.on { opacity:1; transform:translate(-50%,0); }
+  .flash { position:fixed; left:50%; bottom:-40px; width:260px; height:260px; margin-left:-130px; border-radius:50%; background:radial-gradient(circle,rgba(63,224,255,.55),transparent 65%); opacity:0; pointer-events:none; will-change:transform,opacity; }
   .flash.on { animation:flash .9s ease-out; }
   @keyframes flash { 0% { opacity:.9; transform:scale(.4); } 100% { opacity:0; transform:scale(2.4) translateY(-120px); } }
+  @media (prefers-reduced-motion: reduce) { .card { transition:opacity .3s; } .moving .tiles, .ring { animation:none; } }
 </style></head>
 <body>
-<div class="back"></div><div class="floor"></div><div class="wall"></div>
+<div class="room" id="room"><div class="back"></div><div class="floor"><div class="tiles"></div></div><div class="wall"></div></div>
 <div class="brand">NOVI</div>
 <button class="close" id="close" title="Esc">Close · Esc</button>
 <div class="wait" id="wait"><div class="ring"></div>Flick something from your phone</div>
 <div class="stack" id="stack"></div>
 <div class="flash" id="flash"></div>
+<div class="toast" id="toast" aria-live="polite"></div>
 <div class="tag">Create the things you wish existed.</div>
 <script>
 const stack = document.getElementById('stack');
-const cards = []; // newest last
+const cards = []; // newest last: { el, item, video }
+const LIVE = 6;   // cards kept on the page (older ones leave)
 const ICON = { doc:'📄', file:'📦', program:'⚙️', link:'🔗', video:'▶️' };
-const post = (p) => fetch(p, // relative: the stage lives under its own secret path
-  { method:'POST', headers:{ 'x-novi-stage':'1' } }).catch(() => {});
+const AIS = [['chatgpt','ChatGPT'],['gemini','Gemini'],['claude','Claude'],['perplexity','Perplexity'],['google','Google']];
+const post = (p, body) => fetch(p, { method:'POST', headers:{ 'x-novi-stage':'1', ...(body ? { 'content-type':'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined }); // relative: the stage lives under its own secret path
+
+let toastTimer = null;
+function toast(text) {
+  const t = document.getElementById('toast');
+  t.textContent = text; t.classList.add('on');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('on'), 3200);
+}
+async function act(item, body) {
+  closeMenu();
+  try { const r = await post(`action/${item.id}`, body); const out = await r.json(); if (out?.note) toast(out.note); }
+  catch { toast("Couldn't reach Novi."); }
+}
+
+// A small picture of the photo, made once off the main thread (a 12-megapixel phone photo decoded at full size
+// on every card was the main lag).
+async function thumb(item, holder) {
+  try {
+    const blob = await (await fetch(`file/${item.id}`)).blob();
+    const bmp = await createImageBitmap(blob, { resizeWidth: 600, resizeQuality: 'medium' });
+    const c = document.createElement('canvas'); c.width = bmp.width; c.height = bmp.height;
+    c.getContext('2d').drawImage(bmp, 0, 0); bmp.close?.();
+    holder.replaceWith(c);
+  } catch {
+    const img = new Image(); img.decoding = 'async'; img.src = `file/${item.id}`; img.alt = item.name; holder.replaceWith(img);
+  }
+}
+
+let menu = null;
+function closeMenu() { menu?.remove(); menu = null; }
+function openMenu(x, y, build) {
+  closeMenu();
+  menu = document.createElement('div'); menu.className = 'menu';
+  build(menu);
+  document.body.appendChild(menu);
+  const r = menu.getBoundingClientRect();
+  menu.style.left = `${Math.min(x, innerWidth - r.width - 10)}px`;
+  menu.style.top = `${Math.min(y, innerHeight - r.height - 10)}px`;
+  menu.querySelector('input')?.focus();
+}
+const btn = (label, fn) => { const b = document.createElement('button'); b.textContent = label; b.addEventListener('click', (e) => { e.stopPropagation(); fn(e); }); return b; };
+function aiMenu(item, e) { openMenu(e.clientX, e.clientY, (m) => AIS.forEach(([id, name]) => m.appendChild(btn(name, () => act(item, { do:'ai', app:id }))))); }
+function waMenu(item, e) {
+  openMenu(e.clientX, e.clientY, (m) => {
+    const row = document.createElement('div'); row.className = 'ask';
+    const input = document.createElement('input'); input.placeholder = 'Send to who?'; input.maxLength = 60;
+    const go = () => { const to = input.value.trim(); if (to) { act(item, { do:'whatsapp', to }); toast(`Getting WhatsApp ready for ${to}…`); } };
+    input.addEventListener('keydown', (k) => { k.stopPropagation(); if (k.key === 'Enter') go(); if (k.key === 'Escape') closeMenu(); });
+    row.append(input, btn('Send', go)); m.appendChild(row);
+  });
+}
+function actions(item) {
+  const list = [];
+  if (item.url) list.push(['Open in browser', () => act(item, { do:'browser' })]);
+  else if (item.openable) list.push(['Open', () => act(item, { do:'open' })]);
+  list.push(['Copy', () => act(item, { do:'copy' })]);
+  if (!item.url) list.push(['Show in folder', () => act(item, { do:'folder' })]);
+  if (item.sendable) { list.push(['WhatsApp…', (e) => waMenu(item, e)]); list.push(['Send to AI…', (e) => aiMenu(item, e)]); }
+  return list;
+}
 
 function el(item) {
   const c = document.createElement('div');
   c.className = 'card';
+  let video = null;
   if (item.preview && item.kind === 'photo') {
-    const img = new Image(); img.src = `file/${item.id}`; img.alt = item.name; c.appendChild(img);
+    const ph = document.createElement('div'); ph.className = 'icon'; ph.textContent = '🖼️'; c.appendChild(ph); thumb(item, ph);
   } else if (item.preview && item.kind === 'video') {
-    const v = document.createElement('video'); v.src = `file/${item.id}`; v.muted = true; v.loop = true; v.autoplay = true; v.playsInline = true; c.appendChild(v);
+    video = document.createElement('video'); video.src = `file/${item.id}`; video.muted = true; video.loop = true; video.playsInline = true; video.preload = 'metadata'; c.appendChild(video);
   } else {
     const i = document.createElement('div'); i.className = 'icon'; i.textContent = ICON[item.kind] || '📦'; c.appendChild(i);
   }
   const m = document.createElement('div'); m.className = 'meta';
   const n = document.createElement('div'); n.className = 'name'; n.textContent = item.name;
   const s = document.createElement('div'); s.className = 'sub';
-  s.textContent = item.kind === 'link' || (item.kind === 'video' && !item.preview) ? `${item.host} · opening on the laptop` : item.openable ? 'tap to open' : 'saved in Novi Flick · open it yourself';
+  s.textContent = item.url ? `${item.host} · tap to open` : item.openable ? 'tap to open · right-click for more' : 'saved in Novi Flick · open it yourself';
   m.append(n, s); c.appendChild(m);
-  c.addEventListener('click', () => post(`open/${item.id}`));
-  return c;
+  const acts = document.createElement('div'); acts.className = 'acts';
+  for (const [label, fn] of actions(item)) acts.appendChild(btn(label, fn));
+  c.appendChild(acts);
+  c.addEventListener('click', () => { if (item.openable) act(item, { do: item.url ? 'browser' : 'open' }); });
+  c.addEventListener('contextmenu', (e) => { e.preventDefault(); openMenu(e.clientX, e.clientY, (mm) => actions(item).forEach(([label, fn]) => mm.appendChild(btn(label, fn)))); });
+  return { el: c, item, video };
 }
 
-// Fan the stack: newest in front and centre, older ones tilt back to the left, oldest fade.
+// Fan the stack: newest in front and centre, older ones tilt back to the left and fade (opacity, no filter).
 function layout() {
   const n = cards.length;
   cards.forEach((c, i) => {
     const back = n - 1 - i;
     const x = -back * 120, z = -back * 160, ry = back ? 18 : -6, rz = back ? -3 - back : 2;
-    c.style.transform = `translate(-50%,-50%) translate3d(${x}px,${-back * 14}px,${z}px) rotateY(${ry}deg) rotateZ(${rz}deg)`;
-    c.style.opacity = back > 5 ? 0 : 1 - back * 0.12;
-    c.style.filter = back ? `brightness(${1 - back * 0.1})` : 'none';
-    c.style.zIndex = 100 - back;
+    c.el.style.transform = `translate(-50%,-50%) translate3d(${x}px,${-back * 14}px,${z}px) rotateY(${ry}deg) rotateZ(${rz}deg)`;
+    c.el.style.opacity = back > 4 ? 0 : 1 - back * 0.15;
+    c.el.style.zIndex = 100 - back;
+    c.el.classList.toggle('front', back === 0);
+    // Only the front video plays (several videos decoding at once stutter).
+    if (c.video) { if (back === 0) c.video.play().catch(() => {}); else c.video.pause(); }
   });
+}
+
+let still = null;
+function moveFloor() {
+  const room = document.getElementById('room');
+  room.classList.add('moving');
+  clearTimeout(still); still = setTimeout(() => room.classList.remove('moving'), 4000);
 }
 
 function land(item, animate = true) {
   document.getElementById('wait').style.opacity = 0;
+  document.body.classList.add('landed');
   const c = el(item);
   // Start below the screen, as if thrown up from the phone, then fly into place.
-  c.style.transform = animate ? 'translate(-50%,-50%) translate3d(0,110vh,300px) rotateX(-55deg) rotateZ(-12deg) scale(.6)' : '';
-  stack.appendChild(c);
+  if (animate) c.el.style.transform = 'translate(-50%,-50%) translate3d(0,110vh,300px) rotateX(-55deg) rotateZ(-12deg) scale(.6)';
+  stack.appendChild(c.el);
   cards.push(c);
-  while (cards.length > 12) cards.shift().remove();
+  while (cards.length > LIVE) { const old = cards.shift(); old.video?.removeAttribute('src'); old.el.remove(); }
   if (animate) {
     const f = document.getElementById('flash'); f.classList.remove('on'); void f.offsetWidth; f.classList.add('on');
+    moveFloor();
     requestAnimationFrame(() => requestAnimationFrame(layout));
   } else layout();
 }
 
 const es = new EventSource('events');
-es.addEventListener('hello', (e) => JSON.parse(e.data).forEach((it) => land(it, false)));
+es.addEventListener('hello', (e) => JSON.parse(e.data).slice(-LIVE).forEach((it) => land(it, false)));
 es.addEventListener('item', (e) => land(JSON.parse(e.data)));
 es.addEventListener('bye', () => window.close());
-const leave = () => { post('close'); setTimeout(() => window.close(), 150); };
-document.getElementById('close').addEventListener('click', leave);
-addEventListener('keydown', (e) => { if (e.key === 'Escape') leave(); });
+// Close: Novi ends this window itself (an app window often may not close itself); window.close() is the backup.
+const leave = () => { es.close(); post('close').catch(() => {}); setTimeout(() => window.close(), 400); };
+document.getElementById('close').addEventListener('click', (e) => { e.stopPropagation(); leave(); });
+addEventListener('keydown', (e) => { if (e.key === 'Escape') { if (menu) closeMenu(); else leave(); } });
+addEventListener('click', (e) => { if (menu && !menu.contains(e.target)) closeMenu(); });
+window.focus();
 </script>
 </body></html>

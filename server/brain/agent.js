@@ -56,7 +56,7 @@ const STEP_TOOLS = new Set(['open_app', 'open_website', 'screen_type_into', 'scr
 const LAPTOP_QUIET = new Set(['laptop_seek', 'laptop_media', 'laptop_video_mute', 'laptop_select']);
 const QUIET_NOTE = /^(?:Skipped ahead|Went back|Jumped to|Paused|Playing|Next|Previous|Already paused|Muted the video|Unmuted the video|The video is already|Selected)/;
 const SAID_NOT_WRITTEN = /^Copied \d+ lines?\.$/; // nothing to see, so it is said, but not written
-const DIRECT_OK = new Set(['flick_stage', 'flick_open', 'routine_make', 'routine_list', 'routine_run', 'routine_said', 'routine_pause', 'routine_remove', 'project_stop', 'project_said', 'team_status', 'project_undo', 'team_add', 'team_discover', 'project_import', 'project_run', 'project_agents', 'project_decision', 'live_screen_open', 'text_edit_selection', 'code_start_task', 'code_send_message', 'rename_project', 'file_new_folder', 'open_project', 'file_open', 'file_rename', 'note_write', 'notes_ask', 'note_open', 'whatsapp_send', 'claude_project_make', 'remember_project', 'codemap_build', 'donecheck_run', 'donecheck_fix', 'claude_activity', 'code_changes', 'code_tests', 'code_pull', 'claude_usage']); // whatsapp_send: the user's decision 2026-10-17 — their command is the yes
+const DIRECT_OK = new Set(['flick_stage', 'flick_open', 'flick_do', 'routine_make', 'routine_list', 'routine_run', 'routine_said', 'routine_pause', 'routine_remove', 'project_stop', 'project_said', 'team_status', 'project_undo', 'team_add', 'team_discover', 'project_import', 'project_run', 'project_agents', 'project_decision', 'live_screen_open', 'text_edit_selection', 'code_start_task', 'code_send_message', 'rename_project', 'file_new_folder', 'open_project', 'file_open', 'file_rename', 'note_write', 'notes_ask', 'note_open', 'whatsapp_send', 'claude_project_make', 'remember_project', 'codemap_build', 'donecheck_run', 'donecheck_fix', 'claude_activity', 'code_changes', 'code_tests', 'code_pull', 'claude_usage']); // whatsapp_send: the user's decision 2026-10-17 — their command is the yes
 const ASK_ANYWAY = new Set(['file_gather', 'file_undo_move', 'laptop_run', 'preview_show', 'preview_open']); // preview_show/open: only its first start of a project's own command asks
 const MAX_ROUNDS = 10; // screen tasks: open the app, look, click, type, …
 const MAX_HISTORY = 40;
@@ -566,8 +566,22 @@ export class Agent {
     // Novi Flick (plugins/flick): "open the stage", "close the stage", "open the last flick", no AI.
     const flick = flickCommand(text);
     if (flick && this.tools.get(flick.tool)) {
-      const { output } = await this._runTool({ id: `flick-${Date.now()}`, function: { name: flick.tool, arguments: JSON.stringify(flick.args) } }, { direct: true });
-      return this._remember(text, output?.error || output?.note || output?.text || 'Done.');
+      // WhatsApp by voice (v2): flick_do only says what to send; the send runs like any spoken WhatsApp
+      // command (the user's words are the yes, 2026-10-17).
+      const voiceWa = flick.args.action === 'whatsapp';
+      const args = voiceWa ? { ...flick.args, handoff: true } : flick.args;
+      const run = async (name, a) => (await this._runTool({ id: `flick-${Date.now()}`, function: { name, arguments: JSON.stringify(a) } }, { direct: true })).output || {};
+      const output = await run(flick.tool, args);
+      if (!output.unknown) {
+        if (voiceWa && output.send && this.tools.get('whatsapp_prepare')) {
+          const ready = await run('whatsapp_prepare', output.send);
+          if (!ready.ready) return this._remember(text, ready.error || ready.note || 'I could not get that ready.');
+          const sent = await run('whatsapp_send', {});
+          return this._remember(text, /declined/i.test(String(sent.error || '')) ? 'Okay, not sent.' : sent.error || sent.note || 'Okay, not sent.');
+        }
+        return this._remember(text, output.error || output.note || output.text || 'Done.');
+      }
+      // No recent flick: "send it to Rahul" goes on to the other routes.
     }
     // "Check it" / "is it done" / "fix it" (plugins/donecheck), no AI: the user's words are the yes.
     const check = doneCheckCommand(text);

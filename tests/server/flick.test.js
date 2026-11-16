@@ -5,7 +5,7 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 import { receiveUpload, uploadAllowed } from '../../server/uploads.js';
 import { PluginHost } from '../../server/plugins/host.js';
-import { saveFlick, kindOf, linkItem, safeName } from '../../plugins/flick/store.js';
+import { saveFlick, kindOf, linkItem, safeName, withEnding, autoOpens } from '../../plugins/flick/store.js';
 import { createStage } from '../../plugins/flick/stage.js';
 import { createFlickPlugin } from '../../plugins/flick/index.js';
 import { flickCommand } from '../../server/brain/flickCommand.js';
@@ -55,6 +55,10 @@ describe('saving what lands', () => {
     expect(kindOf('resume.pdf')).toBe('doc');
     expect(kindOf('setup.exe')).toBe('program');
     expect(kindOf('notes.xyz')).toBe('file');
+    // The phone's type never makes a file a photo or video (security review): only the name's own ending counts.
+    expect(kindOf('invoice.docm', 'image/png')).toBe('file');
+    expect(kindOf('x.url', 'video/mp4')).toBe('file');
+    expect(kindOf('pic.svg', 'image/svg+xml')).toBe('file');
   });
   it('into Novi Flick/<date>, never overwriting', () => {
     const root = tmp();
@@ -66,6 +70,18 @@ describe('saving what lands', () => {
     expect(one).toBe(path.join(root, '2026-11-16', 'photo.jpg'));
     expect(two).toBe(path.join(root, '2026-11-16', 'photo (2).jpg'));
     expect(fs.readFileSync(two, 'utf8')).toBe('2');
+  });
+  it('a name with no ending gets one from a picture type, so the saved file opens as a picture', () => {
+    expect(withEnding('IMG_1', 'image/jpeg')).toBe('IMG_1.jpg');
+    expect(withEnding('clip', 'video/mp4')).toBe('clip.mp4');
+    expect(withEnding('a.pdf', 'image/png')).toBe('a.pdf');
+    expect(withEnding('thing', 'application/x-msdownload')).toBe('thing');
+  });
+  it('links that may log someone in are not opened by themselves', () => {
+    expect(autoOpens('https://youtu.be/abc?t=30')).toBe(true);
+    expect(autoOpens('https://example.com/reset-password?token=abc')).toBe(false);
+    expect(autoOpens('https://x.com/auth/magic?code=1234')).toBe(false);
+    expect(autoOpens('https://a.com/?q=' + 'x'.repeat(120))).toBe(false);
   });
   it('links: http(s) only; YouTube keeps its time', () => {
     expect(linkItem('javascript:alert(1)')).toBeNull();
@@ -106,15 +122,20 @@ describe('the stage server', () => {
   });
 });
 
-function setup({ viewers = 0 } = {}) {
+function setup({ viewers = 0, asked = 'allow' } = {}) {
   const root = tmp();
   const ran = [];
   const opened = [];
-  const rt = { dataDir: tmp(), logger: { info() {}, warn() {} }, callTool: async (tool, params) => { ran.push({ tool, params }); return { content: [{ type: 'text', text: 'ok' }] }; } };
+  const rt = {
+    dataDir: tmp(), logger: { info() {}, warn() {} },
+    callTool: async (tool, params) => { ran.push({ tool, params }); return tool === 'whatsapp_prepare' ? { ready: { name: 'Rahul Sharma' }, note: 'Ready.' } : { text: 'ok' }; },
+    runAsked: async (tool, params) => { ran.push({ asked: tool, params }); return asked === 'allow' ? { sent: true, note: 'Sent to Rahul Sharma.' } : { declined: true }; },
+  };
   const host = new PluginHost({ runtime: rt, env: {}, logger: { warn() {}, info() {} } });
   const pushed = [];
   const stage = { start: async () => 'http://127.0.0.1:1/', stop() {}, push: (i) => pushed.push(i), viewers: () => viewers, items: () => pushed };
-  const plugin = createFlickPlugin({ root, stage, openWindow: async (u) => opened.push(u), openFile: async (p) => ran.push({ openFile: p }), closeWindow: async () => {}, linkDelayMs: 0 });
+  const plugin = createFlickPlugin({ root, stage, openWindow: async (u) => opened.push(u), openFile: async (p) => ran.push({ openFile: p }), closeWindow: async () => {}, linkDelayMs: 0,
+    copy: async (what) => { ran.push({ copy: what }); return true; }, showInFolder: async (p) => ran.push({ folder: p }) });
   host.register(plugin);
   return { host, root, ran, opened, pushed, handler: host.route('flick') };
 }
@@ -180,7 +201,101 @@ describe('the flick plugin', () => {
   });
 });
 
+describe('card actions (v2)', () => {
+  const land = async (s, name, body = 'x', kind = 'file') => { const t = path.join(tmp(), 'up'); fs.writeFileSync(t, body); return s.handler({ file: t, name, kind, from: 'local' }); };
+  it('copy: the picture itself for a photo, the link for a link, the file for other files', async () => {
+    const s = setup({ viewers: 1 });
+    await land(s, 'beach.jpg');
+    const out = await s.host.get('flick_do').run({ action: 'copy' });
+    expect(s.ran.find((r) => r.copy)?.copy).toMatchObject({ image: expect.stringMatching(/beach\.jpg$/) });
+    expect(out.text).toMatch(/copied the picture/i);
+    await land(s, 'link', 'https://example.com/a', 'link');
+    await s.host.get('flick_do').run({ action: 'copy' });
+    expect(s.ran.filter((r) => r.copy).pop().copy).toEqual({ text: 'https://example.com/a' });
+    await land(s, 'cv.pdf');
+    await s.host.get('flick_do').run({ action: 'copy' });
+    expect(s.ran.filter((r) => r.copy).pop().copy).toMatchObject({ file: expect.stringMatching(/cv\.pdf$/) });
+  });
+  it('show in folder; a link has no folder', async () => {
+    const s = setup({ viewers: 1 });
+    await land(s, 'beach.jpg');
+    await s.host.get('flick_do').run({ action: 'folder' });
+    expect(s.ran.some((r) => r.folder?.endsWith('beach.jpg'))).toBe(true);
+    await land(s, 'link', 'https://example.com/a', 'link');
+    const out = await s.host.get('flick_do').run({ action: 'folder' });
+    expect(out.text).toMatch(/link/i);
+  });
+  it('open in the browser: links only', async () => {
+    const s = setup({ viewers: 1 });
+    await land(s, 'link', 'https://example.com/a', 'link');
+    await s.host.get('flick_do').run({ action: 'browser' });
+    expect(s.ran.filter((r) => r.tool === 'open_website').pop().params).toEqual({ target: 'https://example.com/a', on: 'laptop' });
+  });
+  it('send to an AI: a link goes in the question, a picture is copied and the site opens', async () => {
+    const s = setup({ viewers: 1 });
+    await land(s, 'link', 'https://example.com/a', 'link');
+    await s.host.get('flick_do').run({ action: 'ai', app: 'chatgpt' });
+    expect(s.ran.filter((r) => r.tool === 'open_website').pop().params.target).toBe('https://chatgpt.com/?q=' + encodeURIComponent('https://example.com/a'));
+    await land(s, 'beach.jpg');
+    const out = await s.host.get('flick_do').run({ action: 'ai', app: 'gemini' });
+    expect(s.ran.filter((r) => r.copy).pop().copy).toHaveProperty('image');
+    expect(s.ran.filter((r) => r.tool === 'open_website').pop().params.target).toMatch(/^https:\/\/gemini\.google\.com/);
+    expect(out.text).toMatch(/ctrl\+v/i);
+    expect((await s.host.get('flick_do').run({ action: 'ai', app: 'evilsite' })).text).toMatch(/chatgpt/i); // only the known sites
+  });
+  it('WhatsApp: prepared with the saved file, then sent through the normal yes', async () => {
+    const s = setup({ viewers: 1 });
+    await land(s, 'beach.jpg');
+    const out = await s.host.get('flick_do').run({ action: 'whatsapp', to: 'Rahul' });
+    const prep = s.ran.find((r) => r.tool === 'whatsapp_prepare');
+    expect(prep.params).toMatchObject({ to: 'Rahul', path: expect.stringMatching(/beach\.jpg$/) });
+    expect(s.ran.some((r) => r.asked === 'whatsapp_send')).toBe(true);
+    expect(out.text).toMatch(/sent/i);
+    expect((await s.host.get('flick_do').run({ action: 'whatsapp' })).text).toMatch(/who/i);
+    await land(s, 'link', 'https://example.com/a', 'link');
+    await s.host.get('flick_do').run({ action: 'whatsapp', to: 'Rahul' });
+    expect(s.ran.filter((r) => r.tool === 'whatsapp_prepare').pop().params).toEqual({ to: 'Rahul', text: 'https://example.com/a' });
+  });
+  it('programs are never opened or sent anywhere', async () => {
+    const s = setup({ viewers: 1 });
+    await land(s, 'setup.exe', 'MZ');
+    for (const action of ['open', 'whatsapp', 'ai', 'copy']) {
+      const out = await s.host.get('flick_do').run({ action, to: 'Rahul', app: 'chatgpt' });
+      expect(out.text).toMatch(/won't/i);
+    }
+    expect(s.ran.some((r) => r.openFile || r.copy || r.tool === 'whatsapp_prepare' || r.tool === 'open_website')).toBe(false);
+  });
+  it('"send it to …" only counts while a flick is recent', async () => {
+    const s = setup({ viewers: 1 });
+    const out = await s.host.get('flick_do').run({ action: 'whatsapp', to: 'Rahul', recent: true });
+    expect(out.unknown).toBe(true);
+  });
+  it('the stage page reaches the actions through its own POST', async () => {
+    const stage = createStage();
+    const url = await stage.start();
+    const got = [];
+    stage.handle.action = async (id, body) => { got.push({ id, body }); return { note: 'Copied.' }; };
+    try {
+      const res = await fetch(`${url}action/abc`, { method: 'POST', headers: { 'x-novi-stage': '1', 'content-type': 'application/json' }, body: JSON.stringify({ do: 'copy' }) });
+      expect(await res.json()).toEqual({ note: 'Copied.' });
+      expect(got).toEqual([{ id: 'abc', body: { do: 'copy' } }]);
+      expect((await fetch(`${url}action/abc`, { method: 'POST', body: '{}' })).status).toBe(404); // no stage header
+    } finally { stage.stop(); }
+  });
+});
+
 describe('flick by voice', () => {
+  it('v2: copy / send to an AI / WhatsApp', () => {
+    expect(flickCommand('copy the last flick')).toEqual({ tool: 'flick_do', args: { action: 'copy' } });
+    expect(flickCommand('send the last flick to ChatGPT')).toEqual({ tool: 'flick_do', args: { action: 'ai', app: 'chatgpt' } });
+    expect(flickCommand('send the flicked photo to google')).toEqual({ tool: 'flick_do', args: { action: 'ai', app: 'google' } });
+    expect(flickCommand('send it to Rahul on WhatsApp')).toEqual({ tool: 'flick_do', args: { action: 'whatsapp', to: 'Rahul', recent: true } });
+    expect(flickCommand('send the last flick to Rahul')).toEqual({ tool: 'flick_do', args: { action: 'whatsapp', to: 'Rahul' } });
+    expect(flickCommand('send it to gemini')).toEqual({ tool: 'flick_do', args: { action: 'ai', app: 'gemini', recent: true } });
+    expect(flickCommand('show the last flick in the folder')).toEqual({ tool: 'flick_do', args: { action: 'folder' } });
+    expect(flickCommand('copy this link')).toBeNull(); // the page's link (browser plugin), not a flick
+  });
+
   it('stage open / close and opening the last flick', () => {
     expect(flickCommand('open the stage')).toEqual({ tool: 'flick_stage', args: { do: 'open' } });
     expect(flickCommand('flick mode')).toEqual({ tool: 'flick_stage', args: { do: 'open' } });
