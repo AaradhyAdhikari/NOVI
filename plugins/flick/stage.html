@@ -44,6 +44,7 @@
   .corner button { width:30px; height:30px; border-radius:50%; border:1px solid rgba(63,224,255,.4); background:rgba(2,16,21,.75); color:var(--ink); font:inherit; font-size:15px; line-height:1; cursor:pointer; display:grid; place-items:center; padding:0; }
   .corner button:hover { border-color:var(--glow); background:rgba(63,224,255,.25); }
   .card:not(.front) .corner { display:none; }
+  .shotlink { display:block; margin-top:4px; color:#7fe9ff; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-decoration:none; }
   .name { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .sub { color:var(--dim); font-size:12.5px; margin-top:2px; }
   .icon { height:170px; display:grid; place-items:center; font-size:62px; background:radial-gradient(circle at 50% 40%,rgba(63,224,255,.22),transparent 70%); }
@@ -167,7 +168,9 @@ function el(item) {
   const n = document.createElement('div'); n.className = 'name'; n.textContent = item.name;
   const s = document.createElement('div'); s.className = 'sub';
   s.textContent = item.url ? `${item.host} · click to open` : item.openable ? 'click to open · ⋯ for more' : 'saved in Novi Flick · open it yourself';
-  m.append(n, s); c.appendChild(m);
+  m.append(n, s);
+  if (item.link) { const a = document.createElement('a'); a.className = 'shotlink'; a.textContent = '▶ ' + item.link.replace(/^https?:\/\//, ''); a.href = '#'; a.onclick = (e) => { e.preventDefault(); e.stopPropagation(); act(item, { do: 'link' }); }; m.appendChild(a); }
+  c.appendChild(m);
   const more = (e) => openMenu(e.clientX, e.clientY, (mm) => actions(item).forEach(([label, fn]) => mm.appendChild(btn(label, fn))));
   // Top right: ⋯ (the actions) and ✕ (off the stage; the file stays saved).
   const corner = document.createElement('div'); corner.className = 'corner';

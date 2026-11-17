@@ -16,7 +16,7 @@ import java.util.UUID
  */
 object FlickInbox {
     const val HOST = "novi-flick.local"
-    data class Item(val id: String, val name: String, val type: String, val file: File?, val link: String?)
+    data class Item(val id: String, val name: String, val type: String, val file: File?, val link: String?, val text: String? = null)
 
     private val items = mutableListOf<Item>()
     private const val MAX_BYTES = 300L * 1024 * 1024
@@ -58,7 +58,10 @@ object FlickInbox {
         }
         if (uris.isEmpty()) {
             val text = intent.getStringExtra(Intent.EXTRA_TEXT) ?: ""
-            firstLink(text)?.let { items.add(Item(UUID.randomUUID().toString().take(12), it, "", null, it)) }
+            // A link goes as a link; other shared words (a note, a message) go as text (they were dropped before).
+            val link = firstLink(text)
+            if (link != null) items.add(Item(UUID.randomUUID().toString().take(12), link, "", null, link))
+            else if (text.isNotBlank()) items.add(Item(UUID.randomUUID().toString().take(12), "text", "text/plain", null, null, text.trim().take(20000)))
         }
     }
 

@@ -85,8 +85,9 @@ class Net(private val base: String, private val token: String?, pin: String?) {
      * Novi Flick: a picture, file or link straight to the laptop's stage (same route and headers as the page's
      * flick). Bytes always go as octet-stream so nothing on the way parses them.
      */
-    fun flick(bytes: ByteArray, name: String, type: String, kind: String = "file"): JSONObject {
+    fun flick(bytes: ByteArray, name: String, type: String, kind: String = "file", link: String? = null): JSONObject {
         val req = request("/api/plugin-upload/flick")
+            .also { b -> link?.let { b.header("x-novi-link", java.net.URLEncoder.encode(it, "UTF-8")) } }
             .header("x-novi-kind", kind)
             .header("x-novi-name", java.net.URLEncoder.encode(name, "UTF-8").replace("+", "%20"))
             .header("x-novi-type", type)

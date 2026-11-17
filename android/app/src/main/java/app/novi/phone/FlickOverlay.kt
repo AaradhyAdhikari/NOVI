@@ -45,19 +45,20 @@ class FlickOverlay(private val svc: NoviService) {
     }
 
     /** After a landing: quick buttons for the AIs and a box for anywhere else ("Rahul", "Isha on WhatsApp"). */
+    // A slim bar at the top (user, 2026-11-17: the big card "not looking good… a quick slide bar at top"): one row of small
+    // chips that slides sideways; the type box only opens from ⌨.
     fun landed(onSend: (String) -> Unit, onShare: ((Boolean) -> Unit)? = null) {
-        show(9000, vertical = true) { col ->
-            col.addView(words("✓ Landed on the laptop", "Send it on to:"))
-            val chips = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
-            for (name in listOf("ChatGPT", "Claude", "Gemini", "Google")) chips.addView(button(name) { hide(); onSend(name.lowercase()) })
+        show(7000, vertical = true, slim = true) { col ->
+            val chips = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+            chips.addView(TextView(ctx).apply { text = "✓ Sent"; textSize = 13f; setTextColor(Color.parseColor("#FF6FE7B0")); setTypeface(typeface, Typeface.BOLD); setPadding(dp(4), 0, dp(8), 0) })
+            // WhatsApp = WhatsApp's own picker on the phone (search, tap a contact), Share = Android's share sheet.
+            if (onShare != null) chips.addView(chip("WhatsApp") { hide(); onShare(true) })
+            for (name in listOf("ChatGPT", "Claude", "Gemini", "Google")) chips.addView(chip(name) { hide(); onSend(name.lowercase()) })
+            if (onShare != null) chips.addView(chip("Share") { hide(); onShare(false) })
+            val row = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; visibility = View.GONE }
+            chips.addView(chip("⌨") { row.visibility = View.VISIBLE; main.removeCallbacks(hideLater) })
+            chips.addView(chip("✕") { hide() })
             col.addView(android.widget.HorizontalScrollView(ctx).apply { isHorizontalScrollBarEnabled = false; addView(chips) })
-            // Share from the phone too (user, 2026-11-16): WhatsApp's own picker (search, tap a contact) or Android's share sheet.
-            if (onShare != null) col.addView(LinearLayout(ctx).apply {
-                orientation = LinearLayout.HORIZONTAL
-                addView(button("WhatsApp") { hide(); onShare(true) })
-                addView(button("Share…") { hide(); onShare(false) })
-            })
-            val row = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
             val box = android.widget.EditText(ctx).apply {
                 hint = "or type: Rahul on WhatsApp…"
                 textSize = 14f
@@ -73,10 +74,19 @@ class FlickOverlay(private val svc: NoviService) {
             val go = { val t = box.text.toString().trim(); if (t.isNotEmpty()) { hide(); onSend(t) } }
             box.setOnEditorActionListener { _, _, _ -> go(); true }
             row.addView(box)
-            row.addView(button("Send") { go() })
+            row.addView(chip("Send") { go() })
             col.addView(row)
-            col.addView(button("✕") { hide() })
         }
+    }
+
+    private fun chip(label: String, onTap: () -> Unit) = TextView(ctx).apply {
+        text = label
+        textSize = 13f
+        setTextColor(Color.parseColor("#FFE8FBFF"))
+        setPadding(dp(12), dp(6), dp(12), dp(6))
+        background = GradientDrawable().apply { setColor(Color.parseColor("#FF12343D")); cornerRadius = dp(14).toFloat() }
+        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { rightMargin = dp(6) }
+        setOnClickListener { onTap() }
     }
 
     private fun focusable(on: Boolean) {
@@ -97,7 +107,7 @@ class FlickOverlay(private val svc: NoviService) {
         view = null
     }
 
-    private fun show(ms: Long, vertical: Boolean = false, fill: (LinearLayout) -> Unit) {
+    private fun show(ms: Long, vertical: Boolean = false, slim: Boolean = false, fill: (LinearLayout) -> Unit) {
         if (!android.provider.Settings.canDrawOverlays(svc)) return
         hide()
         val outer = LinearLayout(ctx).apply { setPadding(dp(12), 0, dp(12), 0) }
@@ -105,8 +115,8 @@ class FlickOverlay(private val svc: NoviService) {
             orientation = if (vertical) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
             gravity = if (vertical) Gravity.START else Gravity.CENTER_VERTICAL
             elevation = dp(8).toFloat()
-            setPadding(dp(12), dp(8), dp(6), dp(8))
-            background = GradientDrawable().apply { setColor(Color.parseColor("#F2061E26")); cornerRadius = dp(18).toFloat(); setStroke(dp(1), Color.parseColor("#FF3FE0FF")) }
+            if (slim) setPadding(dp(8), dp(5), dp(4), dp(5)) else setPadding(dp(12), dp(8), dp(6), dp(8))
+            background = GradientDrawable().apply { setColor(Color.parseColor("#F2061E26")); cornerRadius = dp(if (slim) 22 else 18).toFloat(); setStroke(dp(1), Color.parseColor(if (slim) "#663FE0FF" else "#FF3FE0FF")) }
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         }
         fill(row)

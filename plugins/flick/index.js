@@ -88,6 +88,10 @@ export function createFlickPlugin({ root = null, stage = null, openWindow = null
           if (!d) return { note: 'Where should it go? ChatGPT, Claude, Gemini, Perplexity, Google, or a name for WhatsApp.' };
           return act(item, { action: d.action, to: d.to, app: d.app, handoff });
         }
+        if (action === 'link' && item.link) {
+          await rt.callTool?.('open_website', { target: item.link, on: 'laptop' });
+          return { note: 'Opened it on the laptop.' };
+        }
         if (action === 'browser') {
           if (file) return { note: `${item.name} is a file, not a link. Say "open the last flick" to open it in its app.` };
           await rt.callTool?.('open_website', { target: item.url, on: 'laptop' });
@@ -145,7 +149,7 @@ export function createFlickPlugin({ root = null, stage = null, openWindow = null
 
       api.registerHttpRoute({
         path: 'flick', upload: true, phone: true,
-        handler: async ({ file, name, kind, type }) => {
+        handler: async ({ file, name, kind, type, link: shotLink }) => {
           const id = crypto.randomBytes(6).toString('hex');
           let item;
           let playTitle = null;
@@ -171,6 +175,10 @@ export function createFlickPlugin({ root = null, stage = null, openWindow = null
           } else {
             const saved = saveFlick({ tmp: file, name: withEnding(name, type), root: saveRoot });
             item = { id, kind: kindOf(saved, type), name: path.basename(saved), path: saved, at: Date.now() };
+            // A screenshot carries the page or video it shows (user, 2026-11-17): a link under the card, opened on click.
+            let shot = null;
+            try { shot = shotLink ? linkItem(decodeURIComponent(shotLink)) : null; } catch { shot = null; }
+            if (shot) item.link = shot.url;
           }
           await showStage();
           st.push(item);

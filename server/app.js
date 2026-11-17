@@ -822,7 +822,7 @@ export function createNovi(config, overrides = {}) {
     let name = 'file';
     try { name = decodeURIComponent(String(req.headers['x-novi-name'] || 'file')); } catch { /* keep 'file' */ }
     const kind = ['link', 'youtube', 'text'].includes(req.headers['x-novi-kind']) ? req.headers['x-novi-kind'] : 'file'; // youtube: a video title from the phone's YouTube app (Flick)
-    try { res.json((await info.handler({ file: got.file, size: got.size, name, kind, type: String(req.headers['x-novi-type'] || ''), from: req.from })) || {}); }
+    try { res.json((await info.handler({ file: got.file, size: got.size, name, kind, type: String(req.headers['x-novi-type'] || ''), link: String(req.headers['x-novi-link'] || '').slice(0, 2000), from: req.from })) || {}); }
     catch (err) { res.status(500).json({ error: err.message }); }
     finally { fs.rm(got.file, { force: true }, () => {}); }
   });

@@ -320,6 +320,16 @@ describe('card actions (v2)', () => {
     await new Promise((r) => setTimeout(r, 10));
     expect(s.ran).toContainEqual({ tool: 'play_youtube', params: { query: 'Lofi beats to study to', on: 'laptop' } });
   });
+  it('a screenshot carries the page or video it shows: a link on the card that opens on the laptop', async () => {
+    const s = setup({ viewers: 1 });
+    const t = path.join(tmp(), 'up'); fs.writeFileSync(t, 'jpgbytes');
+    const out = await s.handler({ file: t, name: 'Novi flick.jpg', kind: 'file', type: 'image/jpeg', link: encodeURIComponent('https://www.youtube.com/watch?v=abc'), from: { deviceId: 'p1' } });
+    expect(out.ok).toBe(true);
+    expect(s.pushed[0]).toMatchObject({ kind: 'photo', link: 'https://www.youtube.com/watch?v=abc' });
+    const t2 = path.join(tmp(), 'up2'); fs.writeFileSync(t2, 'jpgbytes');
+    await s.handler({ file: t2, name: 'Novi flick.jpg', kind: 'file', type: 'image/jpeg', link: encodeURIComponent('javascript:alert(1)'), from: { deviceId: 'p1' } });
+    expect(s.pushed[1].link).toBeUndefined();
+  });
   it('selected text from the phone lands as a text card, saved as a .txt, and goes on to an AI or WhatsApp as text', async () => {
     const s = setup({ viewers: 1 });
     const t = path.join(tmp(), 'up'); fs.writeFileSync(t, 'Meeting moved to 5 pm, bring the slides');

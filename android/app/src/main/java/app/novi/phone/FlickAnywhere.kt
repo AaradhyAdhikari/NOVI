@@ -191,7 +191,7 @@ class FlickAnywhere(private val svc: NoviService, private val store: Store) : Se
                 val site = appSite(front)
                 access?.shot { bytes ->
                     main.post {
-                        if (bytes != null) send(answer, then = { site?.let { s -> sendQuiet(s) } }) { Triple(bytes, "Novi flick ${stamp()}.jpg", "image/jpeg") }
+                        if (bytes != null) send(answer, link = pageLink(front) ?: site) { Triple(bytes, "Novi flick ${stamp()}.jpg", "image/jpeg") }
                         else if (site != null) send(answer, kind = "link") { Triple(site.toByteArray(), "link", "") }
                         else no("Couldn't take a picture of the screen.")
                     }
@@ -199,7 +199,8 @@ class FlickAnywhere(private val svc: NoviService, private val store: Store) : Se
             }
             FlickSend.SCREEN -> {
                 buzz()
-                access?.shot { bytes -> main.post { if (bytes == null) no("Couldn't take a picture of the screen.") else send(answer) { Triple(bytes, "Novi flick ${stamp()}.jpg", "image/jpeg") } } }
+                val link = pageLink(front)
+                access?.shot { bytes -> main.post { if (bytes == null) no("Couldn't take a picture of the screen.") else send(answer, link = link) { Triple(bytes, "Novi flick ${stamp()}.jpg", "image/jpeg") } } }
             }
             FlickSend.PRIVATE -> no("Not from this app: it may show private things.")
             FlickSend.NEED_ACCESS -> no("To flick what's on screen, turn on Novi typing in ⚙.")
@@ -207,8 +208,15 @@ class FlickAnywhere(private val svc: NoviService, private val store: Store) : Se
         }
     }
 
+    /** The page or video a screenshot shows (user, 2026-11-17): the browser's address, a YouTube video's search, or the app's site. */
+    private fun pageLink(front: String): String? = NoviAccess.instance.let { access ->
+        access?.browserLink()?.let { browserAddress(it) ?: it }
+            ?: access?.youtubeTitle()?.takeIf { front == YOUTUBE_PKG }?.let { "https://www.youtube.com/results?search_query=" + java.net.URLEncoder.encode(it, "UTF-8") }
+            ?: appSite(front)
+    }
+
     /** Sends at once. `what` loads the bytes off the main thread. */
-    private fun send(done: (Boolean, String) -> Unit, kind: String = "file", then: () -> Unit = {}, what: () -> Triple<ByteArray, String, String>?) {
+    private fun send(done: (Boolean, String) -> Unit, kind: String = "file", then: () -> Unit = {}, link: String? = null, what: () -> Triple<ByteArray, String, String>?) {
         busy = true
         overlay.result("Flicking to the laptop…", true)
         Thread {
@@ -216,7 +224,7 @@ class FlickAnywhere(private val svc: NoviService, private val store: Store) : Se
                 val (bytes, name, type) = what() ?: throw IllegalStateException("Couldn't read it.")
                 lastSent = Triple(bytes, name, type) to kind
                 val net = svc.netOrNull() ?: throw IllegalStateException("Not connected to Novi.")
-                net.flick(bytes, name, type, kind)
+                net.flick(bytes, name, type, kind, link)
             }
             main.post {
                 busy = false
@@ -282,7 +290,10 @@ class FlickAnywhere(private val svc: NoviService, private val store: Store) : Se
     /** What the share menu handed over: whole files streamed, links as links. */
     fun sendInbox() {
         val items = FlickInbox.takeItems()
+        // Never silent (live 2026-11-17: "nothing arrives"): an empty share says so.
+        if (items.isEmpty()) return overlay.result("Nothing came with that share. Try sharing the file again.", false)
         items.filter { it.link != null }.forEach { sendWords(it.link!!) }
+        items.filter { it.text != null }.forEach { sendWords(it.text!!) }
         val files = items.mapNotNull { it.file?.let { f -> Triple(f, it.name, it.type) } }
         if (files.isNotEmpty()) sendFileTriples(files) { _, _ -> }
     }

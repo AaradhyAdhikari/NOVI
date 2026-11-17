@@ -15,7 +15,7 @@ const TYPES = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png'
 const KEEP = 8;
 
 // What the page may see of an item: never the laptop path.
-const pub = ({ id, kind, name, url, host, at, text }) => ({ id, kind, name, url, host, at, ...(text ? { text: text.slice(0, 600) } : {}), openable: Boolean(url) || ['photo', 'video', 'doc'].includes(kind), sendable: Boolean(url) || ['photo', 'video', 'doc'].includes(kind), preview: !url && (kind === 'photo' || kind === 'video') }); // a link (YouTube…) has no file to show
+const pub = ({ id, kind, name, url, host, at, text, link }) => ({ id, kind, name, url, host, at, ...(link ? { link } : {}), ...(text ? { text: text.slice(0, 600) } : {}), openable: Boolean(url) || ['photo', 'video', 'doc'].includes(kind), sendable: Boolean(url) || ['photo', 'video', 'doc'].includes(kind), preview: !url && (kind === 'photo' || kind === 'video') }); // a link (YouTube…) has no file to show
 
 export function createStage() {
   const items = [];
