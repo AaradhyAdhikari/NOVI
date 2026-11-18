@@ -129,7 +129,7 @@ describe('the skills plugin', () => {
     const s = setup();
     await s.tool('skill_find', { query: 'weather' });
     const { gate, out } = await s.tool('skill_install', { pick: 1 });
-    expect(gate.approval).toMatchObject({ title: 'Install the weather skill?', grantable: false });
+    expect(gate.approval).toMatchObject({ title: 'Install the weather skill (@steipete/weather)?', grantable: false });
     expect(gate.approval.detail).toMatch(/curl/);
     expect(out.note).toMatch(/Installed the weather skill/);
     const meta = JSON.parse(fs.readFileSync(path.join(s.dir, 'skills', 'weather', 'skill.json'), 'utf8'));
