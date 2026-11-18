@@ -10,8 +10,8 @@ function setup({ free = 8e9, size = 2e9, answer = { content: 'Hi there.' } } = {
     model: 'm.gguf', readyMs: 20, pollMs: 1, freemem: () => free, fileSize: () => size,
     spawnImpl: (cmd, args) => { const c = child(); started.push({ cmd, args }); return c; },
     fetchImpl: async (url, opts) => {
-      if (url.endsWith('/health')) return { ok: true };
-      sent.push(JSON.parse(opts.body));
+      if (url.endsWith('/health')) { if (!started.length) throw new Error('nothing there'); return { ok: true }; }
+      sent.push({ ...JSON.parse(opts.body), auth: opts.headers.Authorization });
       return { ok: true, json: async () => ({ choices: [{ message: answer }] }) };
     },
     setTimer: () => ({}), clearTimer: () => {},
@@ -30,6 +30,14 @@ describe('the shared local model', () => {
     expect(args).toContain('-np 1');
     expect(args).toContain('-c 8192');
     expect(args).toContain('--host 127.0.0.1');
+    const key = s.started[0].args[s.started[0].args.indexOf('--api-key') + 1];
+    expect(key).toMatch(/^[0-9a-f]{48}$/);
+    expect(s.sent[0].auth).toBe(`Bearer ${key}`);
+  });
+
+  it('refuses when something else already answers on its port', async () => {
+    const m = createLocalModel({ models: ['m.gguf'], freemem: () => 8e9, fileSize: () => 1e9, spawnImpl: () => { throw new Error('should not start'); }, fetchImpl: async () => ({ ok: true }), setTimer: () => ({}), clearTimer: () => {} });
+    await expect(m.warm()).rejects.toThrow(/already in use/);
   });
 
   it('refuses to start when there is not enough free memory', async () => {
@@ -90,7 +98,7 @@ describe('picking the model that fits', () => {
     const m = createLocalModel({
       models: ['big.gguf', 'small.gguf'], readyMs: 20, pollMs: 1, freemem: () => 2.2e9, fileSize: (f) => sizes[f],
       spawnImpl: (cmd, args) => { started.push(args); return Object.assign(new EventEmitter(), { kill() {} }); },
-      fetchImpl: async (url) => (url.endsWith('/health') ? { ok: true } : { ok: true, json: async () => ({ choices: [{ message: { content: 'x' } }] }) }),
+      fetchImpl: async (url) => { if (url.endsWith('/health')) { if (!started.length) throw new Error('free'); return { ok: true }; } return { ok: true, json: async () => ({ choices: [{ message: { content: 'x' } }] }) }; },
       setTimer: () => ({}), clearTimer: () => {},
     });
     await m.warm();

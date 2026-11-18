@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -28,6 +29,17 @@ export function defaultModelPaths(dir = MODEL_DIR) {
   try { const names = fs.readdirSync(dir); return PREFERRED.filter((n) => names.includes(n)).map((n) => path.join(dir, n)); } catch { return []; }
 }
 
+// llama-server by its full path from PATH (never a copy in the current folder); else the bare name.
+export function findLlamaServer(env = process.env) {
+  const exe = process.platform === 'win32' ? 'llama-server.exe' : 'llama-server';
+  for (const dir of String(env.PATH || env.Path || '').split(path.delimiter)) {
+    if (!dir || !path.isAbsolute(dir)) continue;
+    const full = path.join(dir, exe);
+    try { if (fs.statSync(full).isFile()) return full; } catch { /* not here */ }
+  }
+  return 'llama-server';
+}
+
 // Small models lose the thread on long chats: the system prompt plus the last few messages, never starting
 // on a tool result whose call was cut off.
 export function trimForLocal(messages, keep = MAX_MESSAGES) {
@@ -38,7 +50,7 @@ export function trimForLocal(messages, keep = MAX_MESSAGES) {
 }
 
 export function createLocalModel({
-  command = 'llama-server', model = null, models = model ? [model] : defaultModelPaths(), port = 3019, idleMs = 5 * 60_000, readyMs = 60_000, pollMs = 250,
+  command = findLlamaServer(), model = null, models = model ? [model] : defaultModelPaths(), port = 3019, idleMs = 5 * 60_000, readyMs = 60_000, pollMs = 250,
   context = 8192, freemem = os.freemem, fileSize = (f) => fs.statSync(f).size,
   spawnImpl = spawn, fetchImpl = fetch, setTimer = setTimeout, clearTimer = clearTimeout,
 } = {}) {
@@ -47,6 +59,7 @@ export function createLocalModel({
   let ready = null;
   let up = false;
   let idle = null;
+  let key = ''; // a fresh secret per start: other programs and web pages on the laptop can't use the server
 
   function stop() {
     if (idle) clearTimer(idle);
@@ -91,17 +104,29 @@ export function createLocalModel({
     throw new Error(`Not enough free memory for the offline model (${(free / 2 ** 30).toFixed(1)} GB free, needs ${(smallest / 2 ** 30).toFixed(1)} GB).`);
   }
 
-  function warm() {
-    if (ready) return ready;
-    try { roomFor(); } catch (err) { return Promise.reject(err); }
-    const c = spawnImpl(command, ['-m', chosen, '--host', '127.0.0.1', '--port', String(port), '-ngl', '0', '-c', String(context), '-np', '1', '--jinja'], { stdio: 'ignore', windowsHide: true });
+  // Something else already answering on the port would get Novi's questions (or feed it answers): refuse.
+  async function portFree() {
+    try { await fetchImpl(`${base}/health`, { signal: AbortSignal.timeout(1000) }); } catch { return; }
+    throw new Error(`Port ${port} is already in use, so the offline model won't start.`);
+  }
+
+  async function start() {
+    roomFor();
+    await portFree();
+    key = crypto.randomBytes(24).toString('hex');
+    const c = spawnImpl(command, ['-m', chosen, '--host', '127.0.0.1', '--port', String(port), '-ngl', '0', '-c', String(context), '-np', '1', '--jinja', '--api-key', key], { stdio: 'ignore', windowsHide: true });
     const gone = () => { if (child === c) { child = null; ready = null; up = false; } };
     c.on('exit', gone);
     c.on('error', gone);
     child = c;
-    ready = waitUp(c);
-    ready.catch(() => {});
     keepFor();
+    return waitUp(c);
+  }
+
+  function warm() {
+    if (ready) return ready;
+    ready = start();
+    ready.catch(() => { ready = null; });
     return ready;
   }
 
@@ -110,7 +135,7 @@ export function createLocalModel({
     keepFor();
     const res = await fetchImpl(`${base}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
       signal: AbortSignal.timeout(timeoutMs),
       body: JSON.stringify(body),
     });
