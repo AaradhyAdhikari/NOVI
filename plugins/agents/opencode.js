@@ -93,7 +93,11 @@ export function opencodeAdapter(spec, { exec, consent, home, program = null } = 
     id: spec.id, name: spec.name, aliases: spec.aliases || [], roles: ['build'], levels: spec.levels, order: 30, trains: true, copies: true, safeLibs: true, // safeLibs: its rules deny edits in node_modules/.venv, so libraries can be linked in // copies: works in its own copy of the project (Phase 5)
     async available(ctx = {}) {
       if (!(await installed())) return { ok: false, why: 'OpenCode is not installed' };
-      if (ctx.project && consent && (await consent(ctx.project)) === false) return { ok: false, why: `you said no free models on ${ctx.project}` };
+      if (ctx.project && consent) {
+        const yes = await consent(ctx.project);
+        if (yes === false) return { ok: false, why: `you said no free models on ${ctx.project}` };
+        if (yes !== true) return { ok: false, why: `free models on ${ctx.project}: the question was not answered` }; // only a real yes
+      }
       return { ok: true };
     },
     async run(pkg, { ps, task, untrusted = false, cwd = null, signal = null }) {

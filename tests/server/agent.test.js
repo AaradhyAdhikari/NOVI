@@ -2098,3 +2098,44 @@ describe('phone typing (plugins/phone-control, 2026-10-29)', () => {
     expect(await agent.handle('what is the weather', { from: { deviceId: 'p1' }, phoneApp: 'com.whatsapp' })).toBe('AI');
   });
 });
+
+describe('the laptop model as the last resort', () => {
+  it('asks the router for the local model once every cloud AI stayed busy', async () => {
+    const { agent, router } = setup([new AllProvidersUnavailableError(60_000), reply('Offline answer.', 'local')]);
+    router.local = { chat: async () => ({}) };
+    const out = await agent.handle('explain photosynthesis in simple words please');
+    expect(String(out?.reply ?? out)).toMatch(/Offline answer/);
+    expect(router.calls.at(-1).local).toBe(true);
+  });
+
+  it('without a local model it still says the AIs are busy', async () => {
+    const { agent, router } = setup([new AllProvidersUnavailableError(60_000)]);
+    const out = await agent.handle('explain photosynthesis in simple words please');
+    expect(String(out?.reply ?? out)).toMatch(/busy/i);
+    expect(router.calls.every((c) => !c.local)).toBe(true);
+  });
+});
+
+describe('skill turns', () => {
+  it('after a skill is read, even a quiet step asks first', async () => {
+    const s = setup([
+      { message: { role: 'assistant', content: '', tool_calls: [toolCall('skill_read', { name: 'weather' }, 'a')] }, provider: 'groq', model: 'm' },
+      { message: { role: 'assistant', content: '', tool_calls: [toolCall('code_status', {}, 'b')] }, provider: 'groq', model: 'm' },
+      reply('Done.'),
+    ], { autoAnswer: false });
+    s.agent.tools.add({ name: 'skill_read', description: 'r', parameters: { type: 'object', properties: {} }, tier: 'low', describe: () => 'r', run: async () => ({ text: 'skill text' }) });
+    const asked = [];
+    s.approvals.on('added', (a) => asked.push(a.title));
+    await s.agent.handle('use the weather skill to tell me the forecast for pune please now');
+    expect(asked).toEqual(['A skill asks Novi to use code_status. Allow?']);
+    const toolMsg = s.router.calls.at(-1).messages.findLast((m) => m.role === 'tool');
+    expect(toolMsg.content).toMatch(/declined/);
+  });
+
+  it('the next request is normal again', async () => {
+    const s = setup([reply('Hi.')]);
+    s.agent._skillTurn = true;
+    await s.agent.handle('hello there my friend how are you doing today');
+    expect(s.agent._skillTurn).toBe(false);
+  });
+});

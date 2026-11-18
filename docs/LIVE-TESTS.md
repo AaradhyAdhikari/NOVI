@@ -7,6 +7,13 @@ Tick a box when it works; if it doesn't, tell Claude what you said and what Novi
 
 Last updated: 2026-10-22.
 
+## browser-use, the web worker (2026-11-18, installed; one real run by Claude worked, not yet through a project)
+- Installed (221 MB in `data/agents/browser-use/venv`). Restart Novi so the team sees it. Needs the Gemini key (Groq is too small for it).
+- "which agents do you have" → browser-use listed (not installed / OK).
+- "plan the team test project" then "run the team test tasks with browser-use" → a card "Let browser-use research the web for team test?" once; yes → a hidden Edge (nothing on the taskbar), an answer with "Pages it read", then the review card.
+- While it runs: Task Manager shows python + msedge using about 1.3 GB; after it ends (or after 10 min) both are gone and `data/agents/browser-use/runs` is empty.
+- Say no on the card → "you said no to browser-use on …" and another agent takes the step.
+
 ## Already checked live (works)
 
 - Natural voice (Edge voices, en / hi / mr) — fixed 2026-10-21.
@@ -383,3 +390,19 @@ Restart Novi, then install app 2.7.7 from the Update card (⚙: Photos = **Allow
 18. **Whole files (2.7.6)**: in My Files / Files by Google, select a file (or open a PDF) and flick: the real file lands, not a picture. Share → **Send to Novi** now sends straight to the laptop (no flick screen).
 19. **Gallery video / photo (2.7.7)**: open a video in Gallery (tap once so the date + time show on top) and flick: the real video lands, not a picture. A photo the same way lands at full quality. No date showing → a photo goes as the cropped picture, a video says to use Share → Send to Novi.
 20. **Selection again (2.7.7)**: select words and flick; if Samsung's menu shows Copy, Novi presses it. "Send to Novi" in the selection menu now also reads the copied text, so: tap Copy, then Send to Novi.
+
+## Offline model + skills (2026-11-18, not tried through Novi yet)
+Offline model: `models/llm/qwen2.5-3b-instruct-q4_k_m.gguf` (2.1 GB, downloaded 2026-11-18) through the existing llama-server. Checked from a script: it loaded and answered "Paris is the capital of France." in 6.6 s (load included), and called `weather_get {place: "Pune"}` correctly in 4.2 s.
+1. **Internet off**: turn Wi-Fi off and ask "explain what a black hole is". Novi should answer after a few seconds (the first time loads the model). Settings → System → AI providers shows "offline model on the laptop (ready)".
+2. **Private turn offline**: with Wi-Fi off, ask something about your own notes ("what did I note about Tracebites"). It answers from the laptop model instead of "my private AI provider is busy".
+3. **Rate limit is waited out**: with Wi-Fi on, normal questions still use Groq (activity shows `AI (groq)`, never `local`).
+4. **Low memory**: with little free memory (< ~2.7 GB) it takes the 1.5B model; under ~1.7 GB it says "Not enough free memory for the offline model".
+5. **Dictation polish** still works (it now shares the same server and the 3B model: may be a little slower).
+6. `NOVI_LOCAL_MODEL=off` in .env turns the fallback off.
+
+Skills (ClawHub / GitHub):
+7. "find a skill for weather" → numbered list from ClawHub.
+8. "install number 1" → ONE card "Install the weather skill?" listing scripts (none), commands (curl), websites, keys. Yes → "Installed the weather skill."
+9. "what's the weather in Pune, use the weather skill" → Novi reads it; every step it then takes (a command, a website) shows a card "A skill asks Novi to use …".
+10. "what skills do I have" → the list. "remove the weather skill" → card → removed.
+11. A GitHub skill: "install the skill github:anthropics/skills/skills/pdf" (or a github.com/…/tree/main/… link).

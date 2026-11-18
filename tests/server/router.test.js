@@ -108,3 +108,57 @@ describe('skipping providers', () => {
     expect(calls).toEqual(['m:ma:m1']);
   });
 });
+
+describe('Router local fallback', () => {
+  const offline = () => new ProviderError('network', 'fetch failed');
+  function withLocal(behaviour, { fails = false } = {}) {
+    const s = setup(behaviour);
+    const asked = [];
+    s.router.local = { chat: async (req) => { asked.push(req); if (fails) throw new Error('no memory'); return { role: 'assistant', content: 'offline answer' }; } };
+    return { ...s, asked };
+  }
+
+  it('answers on the laptop when every cloud AI is offline', async () => {
+    const s = withLocal(offline);
+    const res = await s.router.chat({ messages: [{ role: 'user', content: 'hi' }] });
+    expect(res).toMatchObject({ provider: 'local', message: { content: 'offline answer' } });
+  });
+
+  it('waits out a rate limit instead of using the slow local model', async () => {
+    const s = withLocal(() => rateLimited(1000));
+    await expect(s.router.chat({ messages: [] })).rejects.toBeInstanceOf(AllProvidersUnavailableError);
+    expect(s.asked).toEqual([]);
+  });
+
+  it('uses it for a busy turn only when asked (local: true)', async () => {
+    const s = withLocal(() => rateLimited(1000));
+    expect(await s.router.chat({ messages: [], local: true })).toMatchObject({ provider: 'local' });
+  });
+
+  it('never in the quick lane', async () => {
+    const s = withLocal(offline);
+    await expect(s.router.chat({ messages: [], purpose: 'quick', local: true })).rejects.toBeInstanceOf(AllProvidersUnavailableError);
+  });
+
+  it('a private turn (only) still falls back to the laptop', async () => {
+    const s = withLocal(offline);
+    expect(await s.router.chat({ messages: [], only: 'groq' })).toMatchObject({ provider: 'local' });
+  });
+
+  it('only: local goes straight to it', async () => {
+    const s = withLocal(ok);
+    expect(await s.router.chat({ messages: [], only: 'local' })).toMatchObject({ provider: 'local' });
+    expect(s.calls).toEqual([]);
+  });
+
+  it('a local failure still throws the usual busy error', async () => {
+    const s = withLocal(offline, { fails: true });
+    await expect(s.router.chat({ messages: [] })).rejects.toBeInstanceOf(AllProvidersUnavailableError);
+  });
+
+  it('status lists the local model', async () => {
+    const s = withLocal(ok);
+    s.router.local.status = () => ({ state: 'asleep', model: 'm.gguf' });
+    expect(s.router.status().find((p) => p.name === 'local')).toMatchObject({ name: 'local', local: true, state: 'asleep' });
+  });
+});

@@ -27,6 +27,7 @@ import { PermissionGrants } from './grants.js';
 import { createVision } from './brain/vision.js';
 import { createGoogleApi } from './google/api.js';
 import { createEdgeTts, DEFAULT_VOICES } from './voice/edgeTts.js';
+import { createLocalModel } from './localModel.js';
 import { Router } from './brain/router.js';
 import { Agent } from './brain/agent.js';
 import { TaskManager } from './claude/taskManager.js';
@@ -124,7 +125,10 @@ export function createNovi(config, overrides = {}) {
   proofs.passkey = (proof, from, approval) => proof.passkey?.verified === true && proof.passkey.approvalId === approval.id && proof.passkey.deviceId === from.deviceId;
   const approvals = overrides.approvals || new ApprovalQueue({ grants, trust });
   if (!approvals.trust) approvals.trust = trust;
-  const router = overrides.router || new Router({ providers: config.providers, order: config.order });
+  // The laptop's own small model (server/localModel.js): the brain's last resort and dictation polish, started
+  // only when needed. Never started from tests unless one passes it in.
+  const localModel = overrides.localModel !== undefined ? overrides.localModel : (config.localModel && !process.env.VITEST ? createLocalModel() : null);
+  const router = overrides.router || new Router({ providers: config.providers, order: config.order, local: localModel });
   // Default coder: Claude Code (the user's Claude plan) when installed — NOVI_CODER=claude forces it,
   // NOVI_CODER=free picks the free Novi Coder. "use Novi Coder instead" switches per task.
   const claudeInstalled = Boolean(config.claudeCommand) && fs.existsSync(config.claudeCommand);
@@ -200,9 +204,11 @@ export function createNovi(config, overrides = {}) {
       },
       // One AI answer on the private provider only (Groq) — for plugin summaries of private data.
       privateComplete: async (text) => {
-        const res = await router.chat({ messages: [{ role: 'user', content: String(text) }], purpose: 'fast', only: (config.privateProviders || ['groq'])[0] });
+        const res = await router.chat({ messages: [{ role: 'user', content: String(text) }], purpose: 'fast', only: (config.privateProviders || ['groq'])[0], local: true });
         return String(res.message?.content || '').trim();
       },
+      // The shared offline model (plugins/rewrite polishes dictation with it). null = none on this laptop.
+      localModel,
       // Title of the window in front on the laptop (no screenshot).
       activeWindowTitle: overrides.activeWindowTitle || activeWindowTitle,
       // A phone notification only (fixed, private-free text per kind; see server/push.js).

@@ -26,6 +26,7 @@ import { aiSendCommand } from './aiSendCommand.js';
 import { appCommand } from './appCommand.js';
 import { codemapCommand } from './codemapCommand.js';
 import { diagramCommand } from './diagramCommand.js';
+import { skillCommand } from './skillCommand.js';
 import { editCommand } from './editCommand.js';
 import { doneCheckCommand } from './doneCheckCommand.js';
 import { projectBoardCommand } from './projectBoardCommand.js';
@@ -56,7 +57,8 @@ const STEP_TOOLS = new Set(['open_app', 'open_website', 'screen_type_into', 'scr
 const LAPTOP_QUIET = new Set(['laptop_seek', 'laptop_media', 'laptop_video_mute', 'laptop_select']);
 const QUIET_NOTE = /^(?:Skipped ahead|Went back|Jumped to|Paused|Playing|Next|Previous|Already paused|Muted the video|Unmuted the video|The video is already|Selected)/;
 const SAID_NOT_WRITTEN = /^Copied \d+ lines?\.$/; // nothing to see, so it is said, but not written
-const DIRECT_OK = new Set(['flick_stage', 'flick_open', 'flick_do', 'flick_from_phone', 'routine_make', 'routine_list', 'routine_run', 'routine_said', 'routine_pause', 'routine_remove', 'project_stop', 'project_said', 'team_status', 'project_undo', 'team_add', 'team_discover', 'project_import', 'project_run', 'project_agents', 'project_decision', 'live_screen_open', 'text_edit_selection', 'code_start_task', 'code_send_message', 'rename_project', 'file_new_folder', 'open_project', 'file_open', 'file_rename', 'note_write', 'notes_ask', 'note_open', 'whatsapp_send', 'claude_project_make', 'remember_project', 'codemap_build', 'donecheck_run', 'donecheck_fix', 'claude_activity', 'code_changes', 'code_tests', 'code_pull', 'claude_usage']); // whatsapp_send: the user's decision 2026-10-17 — their command is the yes
+const DIRECT_OK = new Set(['skill_find', 'skill_list', 'flick_stage', 'flick_open', 'flick_do', 'flick_from_phone', 'routine_make', 'routine_list', 'routine_run', 'routine_said', 'routine_pause', 'routine_remove', 'project_stop', 'project_said', 'team_status', 'project_undo', 'team_add', 'team_discover', 'project_import', 'project_run', 'project_agents', 'project_decision', 'live_screen_open', 'text_edit_selection', 'code_start_task', 'code_send_message', 'rename_project', 'file_new_folder', 'open_project', 'file_open', 'file_rename', 'note_write', 'notes_ask', 'note_open', 'whatsapp_send', 'claude_project_make', 'remember_project', 'codemap_build', 'donecheck_run', 'donecheck_fix', 'claude_activity', 'code_changes', 'code_tests', 'code_pull', 'claude_usage']); // whatsapp_send: the user's decision 2026-10-17 — their command is the yes
+const SKILL_SAFE = new Set(['skill_read', 'skill_list', 'skill_find']); // the only steps a skill turn takes without asking
 const ASK_ANYWAY = new Set(['file_gather', 'file_undo_move', 'laptop_run', 'preview_show', 'preview_open']); // preview_show/open: only its first start of a project's own command asks
 const MAX_ROUNDS = 10; // screen tasks: open the app, look, click, type, …
 const MAX_HISTORY = 40;
@@ -395,6 +397,7 @@ export class Agent {
       if (named) { this._namedTurn = true; text = named[1]; }
     }
     this._turnYes = new Set(); // kinds of step the user said yes to in this request
+    this._skillTurn = false; // a skill's (third-party) instructions were read in this request: every step asks
     // "Phone only" / "laptop voice on".
     const phoneWord = this.phoneOnly ? phoneOnlyCommand(text) : null;
     if (phoneWord !== null) {
@@ -602,6 +605,13 @@ export class Agent {
       const { output } = await this._runTool({ id: `map-${Date.now()}`, function: { name: map.tool, arguments: JSON.stringify(map.args) } }, { direct: true });
       if (!output?.unknown) return this._remember(text, output?.error || output?.note || 'Done.');
     }
+    // Skills by voice (plugins/skills), no AI: find / install / remove / list. Install and remove keep their card.
+    const skill = skillCommand(text);
+    if (skill && this.tools.get(skill.tool)) {
+      const { output } = await this._runTool({ id: `skill-${Date.now()}`, function: { name: skill.tool, arguments: JSON.stringify(skill.args) } }, { direct: true });
+      if (output?.error === 'The user declined this action.') return this._remember(text, 'Okay, not done.');
+      return this._remember(text, output?.error || output?.note || 'Done.');
+    }
     // "Make me a diagram of X" (plugins/diagram), no AI; a name GitHub doesn't know goes on to the AI.
     const diagram = diagramCommand(text);
     if (diagram && this.tools.get(diagram.tool)) {
@@ -761,10 +771,12 @@ export class Agent {
     let lastText = ''; // a tool's own answer (screen_items' list…), shown if the AI is busy afterwards
     let exclude = []; // providers this turn moved off (busy mid-turn)
     let switched = false;
+    let local = false; // last try: the laptop's own model (router.local), after the waits and the switch
+    let lane = purpose; // the router never sends the quick lane to the laptop, so the last try asks as 'fast'
     for (let round = 0; round < MAX_ROUNDS; round++) {
       let res;
       try {
-        res = await this.router.chat({ messages, tools: offered, purpose, only: provider, ...(exclude.length ? { exclude } : {}) });
+        res = await this.router.chat({ messages, tools: offered, purpose: lane, only: provider, ...(exclude.length ? { exclude } : {}), ...(local ? { local } : {}) });
         this.activity?.ai(this._rec, res?.provider);
       } catch (err) {
         if (!(err instanceof AllProvidersUnavailableError)) throw err;
@@ -791,6 +803,13 @@ export class Agent {
           round -= 1;
           continue;
         }
+        // Every cloud AI is busy: the small model on the laptop answers (slower; nothing leaves the laptop).
+        if (!local && this.router.local && provider !== 'local') {
+          local = true;
+          if (lane === 'quick') lane = 'fast';
+          round -= 1;
+          continue;
+        }
         this.logger?.warn?.(`[brain] no AI answered: ${String(err.message).slice(0, 200)}`);
         // A tool already did the job (the graph is on screen): no "busy" line under it, just nothing more.
         const fallback = notes.length ? notes.join(' ') : lastText || (ranTool && !toolFailed ? '' : `My AI providers are busy right now. Try again in about ${Math.ceil(err.retryInMs / 1000)} second${Math.ceil(err.retryInMs / 1000) === 1 ? '' : 's'}.`);
@@ -813,6 +832,8 @@ export class Agent {
       ranTool = true;
       messages.push(res.message);
       let sensitive = false;
+      // A skill's text arrives with these calls: the whole round counts as a skill turn, not just what comes after.
+      if (calls.some((c) => SKILL_SAFE.has(c.function?.name))) this._skillTurn = true;
       for (const call of calls) {
         const result = await this._runTool(call);
         let callArgs = {};
@@ -825,7 +846,7 @@ export class Agent {
         messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(result.output) });
       }
       // Private data (email) only ever goes to providers the user trusts with it.
-      if (sensitive && !this.privateProviders.includes(provider)) {
+      if (sensitive && !this.privateProviders.includes(provider) && provider !== 'local') {
         return this._remember(text, "I can't read your mail right now — my private AI provider is busy. Try again in a minute.");
       }
     }
@@ -1212,6 +1233,7 @@ ${LIVE_NOTE}` };
     try { runArgs = JSON.parse(call.function?.arguments || '{}'); } catch { /* reported below */ }
     this._turnRuns?.push({ tool: call.function?.name, args: runArgs, output: result.output, asked: result.asked });
     if (STEP_TOOLS.has(call.function?.name) && !result.output?.error) this._stepsUntil = Date.now() + 2 * 60_000;
+    if (SKILL_SAFE.has(call.function?.name)) this._skillTurn = true;
     // "her" / "him" in the next WhatsApp request = the chat Novi just checked.
     if (call.function?.name === 'whatsapp_prepare' && result.output?.ready?.name) this._waLastTo = result.output.ready.name;
     const err = result.output?.error;
@@ -1245,16 +1267,25 @@ ${LIVE_NOTE}` };
     // "$"-prefixed arguments are reserved for choices the user makes (e.g. "use Claude instead"); never from the model.
     for (const key of Object.keys(args)) if (key.startsWith('$')) delete args[key];
     let lastApproval = false;
+    // After a skill's instructions were read, every step asks first (even look-only commands and steps that
+    // usually run at once): a skill is third-party text and must never act, or carry data off, unseen.
+    const skillGuard = this._skillTurn && !SKILL_SAFE.has(tool.name);
+    const skillCard = async () => {
+      const d = await this.approvals.decide({ title: `A skill asks Novi to use ${tool.name}. Allow?`, detail: `What it would run: ${JSON.stringify(args).slice(0, 2000)}`, tier: 'medium', source: 'novi', category: 'skills', grantable: false });
+      lastApproval = true;
+      return d.allow;
+    };
     if (tool.gate) {
       // Plugin tools: approval and blocking come from before_tool_call hooks (OpenClaw shape).
       const gate = await tool.gate(args, { toolCallId: call.id, from: this._from || 'local', direct });
       if (gate.block) return { output: { error: gate.blockReason, ...(gate.details || {}) }, note: gate.blockReason };
+      if (!gate.approval && skillGuard && !(await skillCard())) return { output: { error: 'The user declined this action.' } };
       if (gate.approval) {
         lastApproval = true;
         const { title, detail, tier, prompt, choices } = gate.approval;
         // Which kind of action this is, and whether "always allow" may apply (never for sends/deletes/high risk).
         const { category, grantable } = classifyApproval({ toolName: tool.name, pluginId: tool.pluginId, tier, choices, category: gate.approval.category, grantable: gate.approval.grantable });
-        const skip = this._skipAsking(tool.name, { tier, kind: gate.approval.kind, grantable: grantable && !choices?.length, category, pin: gate.approval.pin }, direct);
+        const skip = !this._skillTurn && this._skipAsking(tool.name, { tier, kind: gate.approval.kind, grantable: grantable && !choices?.length, category, pin: gate.approval.pin }, direct);
         const decision = skip ? { allow: true } : await this.approvals.decide({
           title, detail: detail || '', tier, source: 'novi', prompt,
           choices: choices?.map(({ id, label }) => ({ id, label })),
@@ -1272,9 +1303,10 @@ ${LIVE_NOTE}` };
         const pre = await tool.precheck(args);
         if (pre) return { output: pre, note: pre.note };
       }
+      if (tool.tier === 'low' && skillGuard && !(await skillCard())) return { output: { error: 'The user declined this action.' } };
       if (tool.tier !== 'low') {
         const { category, grantable } = classifyApproval({ toolName: tool.name, tier: tool.tier });
-        const skip = this._skipAsking(tool.name, { tier: tool.tier, grantable, category }, direct);
+        const skip = !this._skillTurn && this._skipAsking(tool.name, { tier: tool.tier, grantable, category }, direct);
         const decision = skip ? { allow: true } : await this.approvals.decide({ title: tool.describe(args), detail: tool.detail ? tool.detail(args) : '', tier: tool.tier, source: 'novi', addable: typeof args.instruction === 'string' });
         if (!decision.allow) return { output: { error: 'The user declined this action.' } };
         this._turnYes?.add(category);

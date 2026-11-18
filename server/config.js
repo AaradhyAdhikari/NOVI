@@ -94,6 +94,8 @@ export function loadConfig(env = process.env) {
     googleClientId: (env.GOOGLE_CLIENT_ID || '').trim(),
     googleClientSecret: (env.GOOGLE_CLIENT_SECRET || '').trim(),
     privateProviders: splitList(env.NOVI_PRIVATE_PROVIDERS || 'groq'),
+    // The laptop's own model as the last resort when every cloud AI is down (NOVI_LOCAL_MODEL=off turns it off).
+    localModel: env.NOVI_LOCAL_MODEL !== 'off',
     // Speech-to-text only (not a brain provider): Sarvam for Hindi / Marathi and as the backup.
     speechKeys: { sarvam: splitList(env.SARVAM_API_KEYS || env.SARVAM_API_KEY) },
   };

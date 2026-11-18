@@ -1,0 +1,9 @@
+{
+  "id": "skills",
+  "name": "Skills",
+  "description": "Finds, installs and removes skills (ready-made instructions) from ClawHub and GitHub. Never runs their scripts.",
+  "categories": ["other"],
+  "contracts": { "tools": ["skill_find", "skill_install", "skill_read", "skill_remove", "skill_list"] },
+  "activation": { "onStartup": true },
+  "configSchema": { "type": "object", "additionalProperties": false }
+}

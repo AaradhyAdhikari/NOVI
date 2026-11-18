@@ -5,6 +5,7 @@
 import path from 'node:path';
 import { execFile, spawn } from 'node:child_process';
 import { opencodeAdapter, findOpencode } from './opencode.js';
+import { browserUseAdapter, findBrowserUse } from './browseruse.js';
 import { SITES, createSiteDriver } from '../orchestrator/siteDriver.js';
 
 const TEXT = ['research', 'plan', 'review'];
@@ -48,7 +49,7 @@ export function defaultExec(args, { cwd, input, env, timeoutMs = 20 * 60_000, sh
 
 // consent(project): free models may see this project (asked once, remembered). levels: how early each coder
 // comes per difficulty (lower = earlier); the track record moves them.
-export function buildAdapters({ rt = {}, exec = defaultExec, sites = SITES, log = () => {}, consent = null } = {}) {
+export function buildAdapters({ rt = {}, exec = defaultExec, sites = SITES, log = () => {}, consent = null, consentFor = null } = {}) {
   const out = [];
   const busy = () => { const s = rt.tasks?.status?.(); return Boolean(s?.active && s.status === 'running'); };
 
@@ -100,6 +101,9 @@ export function buildAdapters({ rt = {}, exec = defaultExec, sites = SITES, log 
     { id: 'opencode-glm', name: 'OpenCode (GLM)', aliases: ['glm', 'opencode glm'], model: 'opencode/glm-5.3-flash-free', levels: { easy: 15, medium: 45 } },
     { id: 'opencode-pickle', name: 'OpenCode (Big Pickle)', aliases: ['big pickle', 'opencode'], model: 'opencode/big-pickle', levels: { easy: 20, medium: 50 } },
   ]) out.push(opencodeAdapter(spec, { exec, consent, program: opencodeProgram }));
+
+  // browser-use, the web worker (2026-11-18): its own hidden browser on the free keys, asked once per project.
+  out.push(browserUseAdapter({ exec, python: findBrowserUse(rt.dataDir), workRoot: rt.dataDir ? path.join(rt.dataDir, 'agents', 'browser-use', 'runs') : null, consent: consentFor ? (project) => consentFor('browser-use', project) : null }));
 
   let driver = null;
   const getDriver = () => driver || (rt.browserRequest ? (driver = createSiteDriver({ request: rt.browserRequest, log })) : null);

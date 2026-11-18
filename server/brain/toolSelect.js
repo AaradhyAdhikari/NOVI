@@ -13,6 +13,7 @@ const GROUP = {
   whatsapp_prepare: 'whatsapp', whatsapp_send: 'whatsapp',
   preview_show: 'preview', preview_open: 'preview', preview_stop: 'preview',
   project_diagram: 'diagram',
+  skill_find: 'skills', skill_install: 'skills', skill_read: 'skills', skill_remove: 'skills', skill_list: 'skills',
 };
 const groupOf = (name) => GROUP[name] || name.split('_')[0];
 
@@ -33,6 +34,7 @@ const WORDS = {
   codemap: 'map graph graphify connect connects connected class function method module architecture structure codebase',
   // project_diagram (plugins/diagram: GitDiagram link for any GitHub repo).
   diagram: 'diagram flowchart architecture',
+  skills: 'skill skills clawhub openclaw',
   backup: 'backup backups drive',
   sheets: 'study studied studying log logged hours sheet sheets spreadsheet',
   clock: 'announce announcement',

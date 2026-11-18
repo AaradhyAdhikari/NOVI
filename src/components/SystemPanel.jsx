@@ -45,7 +45,7 @@ export default function SystemPanel({ api }) {
     }
   }
 
-  const providers = health.providers.map((p) => `${p.name}${p.healthy ? '' : ' (cooling down)'}`).join(', ') || 'none';
+  const providers = health.providers.map((p) => (p.local ? `offline model on the laptop (${p.state || 'asleep'})` : `${p.name}${p.healthy ? '' : ' (cooling down)'}`)).join(', ') || 'none';
   return (
     <div className="system">
       <ul className="list">

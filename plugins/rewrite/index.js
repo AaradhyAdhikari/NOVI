@@ -47,12 +47,14 @@ const COPY_TRIES = 8;
 const COPY_WAIT_MS = 120;
 const MAX_EDIT = 1999; // laptop_clipboard read stops at 2000 characters; a cut-off selection must never be pasted back
 
-export function createRewritePlugin({ llama = createLlama({ model: MODEL }) } = {}) {
+export function createRewritePlugin({ llama: given } = {}) {
   return definePluginEntry({
     id: 'rewrite',
     name: 'Offline rewrite',
     description: 'Polishes dictated words with a small AI model on the laptop.',
     register(api) {
+      // One shared server for the laptop (server/localModel.js) when Novi provides it; else its own.
+      const llama = given || api.runtime?.localModel || createLlama({ model: MODEL });
       api.registerTool({
         name: 'text_rewrite',
         description: 'Polish dictated text with the small AI model on the laptop (grammar, punctuation, fillers). Gives the same words back if it cannot.',

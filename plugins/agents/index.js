@@ -16,7 +16,7 @@ import { setTeam } from './team.js';
 import { checkTask, reviewCard } from './review.js';
 import { createCopies, createLocks, RISKY } from './copies.js';
 import { createRecord } from './record.js';
-import { consentKey } from './opencode.js';
+import { createConsent } from './consent.js';
 import { siteAdapter } from './learned.js';
 import { pickTab } from '../project-import/gather.js';
 import { SITES as sites } from '../orchestrator/siteDriver.js';
@@ -38,27 +38,11 @@ export function createAgentsPlugin({ exec = defaultExec, review: checkers = {}, 
       const store = (name) => (rt.dataDir ? path.join(rt.dataDir, 'agents', name) : null);
       // The team's track record (your approvals per coder and difficulty) and your yes/no to free models per project.
       const record = createRecord({ file: store('record.json') });
-      const consented = (() => { try { return JSON.parse(fs.readFileSync(store('consent.json'), 'utf8')); } catch { return {}; } })();
-      const consentAsks = new Map(); // project → the card already waiting (one card per project)
-      const consent = async (project) => {
-        // Kept per project folder (two projects called Foo are not one consent; security review 2026-11-12).
-        const k = consentKey(find(project) || { name: project });
-        if (k in consented) return consented[k];
-        if (!rt.ask) return false;
-        if (!consentAsks.has(k)) {
-          consentAsks.set(k, (async () => {
-            const title = `Use free AI models on ${project}?`;
-            const d = await rt.ask({ title, prompt: `Free coding models may learn from ${project}'s code. Use them for the easy tasks on ${project}?`, detail: 'Free models (OpenCode: DeepSeek, GLM…) do the easy work so Claude\'s usage goes to the hard parts. Their providers may use what they see to improve their models. Your answer is remembered for this project.', source: 'agents' });
-            if (d?.closed || d?.timedOut) return false; // not answered: asked again next time
-            consented[k] = Boolean(d?.allow);
-            try { fs.mkdirSync(path.dirname(store('consent.json')), { recursive: true }); fs.writeFileSync(store('consent.json'), `${JSON.stringify(consented, null, 2)}\n`); } catch { /* remembered for this run */ }
-            return consented[k];
-          })().finally(() => consentAsks.delete(k)));
-        }
-        return consentAsks.get(k);
-      };
+      // Your yes/no per project, per kind of agent: free coding models and browser-use (consent.js).
+      const consents = createConsent({ file: store('consent.json'), ask: rt.ask ? (card) => rt.ask(card) : null, find: (n) => find(n) });
+      const consent = (project) => consents.ask('free', project);
       const registry = createRegistry({ record });
-      for (const a of buildAdapters({ rt, exec, log, consent })) registry.add(a);
+      for (const a of buildAdapters({ rt, exec, log, consent, consentFor: (kind, project) => consents.ask(kind, project) })) registry.add(a);
       setTeam(registry);
       const gaps = rt.gaps || (rt.dataDir ? createGaps({ file: path.join(rt.dataDir, 'gaps', 'gaps.jsonl') }) : null);
       // Phase 5: each coder that can gets its own copy of the project (outside it, in Novi's data folder);
