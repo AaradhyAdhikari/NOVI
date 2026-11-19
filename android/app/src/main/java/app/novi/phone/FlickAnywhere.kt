@@ -119,7 +119,9 @@ class FlickAnywhere(private val svc: NoviService, private val store: Store) : Se
         if (detector.feed(SystemClock.uptimeMillis(), acc, v[0] * deg, v[1] * deg, v[2] * deg)) {
             // Flick up sends to the laptop, flick down pulls from it (⚙ can swap them if they feel reversed).
             val down = (detector.lastDirection > 0) != store.flickSwapped
-            main.post { if (down) fromLaptop("pull") else flicked() }
+            // A card on screen (pop-up or the Novi app): any flick, up or down, opens it on the laptop (user,
+            // 2026-11-19: the flick did nothing on a commit card; a "down" there was dropped without a word).
+            main.post { if (down && !MainActivity.visible && svc.shownCardId() == null) fromLaptop("pull") else flicked() }
         }
     }
 

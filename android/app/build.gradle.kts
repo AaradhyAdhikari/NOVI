@@ -1,4 +1,4 @@
-﻿plugins {
+plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
@@ -11,8 +11,8 @@ android {
         applicationId = "app.novi.phone"
         minSdk = 26
         targetSdk = 35
-        versionCode = 48
-        versionName = "2.9.3"
+        versionCode = 49
+        versionName = "2.9.4"
     }
     buildTypes {
         release { isMinifyEnabled = false }
