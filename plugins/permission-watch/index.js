@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { definePluginEntry } from '#plugin-sdk';
-import { pickButtons, isPrivateBox, cardFor, boxKey , questionLine } from './boxes.js';
+import { pickButtons, isPrivateBox, cardFor, boxKey , questionLine, isNoviWindow } from './boxes.js';
 
 // Any app's Allow box on the phone (user, 2026-11-05): "all the other sessions permission to go through
 // novi". watch.ps1 reads the buttons of the open windows through Windows accessibility in its own process;
@@ -86,7 +86,7 @@ export function createPermissionWatchPlugin({ platform = process.platform, creat
         for (const box of boxes) {
           const buttons = pickButtons(box.buttons);
           if (answered.has(sameAsk(box))) continue; // already answered and still showing: never asked twice
-          if (buttons && !isPrivateBox(box)) now.set(boxKey(box), { box, buttons });
+          if (buttons && !isPrivateBox(box) && !isNoviWindow(box)) now.set(boxKey(box), { box, buttons });
         }
         for (const [key, { box, buttons }] of now) {
           const known = open.get(key);

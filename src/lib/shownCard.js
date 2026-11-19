@@ -3,7 +3,7 @@
 const state = { file: null, card: null };
 
 export function shownFor({ file, flickScreen, card }) {
-  if (file) return { card: file.card, file: file.file };
+  if (file) return { card: file.changes && file.changes !== file.card ? `${file.card}~${file.changes}` : file.card, file: file.file };
   if (flickScreen) return null; // the flick screen sends its own top card (window.__noviFlick)
   return card ? { card } : null;
 }

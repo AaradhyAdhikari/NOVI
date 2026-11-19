@@ -52,7 +52,7 @@ function Scan {
     try {
       $title = [string]$w.Current.Name
       $proc = [string]$names[[int]$w.Current.ProcessId]
-      if ($proc -match $skipProcess -or $title -match $browserPage -or $title -cmatch '^(NOVI|Novi work)') { continue }
+      if ($proc -match $skipProcess -or $title -match $browserPage -or $title -cmatch '^(NOVI|Novi work|Card from your phone)') { continue }
       $box = Find-Box $w
       if ($box) { $boxes += @{ hwnd = [int64]$w.Current.NativeWindowHandle; process = $proc; title = $title; text = $box.text; cut = [bool]$box.cut; buttons = $box.buttons } }
     } catch { }

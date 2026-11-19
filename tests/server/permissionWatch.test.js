@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { EventEmitter } from 'node:events';
 import { PluginHost } from '../../server/plugins/host.js';
 import { ApprovalQueue } from '../../server/permissions.js';
-import { pickButtons, isPrivateBox, needsPin, cardFor, boxKey } from '../../plugins/permission-watch/boxes.js';
+import { pickButtons, isPrivateBox, needsPin, cardFor, boxKey, isNoviWindow } from '../../plugins/permission-watch/boxes.js';
 import { createPermissionWatchPlugin } from '../../plugins/permission-watch/index.js';
 
 // User, 2026-11-05: any app's Allow box reaches the phone as a card; a yes presses Allow once.
@@ -227,5 +227,13 @@ describe('the card names the real question', () => {
   });
   it('nothing but names left: the old fallback', () => {
     expect(cardFor({ ...NOTEPAD, text: 'Notepad | Yes' }).title).toBe('Notepad: asks for your OK');
+  });
+});
+
+describe("Novi's own windows", () => {
+  it("the card window and Novi's page are never asked about", () => {
+    expect(isNoviWindow({ title: 'Card from your phone' })).toBe(true);
+    expect(isNoviWindow({ title: 'NOVI — Personal AI Companion' })).toBe(true);
+    expect(isNoviWindow({ title: 'Notepad' })).toBe(false);
   });
 });

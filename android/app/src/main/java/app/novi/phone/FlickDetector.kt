@@ -67,11 +67,11 @@ class FlickDetector(
  * enough (≥ 3.5 m/s²) the whole time. Weak or paused for 250 ms = start again; 2.5 s between circles.
  */
 class CircleDetector(
-    private val minAcc: Float = 3.5f,
-    private val needDeg: Float = 330f,
-    private val minMs: Long = 400,
-    private val maxMs: Long = 1800,
-    private val gapMs: Long = 250,
+    private val minAcc: Float = 2.6f,  // live 2026-11-19: three circles for one screenshot at 3.5 / 330° / 1.8 s
+    private val needDeg: Float = 300f,
+    private val minMs: Long = 350,
+    private val maxMs: Long = 2400,
+    private val gapMs: Long = 350,
     private val cooldownMs: Long = 2500,
 ) {
     private var start = -1L

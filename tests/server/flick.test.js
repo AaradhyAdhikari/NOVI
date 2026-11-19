@@ -353,8 +353,8 @@ describe('card actions (v2)', () => {
     expect(s.ran.find((r) => r.cardWindow)?.cardWindow).toBe('https://localhost:3001/?cardview=a1b2-c3');
     expect(s.ran.some((r) => r.tool === 'open_website')).toBe(false);
     const t2 = path.join(tmp(), 'up'); fs.writeFileSync(t2, '');
-    await s.handler({ file: t2, name: 'chg9', kind: 'card', link: 'src%2FApp+2.jsx', from: { deviceId: 'p1' } });
-    expect(s.ran.filter((r) => r.cardWindow)[1].cardWindow).toBe('https://localhost:3001/?cardview=chg9&changes=chg9&file=src%2FApp%202.jsx');
+    await s.handler({ file: t2, name: 'card7~chg9', kind: 'card', link: 'src%2FApp+2.jsx', from: { deviceId: 'p1' } });
+    expect(s.ran.filter((r) => r.cardWindow)[1].cardWindow).toBe('https://localhost:3001/?cardview=card7&changes=chg9&file=src%2FApp%202.jsx');
     expect(s.pushed).toHaveLength(0);
     const t3 = path.join(tmp(), 'up'); fs.writeFileSync(t3, '');
     expect(await s.handler({ file: t3, name: '../x?y', kind: 'card', from: { deviceId: 'p1' } })).toMatchObject({ ok: false });

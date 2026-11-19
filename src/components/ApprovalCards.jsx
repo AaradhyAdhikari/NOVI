@@ -86,7 +86,7 @@ function ApprovalCard({ a, onAnswer, api }) {
             <span>{a.title}</span>
           </div>
           {a.plan && <PlanSteps plan={a.plan} />}
-          {a.changes ? <ChangeList changes={a.changes} api={api} /> : a.detail && (foldDetail(a.detail)
+          {a.changes ? <ChangeList changes={a.changes} cardId={a.id} api={api} /> : a.detail && (foldDetail(a.detail)
             ? <details className="detail" open={openedCard(window.location.search, a.id)}><summary>{/'s plan for /.test(a.title || '') ? 'Show the full plan' : a.source === 'claude' ? 'Show the command' : a.source === 'orchestrator' ? 'Show the full brief' : 'Show details'}</summary><pre>{a.detail}</pre></details>
             : <p className="detail">{a.detail}</p>)}
           {a.tier === 'high' && <p className="warn">High risk — this needs your explicit confirmation.</p>}

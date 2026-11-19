@@ -184,13 +184,14 @@ export function createFlickPlugin({ root = null, stage = null, openWindow = null
           // A card on the phone, flicked (user, 2026-11-19): the same card opens on the laptop's Novi page, with its
           // changes, whole code and Edit, instead of a screenshot. A file view open on the phone opens that file.
           if (kind === 'card') {
-            const cardId = String(name || '').trim();
-            if (!/^[A-Za-z0-9_-]{1,80}$/.test(cardId) || !rt.noviPage) return { ok: false, error: 'That card can\'t be opened on the laptop.' };
+            // "<card>~<changes>": a file inside a commit card (its changes list has its own id).
+            const [cardId, changesId = cardId] = String(name || '').trim().split('~');
+            if (!/^[A-Za-z0-9_-]{1,80}$/.test(cardId) || !/^[A-Za-z0-9_-]{1,80}$/.test(changesId) || !rt.noviPage) return { ok: false, error: 'That card can\'t be opened on the laptop.' };
             let fileName = '';
             try { fileName = shotLink ? decodeURIComponent(String(shotLink).replace(/\+/g, ' ')).slice(0, 300) : ''; } catch { fileName = ''; }
             // Its own window with only that card (user, 2026-11-19: "i dont want it to open novi for that").
             const target = `${rt.noviPage}/?cardview=${encodeURIComponent(cardId)}`
-              + (fileName ? `&changes=${encodeURIComponent(cardId)}&file=${encodeURIComponent(fileName)}` : '');
+              + (fileName ? `&changes=${encodeURIComponent(changesId)}&file=${encodeURIComponent(fileName)}` : '');
             await (openCardWindow || defaultOpenCardWindow(rt.dataDir || os.tmpdir(), rt.tls?.cert))(target);
             // Windows keeps a new window behind the one in use: bring the card window (titled "Card from your phone") forward.
             setTimeout(() => { Promise.resolve(rt.callTool?.('laptop_window', { do: 'focus', app: 'Card from your phone' })).catch(() => {}); }, focusDelayMs);

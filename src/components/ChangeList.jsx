@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import { setShownFile } from '../lib/shownCard.js';
-import { inCardWindow } from '../lib/cardWindow.js';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { countParts, openFileFrom } from '../lib/changeCounts.js';
@@ -11,7 +10,7 @@ const MARK = { add: '+', del: '−', ctx: ' ', gap: '' };
 // A file's changed lines, or its whole code with the changed lines marked. Edit saves into the project,
 // and the card behind refreshes, so the yes covers what is really going out.
 function ChangesView({ id, file, api, onClose }) {
-  const [tab, setTab] = useState(() => (inCardWindow() ? 'code' : 'changes')); // the card window starts on the whole code
+  const [tab, setTab] = useState('changes');
   const [view, setView] = useState(null);
   const [draft, setDraft] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -44,7 +43,7 @@ function ChangesView({ id, file, api, onClose }) {
   const note = !shown ? 'Loading…'
     : shown.error || (shown.binary && 'This file isn\'t text, so there are no lines to show.')
     || (shown.gone && 'This file was deleted.') || (shown.tooBig && 'This file is too big to show here. Open it on the laptop.') || '';
-  return createPortal(
+  const panel = (
     <div className="changes-view" role="dialog" aria-label={`Changes in ${file}`}>
       <div className="changes-head">
         <strong>{file}</strong>
@@ -79,15 +78,15 @@ function ChangesView({ id, file, api, onClose }) {
             )}
         </div>
       )}
-    </div>,
-    document.body,
+    </div>
   );
+  return createPortal(panel, document.body); // full screen, in the card window too (user, 2026-11-19)
 }
 
 // On the commit card: the message, then each file with its counts. Tap a file to look inside.
-export default function ChangeList({ changes, api }) {
-  const [open, setOpen] = useState(() => (typeof window === 'undefined' ? null : openFileFrom(window.location.search, changes) || (inCardWindow() ? changes.files[0]?.file || null : null)));
-  useEffect(() => { setShownFile(open ? { card: changes.id, file: open } : null); return () => setShownFile(null); }, [open, changes.id]);
+export default function ChangeList({ changes, cardId = null, api }) {
+  const [open, setOpen] = useState(() => (typeof window === 'undefined' ? null : openFileFrom(window.location.search, changes)));
+  useEffect(() => { setShownFile(open ? { card: cardId || changes.id, changes: changes.id, file: open } : null); return () => setShownFile(null); }, [open, changes.id, cardId]);
   return (
     <div className="changes">
       {changes.message && <p className="changes-message">{changes.message}</p>}
@@ -104,7 +103,7 @@ export default function ChangeList({ changes, api }) {
       </ul>
       {changes.more > 0 && <p className="muted">and {changes.more} more</p>}
       {changes.left?.length > 0 && <p className="muted">Left out: {changes.left.join(', ')}</p>}
-      {open && <ChangesView id={changes.id} file={open} api={api} onClose={() => setOpen(null)} />}
+      {open && <ChangesView key={open} id={changes.id} file={open} api={api} onClose={() => setOpen(null)} />}
     </div>
   );
 }

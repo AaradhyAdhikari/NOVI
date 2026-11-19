@@ -23,6 +23,9 @@ export function pickButtons(names = []) {
 }
 
 const PRIVATE = /\b(?:passwords?|passcode|pin\b|otp|one[- ]time|card number|cvv|upi|payment|pay\b|purchase|buy|checkout|bank)\b/i;
+// Novi's own windows (its page, the card window a flick opens): their Approve/Deny are Novi's own card, never
+// another app's box (live 2026-11-19: the card window came back to the phone as "Msedge: Commit and push…").
+export const isNoviWindow = ({ title = '' }) => /^(NOVI|Novi work|Card from your phone)(?![A-Za-z])/.test(String(title).trim());
 export const isPrivateBox = ({ text = '', title = '' }) => PRIVATE.test(seen(`${title} ${text}`));
 
 // Computer access (user, 2026-11-05: all four kinds): control, commands, a whole drive, installs and admin.
