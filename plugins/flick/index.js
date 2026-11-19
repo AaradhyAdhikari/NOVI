@@ -46,7 +46,7 @@ export function spkiHash(certPem) {
 function defaultOpenCardWindow(dataDir, certPem) {
   return async (url) => {
     const hash = certPem ? spkiHash(String(certPem)) : null;
-    const args = [`--app=${url}`, '--window-size=1200,900', `--user-data-dir=${path.join(dataDir, CARD_PROFILE)}`, '--no-first-run', '--no-default-browser-check', '--test-type', '--disable-features=msImplicitSignin,Translate'];
+    const args = [`--app=${url}`, '--start-maximized', `--user-data-dir=${path.join(dataDir, CARD_PROFILE)}`, '--no-first-run', '--no-default-browser-check', '--test-type', '--disable-features=msImplicitSignin,Translate'];
     if (hash) args.push(`--ignore-certificate-errors-spki-list=${hash}`);
     const child = spawn(EDGE, args, { detached: true, stdio: 'ignore' });
     child.on('error', () => {});
