@@ -144,7 +144,7 @@ function actions(item) {
   else if (item.openable) list.push(['Open', () => act(item, { do:'open' })]);
   list.push(['Copy', () => act(item, { do:'copy' })]);
   if (!item.url) list.push(['Show in folder', () => act(item, { do:'folder' })]);
-  if (item.sendable) { list.push(['WhatsApp…', (e) => waMenu(item, e)]); list.push(['Send to AI…', (e) => aiMenu(item, e)]); }
+  if (item.sendable) { list.push(['WhatsApp', () => { act(item, { do:'whatsapp_open' }); toast('Opening WhatsApp…'); }]); list.push(['WhatsApp to a name…', (e) => waMenu(item, e)]); list.push(['Send to AI…', (e) => aiMenu(item, e)]); }
   return list;
 }
 
@@ -224,6 +224,7 @@ function sendTo(item) {
   bar.textContent = '';
   if (!item || !item.sendable) { bar.classList.remove('on'); return; }
   const label = document.createElement('span'); label.textContent = 'Send to'; bar.appendChild(label);
+  bar.appendChild(btn('WhatsApp', () => { act(item, { do:'whatsapp_open' }); toast('Opening WhatsApp…'); }));
   AIS.forEach(([id, name]) => bar.appendChild(btn(name, () => act(item, { do:'ai', app:id }))));
   const input = document.createElement('input'); input.placeholder = 'or type: Rahul on WhatsApp…'; input.maxLength = 60;
   const go = () => { const to = input.value.trim(); if (to) { act(item, { do:'to', to }); input.value = ''; toast(`Sending to ${to}…`); } };

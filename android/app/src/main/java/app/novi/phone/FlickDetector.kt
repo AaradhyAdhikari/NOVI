@@ -48,7 +48,12 @@ class FlickDetector(
         }
         if (jolt >= minAcc && pitch >= minRot && pitch >= axisRatio * other && calm && before >= 3) {
             last = t
-            lastDirection = pitchSign
+            // Live 2026-11-19: every flick came out as "down" (the snap back after a flick can turn faster than the
+            // flick itself). The way the turn STARTED decides, and only a turn that starts and peaks down pulls;
+            // anything unclear sends (the main action), never pulls a page by surprise.
+            val onset = buf.firstOrNull { t - it.t <= windowMs && it.rx >= 0.6f * pitch }
+            val onsetSign = if ((onset?.rxSigned ?: -1f) > 0) 1 else -1
+            lastDirection = if (onsetSign > 0 && pitchSign > 0) 1 else -1
             buf.clear()
             return true
         }

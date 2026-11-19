@@ -5,6 +5,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import os from 'node:os';
 import { spawn, execFile } from 'node:child_process';
 import { definePluginEntry } from '#plugin-sdk';
 import { saveFlick, kindOf, linkItem, defaultRoot, withEnding, autoOpens } from './store.js';
@@ -109,6 +110,16 @@ export function createFlickPlugin({ root = null, stage = null, openWindow = null
           if (!(await copy(what))) return { note: "I couldn't copy it. Try again in a moment." };
           return { note: item.text ? 'Copied the text.' : !file ? 'Copied the link.' : item.kind === 'photo' ? 'Copied the picture. Press Ctrl+V to paste it.' : `Copied ${item.name}. Press Ctrl+V to paste it.` };
         }
+        // WhatsApp without a name (user, 2026-11-19: "it should open whatsapp and then i will press whoever i want"):
+        // the thing goes on the clipboard, WhatsApp opens, the user picks the chat and pastes. Nothing is sent by Novi.
+        if (action === 'whatsapp_open') {
+          if (file && !SAFE.includes(item.kind)) return { note: refuse(item) };
+          const what = item.text ? { text: item.text } : !file ? { text: item.url } : item.kind === 'photo' ? { image: item.path } : { file: item.path };
+          if (!(await copy(what))) return { note: "I couldn't copy it. Try again in a moment." };
+          const opened = await rt.callTool?.('open_app', { name: 'WhatsApp' });
+          if (opened?.notFound) await rt.callTool?.('open_website', { target: 'https://web.whatsapp.com', on: 'laptop' });
+          return { note: 'WhatsApp is open. Pick the chat and press Ctrl+V, then Enter.' };
+        }
         if (action === 'whatsapp') {
           if (file && !SAFE.includes(item.kind)) return { note: refuse(item) };
           const name = String(to || '').trim().slice(0, 60);
@@ -162,6 +173,17 @@ export function createFlickPlugin({ root = null, stage = null, openWindow = null
             const shot = await Promise.resolve(rt.laptopScreenshot?.()).catch(() => null);
             if (!shot || shot.refused || !shot.png) return { ok: false, error: shot?.refused ? 'The laptop is showing a private screen (sign-in, payment or settings), so no picture.' : "Couldn't take a picture of the laptop screen." };
             log(`${kind}: laptop screen to the phone`);
+            // The circle's picture lands on the laptop stage too (user, 2026-11-19).
+            if (kind === 'circle') {
+              try {
+                const tmpPng = path.join(rt.dataDir || os.tmpdir(), `circle-${id}.png`);
+                fs.writeFileSync(tmpPng, Buffer.from(shot.png));
+                const saved = saveFlick({ tmp: tmpPng, name: `Laptop screen ${new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-')}.png`, root: saveRoot });
+                await showStage();
+                st.push({ id, kind: 'photo', name: path.basename(saved), path: saved, at: Date.now() });
+                touch();
+              } catch (e) { log(`circle picture not put on the stage: ${String(e?.message || e).slice(0, 120)}`); }
+            }
             return { ok: true, image: Buffer.from(shot.png).toString('base64'), type: 'image/png' };
           }
           if (kind === 'text') {
@@ -235,7 +257,7 @@ export function createFlickPlugin({ root = null, stage = null, openWindow = null
         name: 'flick_do',
         description: 'Do something with the newest thing flicked from the phone: open it, open a link in the browser, copy it to the clipboard (a photo as the picture), show it in its folder, send it to someone on WhatsApp (to), or send it to an AI site (app).',
         parameters: obj({
-          action: { type: 'string', enum: ['open', 'browser', 'copy', 'folder', 'whatsapp', 'ai', 'to'] },
+          action: { type: 'string', enum: ['open', 'browser', 'copy', 'folder', 'whatsapp', 'whatsapp_open', 'ai', 'to'] },
           to: { type: 'string', description: 'WhatsApp contact name, or (action "to") where the user typed: an AI site or a contact' },
           app: { type: 'string', enum: Object.keys(AI_SITES) },
           recent: { type: 'boolean', description: 'Only if something landed in the last 10 minutes' },

@@ -343,6 +343,25 @@ describe('card actions (v2)', () => {
     const t2 = path.join(tmp(), 'up'); fs.writeFileSync(t2, '');
     expect(await b.handler({ file: t2, name: 'circle', kind: 'circle', from: { deviceId: 'p1' } })).toMatchObject({ ok: false });
   });
+  // User 2026-11-19: "the ss should land on the laptop too".
+  it('a circle screenshot also lands on the laptop stage', async () => {
+    const s = setup({ viewers: 1 });
+    const t = path.join(tmp(), 'up'); fs.writeFileSync(t, '');
+    await s.handler({ file: t, name: 'circle', kind: 'circle', from: { deviceId: 'p1' } });
+    expect(s.pushed[0]).toMatchObject({ kind: 'photo', name: expect.stringMatching(/laptop screen.*\.png$/i) });
+    expect(fs.readFileSync(s.pushed[0].path, 'utf8')).toBe('PNGDATA');
+  });
+  // User 2026-11-19: "when i press share to whatsapp it should open whatsapp and then i will press whoever i want".
+  it('WhatsApp without a name: copies it and opens WhatsApp, nothing is sent', async () => {
+    const s = setup({ viewers: 1 });
+    const t = path.join(tmp(), 'up'); fs.writeFileSync(t, 'x');
+    await s.handler({ file: t, name: 'beach.jpg', kind: 'file', from: 'local' });
+    const out = await s.host.get('flick_do').run({ action: 'whatsapp_open' });
+    expect(s.ran.find((r) => r.copy)?.copy).toMatchObject({ image: expect.stringMatching(/beach\.jpg$/) });
+    expect(s.ran.find((r) => r.tool === 'open_app')?.params).toMatchObject({ name: 'WhatsApp' });
+    expect(s.ran.some((r) => r.asked === 'whatsapp_send' || r.tool === 'whatsapp_prepare')).toBe(false);
+    expect(out.text).toMatch(/ctrl\+v/i);
+  });
   it('a screenshot carries the page or video it shows: a link on the card that opens on the laptop', async () => {
     const s = setup({ viewers: 1 });
     const t = path.join(tmp(), 'up'); fs.writeFileSync(t, 'jpgbytes');

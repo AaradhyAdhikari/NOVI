@@ -32,6 +32,13 @@ class FlickDetectorTest {
     }
 
     // A circle in the air: the sideways push turns all the way round. A shake back and forth is not a circle.
+    // Live 2026-11-19: a flick up whose snap back turns faster than the flick still sends, never pulls.
+    @Test fun aSnapBackIsNotAPull() {
+        val d = FlickDetector()
+        assertEquals(1, fires(shape(still, 100 to { p -> P(bell(p, 18.0), -bell(p, 300.0), 40f, 30f) }, 100 to { p -> P(bell(p, 22.0), bell(p, 420.0), 40f, 30f) }, 400 to { _ -> P(1f, 10f, 5f, 5f) }), d))
+        assertEquals(-1, d.lastDirection)
+    }
+
     @Test fun circleInTheAir() {
         val c = CircleDetector()
         var fired = 0
