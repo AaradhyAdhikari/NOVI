@@ -149,6 +149,25 @@ class FlickAnywhere(private val svc: NoviService, private val store: Store) : Se
         }.start()
     }
 
+    /** The same card (or one file of it) opens on the laptop's Novi page: changes, whole code, Edit. */
+    private fun sendCard(id: String, file: String?, answer: (Boolean, String) -> Unit) {
+        val net = svc.netOrNull() ?: run { overlay.result("Not connected to Novi.", false); answer(false, "Not connected to Novi."); return }
+        busy = true
+        buzz()
+        overlay.result("Opening it on the laptop…", true)
+        Thread {
+            val out = runCatching { net.flick(ByteArray(0), id, "", "card", file) }
+            main.post {
+                busy = false
+                val r = out.getOrNull()
+                val ok = r?.optBoolean("ok") == true
+                val note = if (ok) "Opened on the laptop." else r?.optString("error")?.ifEmpty { null } ?: out.exceptionOrNull()?.message ?: "Couldn't reach the laptop."
+                overlay.result(note, ok)
+                answer(ok, note)
+            }
+        }.start()
+    }
+
     private fun openLink(link: String, title: String) {
         val uri = Uri.parse(link)
         if (uri.scheme != "https" && uri.scheme != "http") return overlay.result("That isn't a web link.", false)
@@ -189,6 +208,8 @@ class FlickAnywhere(private val svc: NoviService, private val store: Store) : Se
     fun flicked(done: ((Boolean, String) -> Unit)? = null) {
         val answer = { ok: Boolean, note: String -> done?.invoke(ok, note); Unit }
         if (busy) return answer(false, "Still sending the last one.")
+        // A card showing in the pop-up goes to the laptop as that card, not as a picture (user, 2026-11-19).
+        if (!MainActivity.visible && !locked()) svc.shownCardId()?.let { return sendCard(it, null, answer) }
         val access = NoviAccess.instance
         val front = access?.frontPackage().orEmpty()
         val shotAge = lastShot?.let { SystemClock.elapsedRealtime() - it.at }
@@ -205,7 +226,7 @@ class FlickAnywhere(private val svc: NoviService, private val store: Store) : Se
         )
         val no = { text: String -> overlay.result(text, false); answer(false, text) }
         when (choice) {
-            FlickSend.PAGE -> { MainActivity.flickPage(); answer(true, "Sent the top card from the flick screen.") }
+            FlickSend.PAGE -> MainActivity.flickPage { id, file -> sendCard(id, file, answer) }
             FlickSend.SCREENSHOT -> lastShot?.let { s -> lastShot = null; buzz(); send(answer) { readUri(s.uri)?.let { Triple(it, s.name, s.type) } } } ?: no("Nothing to flick here.")
             FlickSend.LINK -> (access?.selectedText()?.let { browserAddress(it) } ?: access?.browserLink())?.let { link -> buzz(); send(answer, kind = "link") { Triple(link.toByteArray(), "link", "") } } ?: no("Nothing to flick here.")
             FlickSend.TEXT -> access?.selectedText()?.let { words -> buzz(); send(answer, kind = "text") { Triple(words.toByteArray(), "text", "text/plain") } } ?: no("Nothing to flick here.")

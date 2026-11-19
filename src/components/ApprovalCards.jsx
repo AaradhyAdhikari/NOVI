@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { setShownCard } from '../lib/shownCard.js';
 import { foldDetail, togglePick, pickedAnswer, openedCard } from '../lib/approvalText.js';
 import { MessageCircleQuestion, ShieldAlert, ShieldQuestion } from 'lucide-react';
 import PinCapture from './PinCapture.jsx';
@@ -61,6 +62,8 @@ function QuestionCard({ a, onAnswer }) {
 }
 
 export default function ApprovalCards({ approvals, onAnswer, api, resolved = null }) {
+  const topId = approvals[0]?.id || null;
+  useEffect(() => { setShownCard(topId); return () => setShownCard(null); }, [topId]);
   if (!approvals.length && !resolved) return null;
   return (
     <div className="approvals" role="region" aria-label="Approvals needed">

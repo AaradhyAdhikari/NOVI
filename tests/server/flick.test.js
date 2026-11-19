@@ -129,6 +129,7 @@ function setup({ viewers = 0, asked = 'allow', link = null, shot = 'PNGDATA' } =
   const opened = [];
   const rt = {
     dataDir: tmp(), logger: { info() {}, warn() {} },
+    noviPage: 'https://localhost:3001',
     laptopScreenshot: async () => (shot === 'refused' ? { refused: true } : { png: Buffer.from(shot), width: 10, height: 10 }),
     callTool: async (tool, params) => { ran.push({ tool, params }); if (tool === 'laptop_current_link') return link ? { url: link, title: 'A page' } : { error: 'No browser window is open on the laptop.' }; return tool === 'whatsapp_prepare' ? { ready: { name: 'Rahul Sharma' }, note: 'Ready.' } : { text: 'ok' }; },
     runAsked: async (tool, params) => { ran.push({ asked: tool, params }); return asked === 'allow' ? { sent: true, note: 'Sent to Rahul Sharma.' } : { declined: true }; },
@@ -342,6 +343,20 @@ describe('card actions (v2)', () => {
     const b = setup({ shot: 'refused' });
     const t2 = path.join(tmp(), 'up'); fs.writeFileSync(t2, '');
     expect(await b.handler({ file: t2, name: 'circle', kind: 'circle', from: { deviceId: 'p1' } })).toMatchObject({ ok: false });
+  });
+  // User 2026-11-19: a card on the phone, flicked, opens the same card on the laptop (not a screenshot).
+  it('a flicked card opens that card on the laptop page, a flicked file view opens that file', async () => {
+    const s = setup();
+    const t = path.join(tmp(), 'up'); fs.writeFileSync(t, '');
+    const out = await s.handler({ file: t, name: 'a1b2-c3', kind: 'card', link: '', from: { deviceId: 'p1' } });
+    expect(out).toMatchObject({ ok: true });
+    expect(s.ran.find((r) => r.tool === 'open_website')?.params).toMatchObject({ target: 'https://localhost:3001/?card=a1b2-c3', on: 'laptop' });
+    const t2 = path.join(tmp(), 'up'); fs.writeFileSync(t2, '');
+    await s.handler({ file: t2, name: 'chg9', kind: 'card', link: 'src%2FApp+2.jsx', from: { deviceId: 'p1' } });
+    expect(s.ran.filter((r) => r.tool === 'open_website')[1].params.target).toBe('https://localhost:3001/?changes=chg9&file=src%2FApp%202.jsx');
+    expect(s.pushed).toHaveLength(0);
+    const t3 = path.join(tmp(), 'up'); fs.writeFileSync(t3, '');
+    expect(await s.handler({ file: t3, name: '../x?y', kind: 'card', from: { deviceId: 'p1' } })).toMatchObject({ ok: false });
   });
   // User 2026-11-19: "the ss should land on the laptop too".
   it('a circle screenshot also lands on the laptop stage', async () => {

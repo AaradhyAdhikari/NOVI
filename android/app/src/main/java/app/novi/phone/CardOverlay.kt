@@ -54,6 +54,9 @@ class CardOverlay(private val svc: NoviService) {
         top.changes?.let { changesArea?.addView(changeList(top, it)) }
     }
 
+    /** The card showing on screen right now (a flick opens it on the laptop). */
+    fun shownId(): String? = if (view != null) card?.id else null
+
     fun hide() {
         view?.let { runCatching { wm.removeView(it) } }
         view = null

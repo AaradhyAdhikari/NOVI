@@ -41,7 +41,18 @@ class MainActivity : ComponentActivity() {
         @Volatile var visible = false
         @Volatile private var current: MainActivity? = null
         /** A wrist flick while the Novi page is open: the flick screen sends its top card (window.__noviFlick). */
-        fun flickPage() { current?.let { a -> a.runOnUiThread { a.web?.evaluateJavascript("window.__noviFlick ? !!window.__noviFlick() : false", null) } } }
+        // A card (or a file inside one) open on the page goes to the laptop as that card (user, 2026-11-19).
+        fun flickPage(onCard: (String, String?) -> Unit) {
+            current?.let { a -> a.runOnUiThread {
+                a.web?.evaluateJavascript("window.__noviShown ? window.__noviShown() : ''") { res ->
+                    val text = runCatching { org.json.JSONTokener(res).nextValue() as? String }.getOrNull().orEmpty()
+                    val o = runCatching { org.json.JSONObject(text) }.getOrNull()
+                    val id = o?.optString("card").orEmpty()
+                    if (id.isNotEmpty()) onCard(id, o?.optString("file")?.ifEmpty { null })
+                    else a.web?.evaluateJavascript("window.__noviFlick ? !!window.__noviFlick() : false", null)
+                }
+            } }
+        }
     }
 
     private lateinit var store: Store

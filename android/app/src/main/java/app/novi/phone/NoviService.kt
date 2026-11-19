@@ -304,6 +304,9 @@ class NoviService : Service() {
         bubbleUpdate()
     }
 
+    /** The card the pop-up shows right now, if any (FlickAnywhere: a flick opens it on the laptop). */
+    fun shownCardId(): String? = overlay.shownId()
+
     /** Paying: everything Novi draws goes away now and comes back when pay mode ends. */
     fun payStarted() = main.post {
         overlay.hide()

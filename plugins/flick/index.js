@@ -164,6 +164,20 @@ export function createFlickPlugin({ root = null, stage = null, openWindow = null
           const id = crypto.randomBytes(6).toString('hex');
           let item;
           let playTitle = null;
+          // A card on the phone, flicked (user, 2026-11-19): the same card opens on the laptop's Novi page, with its
+          // changes, whole code and Edit, instead of a screenshot. A file view open on the phone opens that file.
+          if (kind === 'card') {
+            const cardId = String(name || '').trim();
+            if (!/^[A-Za-z0-9_-]{1,80}$/.test(cardId) || !rt.noviPage) return { ok: false, error: 'That card can\'t be opened on the laptop.' };
+            let fileName = '';
+            try { fileName = shotLink ? decodeURIComponent(String(shotLink).replace(/\+/g, ' ')).slice(0, 300) : ''; } catch { fileName = ''; }
+            const target = fileName
+              ? `${rt.noviPage}/?changes=${encodeURIComponent(cardId)}&file=${encodeURIComponent(fileName)}`
+              : `${rt.noviPage}/?card=${encodeURIComponent(cardId)}`;
+            await rt.callTool?.('open_website', { target, on: 'laptop' });
+            log(`card: ${fileName ? 'a file of a card' : 'a card'} opened on the laptop`);
+            return { ok: true, note: 'Opened it on the laptop.' };
+          }
           // Flick down / circle on the phone (user, 2026-11-18): the laptop sends something BACK, nothing lands here.
           if (kind === 'pull' || kind === 'circle') {
             if (kind === 'pull') {

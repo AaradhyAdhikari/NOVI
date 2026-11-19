@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { setShownFile } from '../lib/shownCard.js';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { countParts, openFileFrom } from '../lib/changeCounts.js';
@@ -85,6 +86,7 @@ function ChangesView({ id, file, api, onClose }) {
 // On the commit card: the message, then each file with its counts. Tap a file to look inside.
 export default function ChangeList({ changes, api }) {
   const [open, setOpen] = useState(() => (typeof window === 'undefined' ? null : openFileFrom(window.location.search, changes)));
+  useEffect(() => { setShownFile(open ? { card: changes.id, file: open } : null); return () => setShownFile(null); }, [open, changes.id]);
   return (
     <div className="changes">
       {changes.message && <p className="changes-message">{changes.message}</p>}
