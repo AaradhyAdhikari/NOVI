@@ -36,10 +36,27 @@ function defaultCloseWindow() {
     execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps], { windowsHide: true, timeout: 20_000 }, () => resolve());
   });
 }
+// The card window (user, 2026-11-19): its own Edge app window with its own profile, trusting only Novi's own
+// certificate key (the localhost certificate is self-signed), never all certificates.
+const CARD_PROFILE = 'novi-card-edge';
+export function spkiHash(certPem) {
+  try { return crypto.createHash('sha256').update(new crypto.X509Certificate(certPem).publicKey.export({ type: 'spki', format: 'der' })).digest('base64'); }
+  catch { return null; }
+}
+function defaultOpenCardWindow(dataDir, certPem) {
+  return async (url) => {
+    const hash = certPem ? spkiHash(String(certPem)) : null;
+    const args = [`--app=${url}`, '--window-size=1200,900', `--user-data-dir=${path.join(dataDir, CARD_PROFILE)}`, '--no-first-run', '--no-default-browser-check', '--test-type', '--disable-features=msImplicitSignin,Translate'];
+    if (hash) args.push(`--ignore-certificate-errors-spki-list=${hash}`);
+    const child = spawn(EDGE, args, { detached: true, stdio: 'ignore' });
+    child.on('error', () => {});
+    child.unref();
+  };
+}
 const defaultOpenFile = async (file) => { const c = spawn('explorer.exe', [file], { detached: true, stdio: 'ignore' }); c.on('error', () => {}); c.unref(); };
 
 // root / stage / openWindow / closeWindow / openFile / copy / showInFolder / linkDelayMs / focusDelayMs: for tests.
-export function createFlickPlugin({ root = null, stage = null, openWindow = null, closeWindow = null, openFile = defaultOpenFile, copy = defaultCopy, showInFolder = defaultShowInFolder, linkDelayMs = 1600, focusDelayMs = 2500 } = {}) {
+export function createFlickPlugin({ root = null, stage = null, openWindow = null, openCardWindow = null, closeWindow = null, openFile = defaultOpenFile, copy = defaultCopy, showInFolder = defaultShowInFolder, linkDelayMs = 1600, focusDelayMs = 2500 } = {}) {
   return definePluginEntry({
     id: 'flick',
     name: 'Flick',
@@ -171,10 +188,12 @@ export function createFlickPlugin({ root = null, stage = null, openWindow = null
             if (!/^[A-Za-z0-9_-]{1,80}$/.test(cardId) || !rt.noviPage) return { ok: false, error: 'That card can\'t be opened on the laptop.' };
             let fileName = '';
             try { fileName = shotLink ? decodeURIComponent(String(shotLink).replace(/\+/g, ' ')).slice(0, 300) : ''; } catch { fileName = ''; }
-            const target = fileName
-              ? `${rt.noviPage}/?changes=${encodeURIComponent(cardId)}&file=${encodeURIComponent(fileName)}`
-              : `${rt.noviPage}/?card=${encodeURIComponent(cardId)}`;
-            await rt.callTool?.('open_website', { target, on: 'laptop' });
+            // Its own window with only that card (user, 2026-11-19: "i dont want it to open novi for that").
+            const target = `${rt.noviPage}/?cardview=${encodeURIComponent(cardId)}`
+              + (fileName ? `&changes=${encodeURIComponent(cardId)}&file=${encodeURIComponent(fileName)}` : '');
+            await (openCardWindow || defaultOpenCardWindow(rt.dataDir || os.tmpdir(), rt.tls?.cert))(target);
+            // Windows keeps a new window behind the one in use: bring the card window (titled "Card from your phone") forward.
+            setTimeout(() => { Promise.resolve(rt.callTool?.('laptop_window', { do: 'focus', app: 'Card from your phone' })).catch(() => {}); }, focusDelayMs);
             log(`card: ${fileName ? 'a file of a card' : 'a card'} opened on the laptop`);
             return { ok: true, note: 'Opened it on the laptop.' };
           }

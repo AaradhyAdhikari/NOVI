@@ -137,7 +137,7 @@ function setup({ viewers = 0, asked = 'allow', link = null, shot = 'PNGDATA' } =
   const host = new PluginHost({ runtime: rt, env: {}, logger: { warn() {}, info() {} } });
   const pushed = [];
   const stage = { start: async () => 'http://127.0.0.1:1/', stop() {}, push: (i) => pushed.push(i), viewers: () => viewers, items: () => pushed };
-  const plugin = createFlickPlugin({ root, stage, openWindow: async (u) => opened.push(u), openFile: async (p) => ran.push({ openFile: p }), closeWindow: async () => {}, linkDelayMs: 0,
+  const plugin = createFlickPlugin({ root, stage, openWindow: async (u) => opened.push(u), openCardWindow: async (u) => ran.push({ cardWindow: u }), openFile: async (p) => ran.push({ openFile: p }), closeWindow: async () => {}, linkDelayMs: 0,
     copy: async (what) => { ran.push({ copy: what }); return true; }, showInFolder: async (p) => ran.push({ folder: p }) });
   host.register(plugin);
   return { host, root, ran, opened, pushed, handler: host.route('flick') };
@@ -350,10 +350,11 @@ describe('card actions (v2)', () => {
     const t = path.join(tmp(), 'up'); fs.writeFileSync(t, '');
     const out = await s.handler({ file: t, name: 'a1b2-c3', kind: 'card', link: '', from: { deviceId: 'p1' } });
     expect(out).toMatchObject({ ok: true });
-    expect(s.ran.find((r) => r.tool === 'open_website')?.params).toMatchObject({ target: 'https://localhost:3001/?card=a1b2-c3', on: 'laptop' });
+    expect(s.ran.find((r) => r.cardWindow)?.cardWindow).toBe('https://localhost:3001/?cardview=a1b2-c3');
+    expect(s.ran.some((r) => r.tool === 'open_website')).toBe(false);
     const t2 = path.join(tmp(), 'up'); fs.writeFileSync(t2, '');
     await s.handler({ file: t2, name: 'chg9', kind: 'card', link: 'src%2FApp+2.jsx', from: { deviceId: 'p1' } });
-    expect(s.ran.filter((r) => r.tool === 'open_website')[1].params.target).toBe('https://localhost:3001/?changes=chg9&file=src%2FApp%202.jsx');
+    expect(s.ran.filter((r) => r.cardWindow)[1].cardWindow).toBe('https://localhost:3001/?cardview=chg9&changes=chg9&file=src%2FApp%202.jsx');
     expect(s.pushed).toHaveLength(0);
     const t3 = path.join(tmp(), 'up'); fs.writeFileSync(t3, '');
     expect(await s.handler({ file: t3, name: '../x?y', kind: 'card', from: { deviceId: 'p1' } })).toMatchObject({ ok: false });

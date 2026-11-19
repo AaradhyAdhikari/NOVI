@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { setShownFile } from '../lib/shownCard.js';
+import { inCardWindow } from '../lib/cardWindow.js';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { countParts, openFileFrom } from '../lib/changeCounts.js';
@@ -10,7 +11,7 @@ const MARK = { add: '+', del: '−', ctx: ' ', gap: '' };
 // A file's changed lines, or its whole code with the changed lines marked. Edit saves into the project,
 // and the card behind refreshes, so the yes covers what is really going out.
 function ChangesView({ id, file, api, onClose }) {
-  const [tab, setTab] = useState('changes');
+  const [tab, setTab] = useState(() => (inCardWindow() ? 'code' : 'changes')); // the card window starts on the whole code
   const [view, setView] = useState(null);
   const [draft, setDraft] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -85,7 +86,7 @@ function ChangesView({ id, file, api, onClose }) {
 
 // On the commit card: the message, then each file with its counts. Tap a file to look inside.
 export default function ChangeList({ changes, api }) {
-  const [open, setOpen] = useState(() => (typeof window === 'undefined' ? null : openFileFrom(window.location.search, changes)));
+  const [open, setOpen] = useState(() => (typeof window === 'undefined' ? null : openFileFrom(window.location.search, changes) || (inCardWindow() ? changes.files[0]?.file || null : null)));
   useEffect(() => { setShownFile(open ? { card: changes.id, file: open } : null); return () => setShownFile(null); }, [open, changes.id]);
   return (
     <div className="changes">

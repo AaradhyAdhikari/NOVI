@@ -19,6 +19,7 @@ import PairRequests from './components/PairRequests.jsx';
 import SettingsDrawer from './components/SettingsDrawer.jsx';
 import MemoryGalaxy from './components/MemoryGalaxy.jsx';
 import { wantsMemory } from './lib/memoryLink.js';
+import { cardViewId } from './lib/cardWindow.js';
 
 // Novi's newest written reply, shown on the remote view so a voice step's answer is seen there.
 const lastNoviLine = (transcript = []) => {
@@ -91,6 +92,21 @@ export default function App() {
     if (next) stopSpeaking();
   };
 
+  const answerCard = (id, allow, choice, opts = {}) => send({ type: 'approval', id, allow, ...(choice ? { choice } : {}), ...(opts.always ? { always: true } : {}), ...(typeof opts.answer === 'string' ? { answer: opts.answer } : {}), ...(opts.proof || {}) });
+  // A card flicked from the phone: this window shows only that card (src/lib/cardWindow.js).
+  const cardView = typeof window === 'undefined' ? null : cardViewId(window.location.search);
+  if (cardView) {
+    const card = state.approvals.find((a) => a.id === cardView);
+    if (typeof document !== 'undefined') document.title = 'Card from your phone';
+    return (
+      <main className="card-window">
+        {card
+          ? <ApprovalCards api={novi.api} approvals={[card]} resolved={null} onAnswer={answerCard} />
+          : <p className="muted">{state.resolvedNote?.text || 'This card was answered or is gone. You can close this window.'}</p>}
+      </main>
+    );
+  }
+
   return (
     <div className="app">
       <StatusBar
@@ -122,7 +138,7 @@ export default function App() {
       )}
       {novi.isLocal && <PairRequests requests={state.pairRequests} api={novi.api} />}
       <NoticeCards notices={state.notices} onOk={(id) => send({ type: 'notice_ok', id })} />
-      <ApprovalCards api={novi.api} approvals={state.approvals} resolved={state.resolvedNote} onAnswer={(id, allow, choice, opts = {}) => send({ type: 'approval', id, allow, ...(choice ? { choice } : {}), ...(opts.always ? { always: true } : {}), ...(typeof opts.answer === 'string' ? { answer: opts.answer } : {}), ...(opts.proof || {}) })} />
+      <ApprovalCards api={novi.api} approvals={state.approvals} resolved={state.resolvedNote} onAnswer={answerCard} />
       <TalkButton onText={sendVoice} api={novi.api} onRecording={(on) => handsFree.current?.enabled && handsFree.current.pause(on)} handsFreeOn={handsFreeOn || serverWake} answerAt={answerAt} />
       {flickOpen && <FlickSend api={novi.api} onClose={() => { setFlickOpen(false); if (wantsFlick(window.location.search)) window.history.replaceState(null, '', '/'); }} />}
       {memoryOpen && <MemoryGalaxy api={novi.api} onClose={() => { setMemoryOpen(false); window.history.replaceState(null, '', '/'); }} />}
