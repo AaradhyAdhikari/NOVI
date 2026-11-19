@@ -108,7 +108,7 @@ class FlickOverlay(private val svc: NoviService) {
     }
 
     private fun show(ms: Long, vertical: Boolean = false, slim: Boolean = false, fill: (LinearLayout) -> Unit) {
-        if (!android.provider.Settings.canDrawOverlays(svc)) return
+        if (!android.provider.Settings.canDrawOverlays(svc) || PayMode.on()) return
         hide()
         val outer = LinearLayout(ctx).apply { setPadding(dp(12), 0, dp(12), 0) }
         val row = LinearLayout(ctx).apply {

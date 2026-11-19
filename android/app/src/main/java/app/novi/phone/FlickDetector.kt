@@ -17,22 +17,29 @@ class FlickDetector(
     private val windowMs: Long = 300,
     private val cooldownMs: Long = 1500,
 ) {
-    private data class S(val t: Long, val acc: Float, val rx: Float, val ry: Float, val rz: Float)
+    private data class S(val t: Long, val acc: Float, val rx: Float, val ry: Float, val rz: Float, val rxSigned: Float = 0f)
     private val buf = ArrayDeque<S>()
     private var last = Long.MIN_VALUE / 2
 
+    /**
+     * Which way the last flick turned the phone (user, 2026-11-18: flick up sends, flick down pulls):
+     * -1 = top tipped away from you (up, towards the laptop), +1 = top pulled towards you (down).
+     */
+    var lastDirection = -1
+        private set
+
     /** One sample: t in ms, acc in m/s² (gravity removed), rotation in degrees/s. True = a flick. */
     fun feed(t: Long, acc: Float, rx: Float, ry: Float, rz: Float): Boolean {
-        buf.addLast(S(t, abs(acc), abs(rx), abs(ry), abs(rz)))
+        buf.addLast(S(t, abs(acc), abs(rx), abs(ry), abs(rz), rx))
         while (buf.isNotEmpty() && t - buf.first().t > windowMs + calmMs + 200) buf.removeFirst()
         if (t - last < cooldownMs) return false
-        var jolt = 0f; var pitch = 0f; var other = 0f
+        var jolt = 0f; var pitch = 0f; var other = 0f; var pitchSign = -1
         var before = 0; var calm = true
         for (s in buf) {
             val age = t - s.t
             if (age <= windowMs) {
                 if (s.acc > jolt) jolt = s.acc
-                if (s.rx > pitch) pitch = s.rx
+                if (s.rx > pitch) { pitch = s.rx; pitchSign = if (s.rxSigned > 0) 1 else -1 }
                 other = maxOf(other, s.ry, s.rz)
             } else if (age <= windowMs + calmMs) {
                 before++
@@ -41,7 +48,53 @@ class FlickDetector(
         }
         if (jolt >= minAcc && pitch >= minRot && pitch >= axisRatio * other && calm && before >= 3) {
             last = t
+            lastDirection = pitchSign
             buf.clear()
+            return true
+        }
+        return false
+    }
+}
+
+/**
+ * A circle drawn in the air with the phone (user, 2026-11-18: "circle the phone for a screenshot"): the sideways
+ * push (linear acceleration in the screen's x/y plane) turns all the way round, ≥ 330°, in 0.4–1.8 s, strongly
+ * enough (≥ 3.5 m/s²) the whole time. Weak or paused for 250 ms = start again; 2.5 s between circles.
+ */
+class CircleDetector(
+    private val minAcc: Float = 3.5f,
+    private val needDeg: Float = 330f,
+    private val minMs: Long = 400,
+    private val maxMs: Long = 1800,
+    private val gapMs: Long = 250,
+    private val cooldownMs: Long = 2500,
+) {
+    private var start = -1L
+    private var lastStrong = -1L
+    private var lastAngle = 0.0
+    private var swept = 0.0
+    private var lastFire = Long.MIN_VALUE / 2
+
+    fun feed(t: Long, ax: Float, ay: Float): Boolean {
+        if (t - lastFire < cooldownMs) return false
+        val mag = kotlin.math.sqrt(ax * ax + ay * ay)
+        if (mag < minAcc) {
+            if (start >= 0 && t - lastStrong > gapMs) start = -1
+            return false
+        }
+        val angle = kotlin.math.atan2(ay.toDouble(), ax.toDouble())
+        if (start < 0 || t - start > maxMs) { start = t; swept = 0.0; lastAngle = angle; lastStrong = t; return false }
+        var d = angle - lastAngle
+        while (d > Math.PI) d -= 2 * Math.PI
+        while (d < -Math.PI) d += 2 * Math.PI
+        // A turn that changes direction is a shake, not a circle.
+        if (swept != 0.0 && kotlin.math.sign(d) != kotlin.math.sign(swept) && kotlin.math.abs(d) > 0.6) { start = t; swept = 0.0 }
+        swept += d
+        lastAngle = angle
+        lastStrong = t
+        if (kotlin.math.abs(Math.toDegrees(swept)) >= needDeg && t - start >= minMs) {
+            lastFire = t
+            start = -1
             return true
         }
         return false

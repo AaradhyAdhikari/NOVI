@@ -153,6 +153,17 @@ export function createFlickPlugin({ root = null, stage = null, openWindow = null
           const id = crypto.randomBytes(6).toString('hex');
           let item;
           let playTitle = null;
+          // Flick down / circle on the phone (user, 2026-11-18): the laptop sends something BACK, nothing lands here.
+          if (kind === 'pull' || kind === 'circle') {
+            if (kind === 'pull') {
+              const page = await Promise.resolve(rt.callTool?.('laptop_current_link', {})).catch(() => null);
+              if (page?.url) { log('pull: page to the phone'); return { ok: true, link: page.url, title: String(page.title || '').slice(0, 200) }; }
+            }
+            const shot = await Promise.resolve(rt.laptopScreenshot?.()).catch(() => null);
+            if (!shot || shot.refused || !shot.png) return { ok: false, error: shot?.refused ? 'The laptop is showing a private screen (sign-in, payment or settings), so no picture.' : "Couldn't take a picture of the laptop screen." };
+            log(`${kind}: laptop screen to the phone`);
+            return { ok: true, image: Buffer.from(shot.png).toString('base64'), type: 'image/png' };
+          }
           if (kind === 'text') {
             // Text selected on the phone (user, 2026-11-16): a text card, also saved as a .txt in Novi Flick.
             const words = fs.readFileSync(file, 'utf8').replace(/ /g, '').trim().slice(0, 20000);

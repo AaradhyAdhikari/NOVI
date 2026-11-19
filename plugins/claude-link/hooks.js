@@ -16,6 +16,8 @@ const WAIT_MS = 120_000;
 // Questions: 5 minutes for all of them together (a typed answer under "Other" takes longer than a tap; live
 // 2026-11-11 two questions each waited 2 minutes while the hook as a whole was cut at ~2, so the answers were lost).
 export const QUESTION_WAIT_MS = 300_000;
+// Claude's next-step question (the app's box) waits 10 minutes for the phone (user, 2026-11-18: an answer after 2 min was lost).
+export const NEXT_STEP_WAIT_MS = 600_000;
 const said = (text) => String(text || '').replace(/\s+/g, ' ').trim();
 const firstSentence = (text) => {
   const t = said(text).replace(/[*_`#>]/g, '');
@@ -85,7 +87,7 @@ function nextStepAsk(rows) {
 // claude-mem's observers run as Claude sessions too; nobody is waiting on them.
 const background = (h) => /claude-mem|observer-sessions/i.test(`${h.cwd || ''} ${h.transcript_path || ''}`);
 
-export function createHookHandler({ ask, say, notice, worked = (cwd, card) => notice(card), now = Date.now }) {
+export function createHookHandler({ ask, say, notice, worked = (cwd, card) => notice(card), now = Date.now, log = (line) => console.log(line) }) {
   const sessions = new Map(); // session_id → { project, state, line, at }
   const note = (h, state, line = '') => sessions.set(h.session_id || h.cwd, { project: projectOf(h.cwd), state, line, at: now() });
   const askedSteps = new Set(); // next-step boxes already sent: Stop comes again after an answer
@@ -120,17 +122,21 @@ export function createHookHandler({ ask, say, notice, worked = (cwd, card) => no
     const input = h.tool_input || {};
     const answers = {};
     const until = now() + QUESTION_WAIT_MS;
+    // An answer given on the phone is never thrown away (live 2026-11-18: one answered + one skipped lost both).
+    // Only when nothing at all was answered does Claude's own window ask instead.
+    let gotOne = false;
     for (const q of [].concat(input.questions || [])) {
       const left = until - now();
-      if (left < 5_000) { note(h, 'waiting', q.question); return {}; }
+      if (left < 5_000) { answers[q.question] = '(not answered on the phone in time)'; continue; }
       note(h, 'asking', q.question);
       const d = await ask({
         title: `Claude (${project}) asks: ${q.question}`, tier: 'medium', source: 'claude', timeoutMs: left,
         question: { text: q.question, options: q.options || [], multiSelect: Boolean(q.multiSelect) },
       });
-      if (!d?.allow || !d.answer) { note(h, 'waiting', q.question); return {}; } // not answered here: Claude's window asks
-      answers[q.question] = d.answer;
+      if (d?.allow && d.answer) { answers[q.question] = d.answer; gotOne = true; log(`[claude-hook] answered on Novi: "${String(q.question).slice(0, 50)}" → "${String(d.answer).slice(0, 120)}"`); }
+      else answers[q.question] = d?.timedOut || !d ? '(not answered on the phone in time)' : '(skipped on the phone)';
     }
+    if (!gotOne) { note(h, 'waiting', ''); return {}; } // nothing answered here: Claude's window asks
     note(h, 'working');
     return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow', updatedInput: { ...input, answers } } };
   }
@@ -141,10 +147,11 @@ export function createHookHandler({ ask, say, notice, worked = (cwd, card) => no
     if (askedSteps.size > 200) askedSteps.delete(askedSteps.values().next().value);
     note(h, 'asking', step.text);
     const d = await ask({
-      title: `Claude (${projectOf(h.cwd)}) asks: ${step.text}`, tier: 'medium', source: 'claude', timeoutMs: WAIT_MS,
+      title: `Claude (${projectOf(h.cwd)}) asks: ${step.text}`, tier: 'medium', source: 'claude', timeoutMs: NEXT_STEP_WAIT_MS,
       question: { text: step.text, options: step.options, multiSelect: false },
     });
     if (!d?.allow || !d.answer) { note(h, 'waiting', step.text); return null; } // not answered: the app's box stays
+    log(`[claude-hook] answered on Novi: "${String(step.text).slice(0, 50)}" → "${String(d.answer).slice(0, 120)}"`);
     note(h, 'working');
     return { decision: 'block', reason: `The user answered your question on Novi: "${d.answer}". Carry on from that.` };
   }

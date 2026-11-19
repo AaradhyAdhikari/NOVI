@@ -31,7 +31,7 @@ class MicBubble(private val context: Context, private val onTap: () -> Unit) {
 
     /** Shown when typing is on, the overlay is allowed and the Novi app isn't on screen. */
     fun update(wanted: Boolean) {
-        val show = wanted && Settings.canDrawOverlays(context)
+        val show = wanted && Settings.canDrawOverlays(context) && !PayMode.on()
         if (show && view == null) add() else if (!show) remove()
     }
 

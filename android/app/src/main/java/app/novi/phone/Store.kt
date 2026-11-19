@@ -44,6 +44,10 @@ class Store(context: Context) {
     var flickAnywhere: Boolean
         get() = prefs.getBoolean("flickAnywhere", true)
         set(v) = prefs.edit().putBoolean("flickAnywhere", v).apply()
+    /** Flick up / down swapped, for a phone or a wrist where they come out the other way round. */
+    var flickSwapped: Boolean
+        get() = prefs.getBoolean("flickSwapped", false)
+        set(v) = prefs.edit().putBoolean("flickSwapped", v).apply()
     /** A small "Send to Novi" pop-up after each screenshot. */
     var screenshotPopup: Boolean
         get() = prefs.getBoolean("screenshotPopup", true)

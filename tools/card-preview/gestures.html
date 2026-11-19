@@ -1,108 +1,155 @@
 <!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Novi Gestures</title>
 <style>
-:root{--bg:#07161b;--card:#0d252c;--line:#1f4650;--ink:#e6fbff;--mute:#8fc7d3;--teal:#3fe0ff;--hand:#f2c6a0;--hand2:#d9a47c;--phone:#14323a;}
+:root{--bg:#050f13;--card:#0b2027;--card2:#0f2b33;--line:#1c4651;--ink:#eafcff;--mute:#8fc3cf;--teal:#3fe0ff;--teal2:#7af0ff;--good:#6fe7b0;--warn:#ffb86b;--bad:#ff7a8a;
+--skin:#f1c39c;--skin2:#d79f76;--glass:#0a1a20}
 *{box-sizing:border-box}
-body{margin:0;background:radial-gradient(1200px 600px at 50% -10%,#0f3a45,var(--bg));color:var(--ink);font:15px/1.45 "Segoe UI",system-ui,sans-serif;padding:28px 16px 60px}
-h1{font-weight:700;font-size:28px;margin:0 0 4px;text-align:center}
-p.sub{color:var(--mute);text-align:center;margin:0 0 26px}
-.grid{max-width:1100px;margin:0 auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:16px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:14px 14px 16px;display:flex;flex-direction:column;align-items:center}
-.stage{width:200px;height:190px;position:relative}
-.card h2{font-size:16px;margin:8px 0 2px}
-.card .job{color:var(--teal);font-weight:600;font-size:13.5px;text-align:center}
-.card .why{color:var(--mute);font-size:12.5px;text-align:center;margin-top:4px}
-.tag{font-size:11px;border:1px solid var(--line);border-radius:999px;padding:2px 8px;color:var(--mute);margin-top:8px}
-.tag.done{color:#6fe7b0;border-color:#2f6b53}
-svg{overflow:visible}
-.ph{fill:var(--phone);stroke:var(--teal);stroke-width:2}
-.scr{fill:#0a1d22}
-.hand{fill:var(--hand);stroke:var(--hand2);stroke-width:1.5}
-.laptop{fill:none;stroke:var(--mute);stroke-width:2}
-.dot{fill:var(--teal)}
-.lbl{fill:var(--mute);font-size:10px}
-/* animations */
-@keyframes flickUp{0%,20%{transform:translate(0,0) rotate(0)}35%{transform:translate(0,-6px) rotate(-18deg)}45%,100%{transform:translate(0,0) rotate(0)}}
-@keyframes fly{0%,38%{opacity:0;transform:translate(0,0) scale(.6)}45%{opacity:1}70%{opacity:1;transform:translate(0,-92px) scale(.9)}80%,100%{opacity:0;transform:translate(0,-100px) scale(.9)}}
-@keyframes pull{0%,20%{transform:translate(0,0) rotate(0)}38%{transform:translate(0,10px) rotate(20deg)}50%,100%{transform:translate(0,0) rotate(0)}}
-@keyframes flyDown{0%,40%{opacity:0;transform:translate(0,-100px) scale(.9)}50%{opacity:1}75%{opacity:1;transform:translate(0,-8px) scale(.7)}85%,100%{opacity:0;transform:translate(0,0) scale(.6)}}
-@keyframes shake{0%,30%,70%,100%{transform:translateX(0)}35%,45%,55%,65%{transform:translateX(-10px)}40%,50%,60%{transform:translateX(10px)}}
-@keyframes twist{0%,25%{transform:rotate(0)}45%,60%{transform:rotate(85deg)}80%,100%{transform:rotate(0)}}
-@keyframes flip{0%,25%{transform:scaleY(1)}40%,70%{transform:scaleY(-1)}85%,100%{transform:scaleY(1)}}
-@keyframes tap{0%,20%,40%,100%{transform:translate(0,0)}25%,45%{transform:translate(-6px,4px)}}
-@keyframes ring{0%,48%{opacity:0;r:4}55%{opacity:1}90%,100%{opacity:0;r:26}}
-@keyframes tiltLR{0%,15%{transform:rotate(0)}30%,40%{transform:rotate(-22deg)}55%,65%{transform:rotate(22deg)}80%,100%{transform:rotate(0)}}
-@keyframes ear{0%,25%{transform:translate(0,0) rotate(0)}50%,75%{transform:translate(30px,-50px) rotate(-30deg)}95%,100%{transform:translate(0,0) rotate(0)}}
-@keyframes fade{0%,45%{opacity:0}55%,80%{opacity:1}100%{opacity:0}}
-@keyframes cancelX{0%,40%{opacity:0;transform:scale(.4)}55%,85%{opacity:1;transform:scale(1)}100%{opacity:0}}
-@keyframes zz{0%,40%{opacity:0;transform:translate(0,0)}60%,80%{opacity:1;transform:translate(8px,-14px)}100%{opacity:0;transform:translate(10px,-20px)}}
-.a{transform-box:fill-box;transform-origin:50% 85%;animation:3s ease-in-out infinite}
-.c{transform-box:fill-box;transform-origin:center;animation:3s ease-in-out infinite}
-@media (prefers-reduced-motion:reduce){.a,.c,.fx{animation-play-state:paused}}
+body{margin:0;min-height:100vh;color:var(--ink);font:15px/1.45 "Segoe UI",system-ui,sans-serif;padding:28px 16px 70px;
+background:radial-gradient(900px 500px at 15% -10%,#0f3d4a 0,transparent 60%),radial-gradient(900px 600px at 100% 0,#102c45 0,transparent 55%),var(--bg)}
+header{max-width:1180px;margin:0 auto 18px;text-align:center}
+h1{font-size:30px;margin:0 0 6px;letter-spacing:-.02em}
+.sub{color:var(--mute);margin:0 auto;max-width:680px}
+.filters{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin:16px 0 22px}
+.filters button{font:600 13px inherit;padding:7px 14px;border-radius:999px;border:1px solid var(--line);background:#0b2229;color:var(--ink);cursor:pointer}
+.filters button[aria-pressed=true]{background:var(--teal);color:#032029;border-color:var(--teal)}
+.grid{max-width:1180px;margin:0 auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px}
+.card{background:linear-gradient(180deg,var(--card2),var(--card));border:1px solid var(--line);border-radius:20px;padding:12px 14px 16px;display:flex;flex-direction:column;align-items:center;position:relative;overflow:hidden}
+.card::after{content:"";position:absolute;inset:auto -40% -60% -40%;height:120px;background:radial-gradient(closest-side,rgba(63,224,255,.10),transparent);pointer-events:none}
+.num{position:absolute;top:10px;left:12px;font:700 12px ui-monospace,monospace;color:var(--mute)}
+.stage{width:230px;height:200px}
+h2{font-size:16.5px;margin:6px 0 2px}
+.job{color:var(--teal2);font-weight:650;font-size:13.5px;text-align:center}
+.why{color:var(--mute);font-size:12.5px;text-align:center;margin-top:4px;min-height:36px}
+.tags{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;justify-content:center}
+.tag{font-size:11px;border:1px solid var(--line);border-radius:999px;padding:2px 9px;color:var(--mute)}
+.tag.built{color:var(--good);border-color:#2a6a51}.tag.easy{color:var(--teal2)}.tag.risky{color:var(--warn);border-color:#6b4a26}
+svg{overflow:visible;display:block}
+/* shared art */
+.lapbody{fill:#0d242b;stroke:#3a6f7c;stroke-width:1.6}.lapscr{fill:#071418}.lapbase{fill:#16343d;stroke:#3a6f7c;stroke-width:1.4}
+.phone{fill:url(#phoneGrad);stroke:var(--teal);stroke-width:1.8}.pscr{fill:url(#scrGrad)}.glare{fill:url(#glare);opacity:.6}
+.notch{fill:#04121a}.skin{fill:var(--skin);stroke:var(--skin2);stroke-width:1.3}.nail{fill:#f8dcc6}
+.ghost{opacity:0}.label{fill:var(--mute);font:600 10.5px "Segoe UI",sans-serif}
+.lit{fill:var(--teal);opacity:0}.spark{fill:var(--teal2);opacity:0}
+/* the motion itself */
+.mv{transform-box:fill-box;animation:3.6s cubic-bezier(.45,.05,.2,1) infinite}
+.paused .mv{animation-play-state:paused}
+@keyframes up{0%,18%{transform:translateY(0) rotate(0)}30%{transform:translateY(8px) rotate(6deg)}40%{transform:translateY(-14px) rotate(-24deg)}52%,100%{transform:translateY(0) rotate(0)}}
+@keyframes down{0%,18%{transform:translateY(0) rotate(0)}30%{transform:translateY(-8px) rotate(-6deg)}40%{transform:translateY(14px) rotate(26deg)}52%,100%{transform:translateY(0) rotate(0)}}
+@keyframes flyUp{0%,38%{opacity:0;transform:translate(0,0) scale(.5)}44%{opacity:1}68%{opacity:1;transform:translate(0,-108px) scale(1)}74%,100%{opacity:0;transform:translate(0,-112px) scale(1)}}
+@keyframes flyDown{0%,40%{opacity:0;transform:translate(0,-108px) scale(1)}46%{opacity:1}70%{opacity:1;transform:translate(0,-6px) scale(.55)}76%,100%{opacity:0}}
+@keyframes litUp{0%,64%{opacity:0}70%,92%{opacity:.85}100%{opacity:0}}
+@keyframes litEarly{0%,36%{opacity:.85}44%,100%{opacity:0}}
+@keyframes shake{0%,22%,74%,100%{transform:translateX(0) rotate(0)}26%,38%,50%,62%{transform:translateX(-11px) rotate(-6deg)}32%,44%,56%,68%{transform:translateX(11px) rotate(6deg)}}
+@keyframes popX{0%,70%{opacity:0;transform:scale(.3)}78%,92%{opacity:1;transform:scale(1)}100%{opacity:0;transform:scale(1.1)}}
+@keyframes knock{0%,20%,34%,48%,100%{transform:translate(0,0) rotate(0)}26%,40%{transform:translate(-7px,5px) rotate(-8deg)}}
+@keyframes ring{0%,25%{opacity:0;transform:scale(.2)}30%{opacity:1}50%{opacity:0;transform:scale(1.6)}100%{opacity:0}}
+@keyframes ring2{0%,40%{opacity:0;transform:scale(.2)}45%{opacity:1}65%{opacity:0;transform:scale(1.6)}100%{opacity:0}}
+@keyframes show{0%,52%{opacity:0;transform:translateY(4px)}60%,90%{opacity:1;transform:translateY(0)}100%{opacity:0}}
+@keyframes twist{0%,20%{transform:rotate(0)}42%,66%{transform:rotate(90deg)}86%,100%{transform:rotate(0)}}
+@keyframes flipDown{0%,20%{transform:translateY(0) scaleY(1)}36%{transform:translateY(-18px) scaleY(.1)}48%,72%{transform:translateY(0) scaleY(-1)}88%,100%{transform:translateY(0) scaleY(1)}}
+@keyframes zz{0%,46%{opacity:0;transform:translate(0,0)}60%,78%{opacity:1;transform:translate(10px,-16px)}100%{opacity:0;transform:translate(14px,-24px)}}
+@keyframes tilt{0%,12%{transform:rotate(0)}26%,36%{transform:rotate(-24deg)}50%{transform:rotate(0)}62%,72%{transform:rotate(24deg)}86%,100%{transform:rotate(0)}}
+@keyframes leftHi{0%,24%,40%,100%{opacity:.25}28%,36%{opacity:1}}
+@keyframes rightHi{0%,60%,76%,100%{opacity:.25}64%,72%{opacity:1}}
+@keyframes ear{0%,18%{transform:translate(0,0) rotate(0)}46%,76%{transform:translate(42px,-58px) rotate(-34deg)}96%,100%{transform:translate(0,0) rotate(0)}}
+@keyframes circle{0%,12%{transform:translate(0,0)}25%{transform:translate(18px,-10px)}37%{transform:translate(0,-22px)}50%{transform:translate(-18px,-10px)}62%,100%{transform:translate(0,0)}}
+@keyframes trace{0%,12%{stroke-dashoffset:120;opacity:.9}62%{stroke-dashoffset:0;opacity:.9}80%,100%{opacity:0;stroke-dashoffset:0}}
+@keyframes point{0%,16%{transform:translate(0,0) rotate(0)}34%,80%{transform:translate(0,-14px) rotate(-8deg)}96%,100%{transform:translate(0,0) rotate(0)}}
+@keyframes hold{0%,40%{stroke-dashoffset:88}78%{stroke-dashoffset:0}84%,100%{stroke-dashoffset:0;opacity:0}}
+@keyframes pocket{0%,20%{transform:translateY(0);opacity:1}50%,74%{transform:translateY(62px);opacity:1}76%{opacity:0}88%{opacity:0;transform:translateY(0)}100%{opacity:1;transform:translateY(0)}}
+@keyframes lock{0%,54%{opacity:0;transform:scale(.6)}62%,90%{opacity:1;transform:scale(1)}100%{opacity:0}}
+@keyframes throwR{0%,18%{transform:translateX(0) rotate(0)}30%{transform:translateX(-10px) rotate(-10deg)}40%{transform:translateX(16px) rotate(18deg)}54%,100%{transform:translateX(0) rotate(0)}}
+@keyframes flyR{0%,38%{opacity:0;transform:translate(0,0) scale(.5)}46%{opacity:1}70%{opacity:1;transform:translate(84px,-34px) scale(1)}78%,100%{opacity:0}}
+@keyframes tray{0%,18%{transform:rotate(0)}38%,82%{transform:rotate(-78deg) translateY(-6px)}100%{transform:rotate(0)}}
+@keyframes wave{0%,16%{transform:translateX(-40px);opacity:0}24%{opacity:1}48%{transform:translateX(40px);opacity:1}56%,100%{transform:translateX(44px);opacity:0}}
+@keyframes slide{0%,46%{transform:translateX(0)}56%,90%{transform:translateX(-26px)}100%{transform:translateX(0)}}
+@keyframes spin{0%,20%{transform:rotate(0)}70%{transform:rotate(360deg)}100%{transform:rotate(360deg)}}
+@keyframes sparks{0%,44%{opacity:0;transform:scale(.2)}52%{opacity:1}70%{opacity:0;transform:scale(1.4)}100%{opacity:0}}
+@media (prefers-reduced-motion:reduce){.mv{animation-play-state:paused}}
 </style></head><body>
-<h1>Novi gestures: one move, one job</h1>
-<p class="sub">Ideas for giving each phone gesture its own job. Pick the ones you like and I'll build them.</p>
-<div class="grid">
+<svg width="0" height="0" style="position:absolute"><defs>
+<linearGradient id="phoneGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1c4450"/><stop offset="1" stop-color="#0c252d"/></linearGradient>
+<linearGradient id="scrGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0d2d36"/><stop offset="1" stop-color="#06161b"/></linearGradient>
+<linearGradient id="glare" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffffff" stop-opacity=".22"/><stop offset=".45" stop-color="#ffffff" stop-opacity="0"/></linearGradient>
+<g id="ph"><rect class="phone" x="-21" y="-38" width="42" height="76" rx="9"/><rect class="pscr" x="-17" y="-32" width="34" height="62" rx="5"/><rect class="notch" x="-5" y="-30" width="10" height="3" rx="1.5"/><path class="glare" d="M-17 -32 h20 l-20 40z"/></g>
+<g id="hand"><path class="skin" d="M-26 10 q-4 24 10 34 h30 q14-6 10-30 l-6 -6 v14 h-38 v-14z"/><path class="skin" d="M-26 4 q-6 2 -6 10 q2 8 8 6z"/><ellipse class="nail" cx="-28" cy="9" rx="2.4" ry="1.8"/></g>
+<g id="lap"><rect class="lapbody" x="-46" y="-30" width="92" height="56" rx="5"/><rect class="lapscr" x="-41" y="-25" width="82" height="46" rx="3"/><path class="lapbase" d="M-58 28 h116 l-8 7 h-100z"/></g>
+</defs></svg>
 
-<!-- 1 flick up -->
-<div class="card"><div class="stage"><svg viewBox="0 0 200 190" width="200" height="190">
-<rect class="laptop" x="60" y="6" width="80" height="44" rx="4"/><line class="laptop" x1="48" y1="54" x2="152" y2="54"/>
-<g class="a" style="animation-name:flickUp"><rect class="ph" x="80" y="100" width="40" height="72" rx="8"/><rect class="scr" x="85" y="108" width="30" height="54" rx="3"/>
-<path class="hand" d="M74 150 q-6 18 8 28 h36 q12-8 6-28 l-6 -4 v10 h-36 v-10z"/></g>
-<rect class="dot c" x="94" y="124" width="12" height="10" rx="2" style="animation-name:fly"/>
-</svg></div><h2>Flick up</h2><div class="job">Send it to the laptop</div><div class="why">What's on screen, a photo, a link or selected text lands on the stage.</div><span class="tag done">Built</span></div>
+<header><h1>Novi gestures: one move, one job</h1>
+<p class="sub">15 ideas. Each phone move does a different job. <b>Easy</b> ones are hard to trigger by accident; <b>needs a switch</b> ones could fire while walking, so they'd come with an on/off toggle.</p>
+<div class="filters" role="group" aria-label="Filter"><button data-f="all" aria-pressed="true">All</button><button data-f="easy" aria-pressed="false">Easy</button><button data-f="risky" aria-pressed="false">Needs a switch</button><button id="pause" aria-pressed="false">Pause animations</button></div></header>
+<main class="grid" id="grid"></main>
 
-<!-- 2 pull down -->
-<div class="card"><div class="stage"><svg viewBox="0 0 200 190" width="200" height="190">
-<rect class="laptop" x="60" y="6" width="80" height="44" rx="4"/><line class="laptop" x1="48" y1="54" x2="152" y2="54"/>
-<g class="a" style="animation-name:pull"><rect class="ph" x="80" y="100" width="40" height="72" rx="8"/><rect class="scr" x="85" y="108" width="30" height="54" rx="3"/>
-<path class="hand" d="M74 150 q-6 18 8 28 h36 q12-8 6-28 l-6 -4 v10 h-36 v-10z"/></g>
-<rect class="dot c" x="94" y="124" width="12" height="10" rx="2" style="animation-name:flyDown"/>
-</svg></div><h2>Flick down (pull)</h2><div class="job">Bring it from the laptop</div><div class="why">The laptop's open page, copied text or a screenshot jumps to your phone.</div><span class="tag">Idea</span></div>
-
-<!-- 3 shake -->
-<div class="card"><div class="stage"><svg viewBox="0 0 200 190" width="200" height="190">
-<g class="c" style="animation-name:shake"><rect class="ph" x="80" y="60" width="40" height="72" rx="8"/><rect class="scr" x="85" y="68" width="30" height="54" rx="3"/>
-<path class="hand" d="M74 110 q-6 18 8 28 h36 q12-8 6-28 l-6 -4 v10 h-36 v-10z"/></g>
-<g class="c" style="animation-name:cancelX"><circle cx="150" cy="50" r="14" fill="none" stroke="#ff7a7a" stroke-width="2.5"/><path d="M144 44 l12 12 M156 44 l-12 12" stroke="#ff7a7a" stroke-width="2.5"/></g>
-</svg></div><h2>Shake</h2><div class="job">Stop / undo</div><div class="why">Stops Novi talking, cancels what's running, or undoes the last step.</div><span class="tag">Idea</span></div>
-
-<!-- 4 double tap back -->
-<div class="card"><div class="stage"><svg viewBox="0 0 200 190" width="200" height="190">
-<rect class="ph" x="80" y="50" width="40" height="80" rx="8"/><rect class="scr" x="85" y="58" width="30" height="62" rx="3"/>
-<g class="a" style="animation-name:tap"><path class="hand" d="M122 96 q20 -4 30 6 l-4 8 q-10 -6 -26 -4z"/></g>
-<circle class="c" cx="122" cy="98" r="4" fill="none" stroke="var(--teal)" stroke-width="2" style="animation-name:ring"/>
-<text class="lbl c" x="100" y="150" text-anchor="middle" style="animation-name:fade">🎤 listening…</text>
-</svg></div><h2>Double-tap the back</h2><div class="job">Talk to Novi</div><div class="why">Starts listening from any app, no button, no wake word.</div><span class="tag">Idea</span></div>
-
-<!-- 5 twist -->
-<div class="card"><div class="stage"><svg viewBox="0 0 200 190" width="200" height="190">
-<g class="c" style="animation-name:twist"><rect class="ph" x="80" y="56" width="40" height="72" rx="8"/><rect class="scr" x="85" y="64" width="30" height="54" rx="3"/>
-<path class="hand" d="M74 106 q-6 18 8 28 h36 q12-8 6-28 l-6 -4 v10 h-36 v-10z"/></g>
-<text class="lbl c" x="100" y="170" text-anchor="middle" style="animation-name:fade">🖥 remote view opens</text>
-</svg></div><h2>Twist sideways</h2><div class="job">Open the laptop screen</div><div class="why">Turn the phone to landscape with a twist and the remote view starts.</div><span class="tag">Idea</span></div>
-
-<!-- 6 face down -->
-<div class="card"><div class="stage"><svg viewBox="0 0 200 190" width="200" height="190">
-<line x1="40" y1="150" x2="160" y2="150" stroke="var(--line)" stroke-width="2"/>
-<g class="c" style="animation-name:flip;transform-origin:100px 130px"><rect class="ph" x="70" y="118" width="60" height="16" rx="6"/><rect class="scr" x="76" y="121" width="48" height="6" rx="2"/></g>
-<text class="c" x="140" y="96" font-size="16" fill="var(--mute)" style="animation-name:zz">z z</text>
-</svg></div><h2>Put it face down</h2><div class="job">Quiet mode</div><div class="why">Novi stops talking and pauses music; flip back and she's back.</div><span class="tag">Idea</span></div>
-
-<!-- 7 tilt left right -->
-<div class="card"><div class="stage"><svg viewBox="0 0 200 190" width="200" height="190">
-<g class="a" style="animation-name:tiltLR"><rect class="ph" x="80" y="56" width="40" height="72" rx="8"/><rect class="scr" x="85" y="64" width="30" height="54" rx="3"/>
-<path class="hand" d="M74 106 q-6 18 8 28 h36 q12-8 6-28 l-6 -4 v10 h-36 v-10z"/></g>
-<text class="lbl" x="40" y="80">⏪ 10s</text><text class="lbl" x="140" y="80">10s ⏩</text>
-</svg></div><h2>Tilt left / right</h2><div class="job">Skip in videos and songs</div><div class="why">On the laptop: back or ahead 10 seconds, or previous / next song.</div><span class="tag">Idea</span></div>
-
-<!-- 8 raise to ear -->
-<div class="card"><div class="stage"><svg viewBox="0 0 200 190" width="200" height="190">
-<circle cx="150" cy="44" r="26" fill="#123038" stroke="var(--line)"/><path d="M168 40 q8 4 0 12" stroke="var(--hand2)" stroke-width="3" fill="none"/>
-<g class="a" style="animation-name:ear"><rect class="ph" x="70" y="96" width="36" height="66" rx="8"/><rect class="scr" x="75" y="104" width="26" height="48" rx="3"/></g>
-<text class="lbl c" x="60" y="40" style="animation-name:fade">🔈 reads quietly</text>
-</svg></div><h2>Raise to your ear</h2><div class="job">Hear Novi privately</div><div class="why">Her last reply or a card is read through the earpiece, not the speaker.</div><span class="tag">Idea</span></div>
-
-</div>
+<script>
+const G = [
+ {t:'Flick up',j:'Send it to the laptop',w:'What’s on screen, a photo, a link or selected text lands on the stage.',k:['built','easy'],
+  s:`<use href="#lap" x="115" y="44"/><rect class="lit mv" x="76" y="21" width="78" height="44" rx="3" style="animation-name:litUp"/>
+     <g class="mv" style="animation-name:up;transform-origin:115px 175px"><use href="#ph" x="115" y="140"/><use href="#hand" x="115" y="150"/></g>
+     <rect class="mv" x="105" y="128" width="20" height="15" rx="2" fill="#3fe0ff" style="animation-name:flyUp"/>`},
+ {t:'Flick down (pull)',j:'Bring it from the laptop',w:'The laptop’s open page, copied text or a screenshot jumps to your phone.',k:['easy'],
+  s:`<use href="#lap" x="115" y="44"/><rect class="lit mv" x="76" y="21" width="78" height="44" rx="3" style="animation-name:litEarly"/>
+     <g class="mv" style="animation-name:down;transform-origin:115px 175px"><use href="#ph" x="115" y="140"/><use href="#hand" x="115" y="150"/></g>
+     <rect class="mv" x="105" y="128" width="20" height="15" rx="2" fill="#3fe0ff" style="animation-name:flyDown"/>`},
+ {t:'Shake',j:'Stop / undo',w:'Stops Novi talking, cancels what’s running or undoes the last step.',k:['easy'],
+  s:`<g class="mv" style="animation-name:shake;transform-origin:115px 140px"><use href="#ph" x="115" y="105"/><use href="#hand" x="115" y="115"/></g>
+     <g class="mv" style="animation-name:popX;transform-origin:182px 50px"><circle cx="182" cy="50" r="16" fill="#2a0f16" stroke="#ff7a8a" stroke-width="2.5"/><path d="M175 43l14 14M189 43l-14 14" stroke="#ff7a8a" stroke-width="2.6" stroke-linecap="round"/></g>`},
+ {t:'Double-tap the back',j:'Talk to Novi',w:'Starts listening from any app: no button, no wake word.',k:['easy'],
+  s:`<use href="#ph" x="115" y="100"/><g class="mv" style="animation-name:knock;transform-origin:150px 104px"><path class="skin" d="M138 102 q22 -6 36 4 l-5 9 q-12 -7 -30 -4z"/></g>
+     <circle class="mv" cx="137" cy="104" r="10" fill="none" stroke="#3fe0ff" stroke-width="2" style="animation-name:ring;transform-origin:137px 104px"/>
+     <circle class="mv" cx="137" cy="104" r="10" fill="none" stroke="#3fe0ff" stroke-width="2" style="animation-name:ring2;transform-origin:137px 104px"/>
+     <text class="label mv" x="115" y="168" text-anchor="middle" style="animation-name:show">🎤 Listening…</text>`},
+ {t:'Put it face down',j:'Quiet mode',w:'Novi goes silent and music pauses; flip it back and she’s back.',k:['easy'],
+  s:`<line x1="40" y1="160" x2="190" y2="160" stroke="#1c4651" stroke-width="3" stroke-linecap="round"/>
+     <g class="mv" style="animation-name:flipDown;transform-origin:115px 150px"><rect class="phone" x="80" y="140" width="70" height="16" rx="6"/><rect class="pscr" x="86" y="143" width="58" height="7" rx="2"/></g>
+     <text class="mv" x="160" y="110" font-size="17" fill="#8fc3cf" style="animation-name:zz">z z</text>`},
+ {t:'Knock on the desk twice',j:'Lock the laptop',w:'Two knocks with the phone and the laptop locks as you walk away.',k:['easy'],
+  s:`<use href="#lap" x="115" y="48"/><line x1="40" y1="170" x2="190" y2="170" stroke="#1c4651" stroke-width="3" stroke-linecap="round"/>
+     <g class="mv" style="animation-name:knock;transform-origin:115px 160px"><g transform="translate(115 140) rotate(90)"><use href="#ph" x="0" y="0"/></g></g>
+     <g class="mv" style="animation-name:lock;transform-origin:115px 46px"><rect x="105" y="44" width="20" height="16" rx="3" fill="#ffb86b"/><path d="M109 44v-5a6 6 0 0 1 12 0v5" fill="none" stroke="#ffb86b" stroke-width="2.4"/></g>`},
+ {t:'Point at the laptop',j:'Wake it and open the stage',w:'Aim the phone at the screen and hold still for a second.',k:['easy'],
+  s:`<use href="#lap" x="115" y="44"/><rect class="lit mv" x="76" y="21" width="78" height="44" rx="3" style="animation-name:litUp"/>
+     <g class="mv" style="animation-name:point;transform-origin:115px 175px"><use href="#ph" x="115" y="140"/><use href="#hand" x="115" y="150"/></g>
+     <circle cx="115" cy="140" r="14" fill="none" stroke="#3fe0ff" stroke-width="3" stroke-dasharray="88" class="mv" style="animation-name:hold"/>`},
+ {t:'Draw a circle in the air',j:'Screenshot of the laptop to the phone',w:'One loop with the phone and the laptop’s screen arrives as a picture.',k:['easy'],
+  s:`<use href="#lap" x="115" y="40"/><circle cx="115" cy="128" r="22" fill="none" stroke="#3fe0ff" stroke-width="2" stroke-dasharray="140" class="mv" style="animation-name:trace"/>
+     <g class="mv" style="animation-name:circle"><use href="#ph" x="115" y="140"/><use href="#hand" x="115" y="150"/></g>`},
+ {t:'Throw to the right',j:'Send to your last WhatsApp chat',w:'A sideways throw shares what’s on screen with whoever you chatted with last.',k:['easy'],
+  s:`<circle cx="196" cy="74" r="18" fill="#103a2c" stroke="#6fe7b0" stroke-width="2"/><text x="196" y="79" text-anchor="middle" font-size="15">💬</text>
+     <g class="mv" style="animation-name:throwR;transform-origin:100px 175px"><use href="#ph" x="100" y="130"/><use href="#hand" x="100" y="140"/></g>
+     <rect class="mv" x="91" y="118" width="20" height="15" rx="2" fill="#6fe7b0" style="animation-name:flyR"/>`},
+ {t:'Twist sideways',j:'Open the laptop screen',w:'A quick twist to landscape starts the remote view.',k:['risky'],
+  s:`<g class="mv" style="animation-name:twist;transform-origin:115px 105px"><use href="#ph" x="115" y="105"/><use href="#hand" x="115" y="115"/></g>
+     <text class="label mv" x="115" y="178" text-anchor="middle" style="animation-name:show">🖥 Remote view</text>`},
+ {t:'Tilt left / right',j:'Skip in videos and songs',w:'Back or ahead 10 seconds, or previous / next song, on the laptop.',k:['risky'],
+  s:`<g class="mv" style="animation-name:tilt;transform-origin:115px 150px"><use href="#ph" x="115" y="110"/><use href="#hand" x="115" y="120"/></g>
+     <text class="label mv" x="44" y="70" style="animation-name:leftHi">⏪ 10 s</text><text class="label mv" x="160" y="70" style="animation-name:rightHi">10 s ⏩</text>`},
+ {t:'Raise to your ear',j:'Hear Novi privately',w:'Her last reply or a card is read through the earpiece, not the speaker.',k:['risky'],
+  s:`<circle cx="176" cy="54" r="30" fill="#123038" stroke="#1c4651"/><path d="M197 48 q10 6 0 16" stroke="var(--skin2)" stroke-width="3.5" fill="none"/>
+     <g class="mv" style="animation-name:ear;transform-origin:110px 140px"><use href="#ph" x="110" y="130"/></g>
+     <text class="label mv" x="60" y="44" text-anchor="middle" style="animation-name:show">🔈 Quietly</text>`},
+ {t:'Put it in your pocket',j:'Novi follows you',w:'Phone goes in the pocket: the laptop locks and cards come to the phone only.',k:['risky'],
+  s:`<use href="#lap" x="160" y="40"/><path d="M55 150 h80 v40 h-80z" fill="#14323a" stroke="#3a6f7c" stroke-width="1.6"/><path d="M55 150 q40 18 80 0" fill="none" stroke="#3a6f7c" stroke-width="1.6"/>
+     <g class="mv" style="animation-name:pocket"><use href="#ph" x="95" y="105"/></g>
+     <g class="mv" style="animation-name:lock;transform-origin:160px 38px"><rect x="150" y="36" width="20" height="16" rx="3" fill="#ffb86b"/><path d="M154 36v-5a6 6 0 0 1 12 0v5" fill="none" stroke="#ffb86b" stroke-width="2.4"/></g>`},
+ {t:'Hold it flat like a tray',j:'Read the newest card',w:'Lay the phone flat in your palm and Novi reads what’s waiting.',k:['risky'],
+  s:`<g class="mv" style="animation-name:tray;transform-origin:115px 150px"><use href="#ph" x="115" y="110"/><use href="#hand" x="115" y="120"/></g>
+     <text class="label mv" x="115" y="180" text-anchor="middle" style="animation-name:show">🗒 "Claude has a question…"</text>`},
+ {t:'Wave over the screen',j:'Next slide / next card',w:'Hand passes over the phone without touching: next slide on the laptop, or the next card.',k:['risky'],
+  s:`<use href="#lap" x="115" y="40"/><g class="mv" style="animation-name:slide"><rect x="80" y="20" width="34" height="40" rx="2" fill="#123a45"/><rect x="118" y="20" width="34" height="40" rx="2" fill="#0d2d36"/></g>
+     <g transform="translate(115 145) rotate(90)"><use href="#ph" x="0" y="0"/></g><g class="mv" style="animation-name:wave"><path class="skin" d="M100 112 q15 -14 30 0 l-3 10 h-24z"/></g>`},
+];
+const grid = document.getElementById('grid');
+grid.innerHTML = G.map((g, i) => `<article class="card" data-k="${g.k.join(' ')}"><span class="num">${String(i + 1).padStart(2, '0')}</span>
+  <div class="stage"><svg viewBox="0 0 230 200" width="230" height="200" role="img" aria-label="${g.t}">${g.s}</svg></div>
+  <h2>${g.t}</h2><div class="job">${g.j}</div><div class="why">${g.w}</div>
+  <div class="tags">${g.k.map(k => `<span class="tag ${k}">${k === 'built' ? 'Built' : k === 'easy' ? 'Easy' : 'Needs a switch'}</span>`).join('')}</div></article>`).join('');
+document.querySelectorAll('[data-f]').forEach(b => b.onclick = () => {
+  document.querySelectorAll('[data-f]').forEach(x => x.setAttribute('aria-pressed', x === b));
+  document.querySelectorAll('.card').forEach(c => { c.style.display = b.dataset.f === 'all' || c.dataset.k.includes(b.dataset.f) ? '' : 'none'; });
+});
+const p = document.getElementById('pause');
+p.onclick = () => { const on = p.getAttribute('aria-pressed') !== 'true'; p.setAttribute('aria-pressed', on); p.textContent = on ? 'Play animations' : 'Pause animations'; grid.classList.toggle('paused', on); };
+</script>
 </body></html>

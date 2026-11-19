@@ -29,10 +29,10 @@ function mk(answer = { allow: true, answer: 'Yes, build it' }) {
 const ASK = { recap: 'Done.', ask: 'Should I start building per-app tone?', actions: [{ label: 'Yes, build it' }, { label: 'Not now' }] };
 
 describe("Claude's next-step question reaches the phone", () => {
-  it('becomes a question card with its buttons, for 2 minutes', async () => {
+  it('becomes a question card with its buttons, for 10 minutes (user, 2026-11-18)', async () => {
     const h = mk();
     await h.stop(transcript(asked('whats next'), wrapUp(ASK), result(), said('Next is per-app tone.')));
-    expect(h.cards[0]).toMatchObject({ title: 'Claude (NOVI) asks: Should I start building per-app tone?', timeoutMs: 120_000, source: 'claude' });
+    expect(h.cards[0]).toMatchObject({ title: 'Claude (NOVI) asks: Should I start building per-app tone?', timeoutMs: 600_000, source: 'claude' });
     expect(h.cards[0].question).toEqual({ text: 'Should I start building per-app tone?', options: [{ label: 'Yes, build it' }, { label: 'Not now' }], multiSelect: false });
   });
   it('your answer goes back to Claude, who carries on', async () => {

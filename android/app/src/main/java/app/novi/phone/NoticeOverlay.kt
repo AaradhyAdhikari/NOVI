@@ -27,6 +27,7 @@ class NoticeOverlay(private val svc: NoviService) {
     private fun dp(v: Int) = (v * svc.resources.displayMetrics.density).toInt()
 
     fun show(notice: Notice, more: Int) {
+        if (PayMode.on()) { hide(); return }
         if (shown == notice && view != null) return
         hide()
         val v = card(notice, more)

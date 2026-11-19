@@ -42,7 +42,9 @@ class FlickAnywhere(private val svc: NoviService, private val store: Store) : Se
     private val bg = Handler(worker.looper)
     private val sensors = svc.getSystemService(SensorManager::class.java)
     private val detector = FlickDetector()
+    private val circle = CircleDetector()
     private val overlay = FlickOverlay(svc)
+    fun hideOverlay() = overlay.hide()
     private var acc = 0f
     private var listening = false
     private var busy = false
@@ -106,10 +108,72 @@ class FlickAnywhere(private val svc: NoviService, private val store: Store) : Se
 
     override fun onSensorChanged(e: SensorEvent) {
         val v = e.values
-        if (e.sensor.type == Sensor.TYPE_LINEAR_ACCELERATION) { acc = sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]); return }
+        if (e.sensor.type == Sensor.TYPE_LINEAR_ACCELERATION) {
+            acc = sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2])
+            // A circle drawn in the air: a screenshot of the laptop comes to the phone (user, 2026-11-18).
+            if (circle.feed(SystemClock.uptimeMillis(), v[0], v[1])) main.post { fromLaptop("circle") }
+            return
+        }
         // Gyroscope (rad/s → °/s) drives the check, with the newest jolt.
         val deg = 57.29578f
-        if (detector.feed(SystemClock.uptimeMillis(), acc, v[0] * deg, v[1] * deg, v[2] * deg)) main.post { flicked() }
+        if (detector.feed(SystemClock.uptimeMillis(), acc, v[0] * deg, v[1] * deg, v[2] * deg)) {
+            // Flick up sends to the laptop, flick down pulls from it (⚙ can swap them if they feel reversed).
+            val down = (detector.lastDirection > 0) != store.flickSwapped
+            main.post { if (down) fromLaptop("pull") else flicked() }
+        }
+    }
+
+    /**
+     * Flick down / circle: the laptop sends its open page (pull) or a picture of its screen (circle, or a pull with no
+     * browser in front). A page opens on the phone; a picture is saved to Pictures/Novi and opened.
+     */
+    private fun fromLaptop(kind: String) {
+        if (busy || locked() || MainActivity.visible) return
+        val net = svc.netOrNull() ?: return overlay.result("Not connected to Novi.", false)
+        busy = true
+        buzz()
+        overlay.result(if (kind == "pull") "Bringing it from the laptop…" else "Taking a picture of the laptop…", true)
+        Thread {
+            val out = runCatching { net.flick(ByteArray(0), kind, "", kind) }
+            main.post {
+                busy = false
+                val r = out.getOrNull()
+                when {
+                    r == null -> overlay.result(out.exceptionOrNull()?.message ?: "Couldn't reach the laptop.", false)
+                    !r.optBoolean("ok") -> overlay.result(r.optString("error").ifEmpty { "The laptop had nothing to send." }, false)
+                    r.optString("link").startsWith("http") -> openLink(r.optString("link"), r.optString("title"))
+                    r.optString("image").isNotEmpty() -> openPicture(r.optString("image"))
+                    else -> overlay.result("The laptop had nothing to send.", false)
+                }
+            }
+        }.start()
+    }
+
+    private fun openLink(link: String, title: String) {
+        val uri = Uri.parse(link)
+        if (uri.scheme != "https" && uri.scheme != "http") return overlay.result("That isn't a web link.", false)
+        runCatching { svc.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+            .onSuccess { overlay.result(if (title.isNotBlank()) "Opened: ${title.take(60)}" else "Opened the laptop's page", true) }
+            .onFailure { overlay.result("Couldn't open the page.", false) }
+    }
+
+    private fun openPicture(b64: String) = bg.post {
+        val saved = runCatching {
+            val bytes = android.util.Base64.decode(b64, android.util.Base64.DEFAULT)
+            val values = android.content.ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, "Laptop ${stamp()}.png")
+                put(MediaStore.MediaColumns.MIME_TYPE, "image/png")
+                if (Build.VERSION.SDK_INT >= 29) put(MediaStore.MediaColumns.RELATIVE_PATH, "Pictures/Novi")
+            }
+            val uri = svc.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: error("no space")
+            svc.contentResolver.openOutputStream(uri)?.use { it.write(bytes) } ?: error("can't write")
+            uri
+        }.getOrNull()
+        main.post {
+            if (saved == null) return@post overlay.result("Couldn't save the picture.", false)
+            runCatching { svc.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(saved, "image/png").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)) }
+            overlay.result("Laptop screen saved to Pictures/Novi", true)
+        }
     }
 
     private fun buzz() = runCatching {

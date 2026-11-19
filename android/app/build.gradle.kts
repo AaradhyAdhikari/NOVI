@@ -11,8 +11,8 @@ android {
         applicationId = "app.novi.phone"
         minSdk = 26
         targetSdk = 35
-        versionCode = 44
-        versionName = "2.8.2"
+        versionCode = 46
+        versionName = "2.9.1"
     }
     buildTypes {
         release { isMinifyEnabled = false }

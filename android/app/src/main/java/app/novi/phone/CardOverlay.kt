@@ -36,6 +36,7 @@ class CardOverlay(private val svc: NoviService) {
     private fun dp(v: Int) = (v * svc.resources.displayMetrics.density).toInt()
 
     fun show(top: Card, total: Int) {
+        if (PayMode.on()) { hide(); return }
         // Same card: keep the view as it is (a half-typed answer is never lost).
         val same = card?.id == top.id && view != null
         val before = card

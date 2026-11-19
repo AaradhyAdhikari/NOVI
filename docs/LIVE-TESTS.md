@@ -390,6 +390,8 @@ Restart Novi, then install app 2.7.7 from the Update card (⚙: Photos = **Allow
 18. **Whole files (2.7.6)**: in My Files / Files by Google, select a file (or open a PDF) and flick: the real file lands, not a picture. Share → **Send to Novi** now sends straight to the laptop (no flick screen).
 19. **Gallery video / photo (2.7.7)**: open a video in Gallery (tap once so the date + time show on top) and flick: the real video lands, not a picture. A photo the same way lands at full quality. No date showing → a photo goes as the cropped picture, a video says to use Share → Send to Novi.
 20. **Selection again (2.7.7)**: select words and flick; if Samsung's menu shows Copy, Novi presses it. "Send to Novi" in the selection menu now also reads the copied text, so: tap Copy, then Send to Novi.
+21. **Flick down (2.9.0)**: with a page open in the laptop's browser, flick the phone DOWN (top towards you): the same page opens on the phone. No browser in front: a picture of the laptop screen comes instead. If flicking up now pulls (or down sends), switch on ⚙ "Swap flick up / down".
+22. **Circle for a screenshot (2.9.0)**: draw one circle in the air with the phone: a picture of the laptop screen is saved to Pictures/Novi and opens. Sign-in / payment / settings windows are refused.
 
 ## Offline model + skills (2026-11-18, not tried through Novi yet)
 Offline model: `models/llm/qwen2.5-3b-instruct-q4_k_m.gguf` (2.1 GB, downloaded 2026-11-18) through the existing llama-server. Checked from a script: it loaded and answered "Paris is the capital of France." in 6.6 s (load included), and called `weather_get {place: "Pune"}` correctly in 4.2 s.

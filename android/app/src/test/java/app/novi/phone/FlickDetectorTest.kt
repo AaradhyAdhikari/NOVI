@@ -21,6 +21,35 @@ class FlickDetectorTest {
     private val still: Pair<Int, (Double) -> P> = 400 to { _ -> P(0.4f, 4f, 3f, 2f) }
     private fun bell(p: Double, k: Double) = (k * sin(PI * p)).toFloat()
 
+    // Flick up (top tipped away) vs flick down (top pulled towards you) — user, 2026-11-18.
+    @Test fun upAndDownAreToldApart() {
+        val d = FlickDetector()
+        assertEquals(1, fires(shape(still, 160 to { p -> P(bell(p, 22.0), -bell(p, 380.0), 60f, 40f) }, 400 to { _ -> P(1f, 10f, 5f, 5f) }), d))
+        assertEquals(-1, d.lastDirection)
+        val e = FlickDetector()
+        assertEquals(1, fires(shape(still, 160 to { p -> P(bell(p, 22.0), bell(p, 380.0), 60f, 40f) }, 400 to { _ -> P(1f, 10f, 5f, 5f) }), e))
+        assertEquals(1, e.lastDirection)
+    }
+
+    // A circle in the air: the sideways push turns all the way round. A shake back and forth is not a circle.
+    @Test fun circleInTheAir() {
+        val c = CircleDetector()
+        var fired = 0
+        var t = 0L
+        while (t < 1200) { val a = 2 * PI * t / 1000.0; if (c.feed(t, (5 * kotlin.math.cos(a)).toFloat(), (5 * sin(a)).toFloat())) fired++; t += 20 }
+        assertEquals(1, fired)
+        val s = CircleDetector()
+        var shook = 0
+        t = 0
+        while (t < 1500) { val x = if ((t / 120) % 2 == 0L) 6f else -6f; if (s.feed(t, x, 0.5f)) shook++; t += 20 }
+        assertEquals(0, shook)
+        val w = CircleDetector()
+        var weak = 0
+        t = 0
+        while (t < 1500) { val a = 2 * PI * t / 1000.0; if (w.feed(t, (2 * kotlin.math.cos(a)).toFloat(), (2 * sin(a)).toFloat())) weak++; t += 20 }
+        assertEquals(0, weak)
+    }
+
     @Test fun aForwardFlickFiresOnce() {
         assertEquals(1, fires(shape(still, 160 to { p -> P(bell(p, 22.0), -bell(p, 380.0), 60f, 40f) }, 400 to { _ -> P(1f, 10f, 5f, 5f) })))
     }

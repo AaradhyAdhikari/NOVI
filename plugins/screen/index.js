@@ -118,6 +118,8 @@ export function createScreenPlugin({ driver = windowsDriver, now = Date.now, foc
     name: 'Screen control',
     description: 'Look at the laptop screen, click, type and press keys in apps without an API.',
     register(api) {
+      // The laptop screen as a picture for other plugins (Flick's circle gesture); never a private screen.
+      if (api.runtime) api.runtime.laptopScreenshot = async () => (SENSITIVE.test(await driver.window()) ? { refused: true } : driver.screenshot());
       const vision = (png, prompt) => {
         if (!api.runtime.vision) throw new Error('Screen understanding needs a Gemini key (GEMINI_API_KEYS).');
         return api.runtime.vision(png, prompt);

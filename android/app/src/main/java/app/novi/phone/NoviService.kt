@@ -284,6 +284,7 @@ class NoviService : Service() {
 
     /** Phone locked or screen off: the card opens over the lock screen and lights it up. */
     private fun lockCard(card: Card) {
+        if (PayMode.on()) return
         val open = android.content.Intent(this, LockCardActivity::class.java).putExtra("card", card.id)
             .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP)
         val pi = PendingIntent.getActivity(this, 3, open, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
@@ -301,6 +302,15 @@ class NoviService : Service() {
         if (on) overlay.hide() else showTop()
         showNotice()
         bubbleUpdate()
+    }
+
+    /** Paying: everything Novi draws goes away now and comes back when pay mode ends. */
+    fun payStarted() = main.post {
+        overlay.hide()
+        noticeOverlay.hide()
+        flick.hideOverlay()
+        bubble.remove()
+        main.postDelayed({ showTop(); showNotice(); bubbleUpdate() }, PayMode.leftMs() + 500)
     }
 
     /** The mic bubble: while Novi's typing (NoviAccess) is on and the Novi app isn't on screen. */
@@ -345,6 +355,7 @@ class NoviService : Service() {
 
     /** Screen off or locked: the small card opens over the lock screen and lights it up. */
     private fun lockNotice(n: Notice) {
+        if (PayMode.on()) return
         val open = Intent(this, LockNoticeActivity::class.java).putExtra("id", n.id).putExtra("title", n.title).putExtra("body", n.body)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         val pi = PendingIntent.getActivity(this, 4, open, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)

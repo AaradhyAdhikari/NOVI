@@ -112,6 +112,12 @@ class SetupActivity : ComponentActivity() {
             isChecked = store.flickAnywhere
             setOnCheckedChangeListener { _, on -> store.flickAnywhere = on; NoviService.instance?.flickRefresh() }
         })
+        // Flick down pulls from the laptop, a circle in the air brings a picture of its screen (2026-11-18).
+        col.addView(android.widget.Switch(this).apply {
+            text = "Swap flick up / down (if flicking up pulls instead of sends)"
+            isChecked = store.flickSwapped
+            setOnCheckedChangeListener { _, on -> store.flickSwapped = on }
+        })
         col.addView(android.widget.Switch(this).apply {
             text = "Screenshot pop-up: Send to Novi after each screenshot"
             isChecked = store.screenshotPopup
@@ -194,24 +200,44 @@ class SetupActivity : ComponentActivity() {
         }
         // One tap off (user, 2026-11-18, until Novi is on the Play Store): Google Pay blocks payments while an app
         // installed from a file has Accessibility on. A service may switch itself off; only the user can switch it on.
-        NoviAccess.instance?.let {
-            perms.addView(Button(this).apply {
-                // One tap (user, 2026-11-18: "no restart every time"): off first, THEN Google Pay opens, so it never sees
-                // Accessibility on. A restart is only Google Pay's demand after it has already shown its block screen.
-                text = "💳 Pay: turn Novi typing off and open Google Pay"
-                isAllCaps = false
-                setOnClickListener {
-                    NoviAccess.instance?.disableSelf()
-                    isEnabled = false
-                    text = "Novi typing is off."
+        // Fixed 2026-11-19 ("the payment thing is not working"): always shown (typing may already be off), waits until
+        // Android really lists Novi's service as off, hides everything Novi draws (PayMode), ends Google Pay's old
+        // copy that still remembers the block, then opens it fresh.
+        perms.addView(Button(this).apply {
+            text = "💳 Pay: Novi steps aside and opens Google Pay"
+            isAllCaps = false
+            setOnClickListener { button ->
+                button.isEnabled = false
+                text = "Getting out of the way…"
+                PayMode.start()
+                NoviService.instance?.payStarted()
+                NoviAccess.instance?.disableSelf()
+                val am = getSystemService(android.view.accessibility.AccessibilityManager::class.java)
+                val began = System.currentTimeMillis()
+                fun novisServiceOn() = am?.getEnabledAccessibilityServiceList(android.accessibilityservice.AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
+                    ?.any { it.resolveInfo?.serviceInfo?.packageName == packageName } == true
+                fun open() {
+                    val acts = getSystemService(android.app.ActivityManager::class.java)
+                    val pkg = PAY_APPS.firstOrNull { packageManager.getLaunchIntentForPackage(it) != null }
+                    if (pkg == null) {
+                        text = "Novi is out of the way for ${PayMode.MINUTES} min. Open your payment app."
+                        return
+                    }
+                    runCatching { acts?.killBackgroundProcesses(pkg) }
+                    text = if (novisServiceOn()) "Android didn't turn Novi typing off. Turn it off in Settings → Accessibility → Novi."
+                        else "Novi is out of the way for ${PayMode.MINUTES} min."
                     postDelayed({
-                        val pay = packageManager.getLaunchIntentForPackage("com.google.android.apps.nbu.paisa.user")
-                        if (pay != null) startActivity(pay.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                        else android.widget.Toast.makeText(this@SetupActivity, "Novi typing is off. Open your payment app now.", android.widget.Toast.LENGTH_LONG).show()
-                    }, 800)
+                        packageManager.getLaunchIntentForPackage(pkg)?.let {
+                            startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+                        }
+                    }, 400)
                 }
-            })
-        }
+                fun waitOff() {
+                    if (!novisServiceOn() || System.currentTimeMillis() - began > 3000) open() else postDelayed({ waitOff() }, 150)
+                }
+                waitOff()
+            }
+        })
         // Novi Flick v2: reading new screenshots (only to offer sending them; nothing leaves without a flick or a tap).
         // Android 14 "Select photos" gives only chosen photos: a new screenshot needs "Allow all".
         permission("Photos (Allow all): offer to send new screenshots", FlickAnywhere.canReadShots(this)) {

@@ -14,7 +14,8 @@ const WAITS_FOR_ANSWER = new Set(['PermissionRequest', 'PreToolUse', 'Stop']);
 export const waitsForAnswer = (event) => WAITS_FOR_ANSWER.has(event);
 const CARD_WAIT_MS = 125_000; // Novi's card waits 2 minutes
 const QUESTION_WAIT_MS = 305_000; // Claude's questions: 5 minutes for all of them (plugins/claude-link/hooks.js)
-export const answerWaitMs = (hook) => (hook.hook_event_name === 'PreToolUse' && hook.tool_name === 'AskUserQuestion' ? QUESTION_WAIT_MS : CARD_WAIT_MS);
+const NEXT_STEP_WAIT_MS = 605_000; // Claude's next-step box on Stop: 10 minutes (NEXT_STEP_WAIT_MS in hooks.js)
+export const answerWaitMs = (hook) => (hook.hook_event_name === 'Stop' ? NEXT_STEP_WAIT_MS : hook.hook_event_name === 'PreToolUse' && hook.tool_name === 'AskUserQuestion' ? QUESTION_WAIT_MS : CARD_WAIT_MS);
 const NOTE_WAIT_MS = 3_000;
 const BIG_FIELDS = ['content', 'new_string', 'old_string', 'edits'];
 const KEEP_CHARS = 200;

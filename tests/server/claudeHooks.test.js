@@ -65,6 +65,20 @@ describe('Claude Code hooks → Novi', () => {
     expect(h.asked[0].title).toBe('Claude (NOVI) asks: Wait how long?');
   });
 
+  // Live 2026-11-18: two questions, the first answered on the phone, the second skipped: both answers were
+  // thrown away and Claude's own window asked again, so the phone answer never reached Claude.
+  it('a skipped or unanswered question keeps the answers already given on the phone', async () => {
+    const h = mk({ answer: (card) => (card.question.text.startsWith('Pick') ? { allow: true, answer: 'Shake, Pull' } : { allow: false }) });
+    const questions = [{ question: 'Pick some?', options: [], multiSelect: true }, { question: 'More?', options: [], multiSelect: true }];
+    const out = await h.handle({ ...base, hook_event_name: 'PreToolUse', tool_name: 'AskUserQuestion', tool_input: { questions } });
+    expect(out.hookSpecificOutput.permissionDecision).toBe('allow');
+    expect(out.hookSpecificOutput.updatedInput.answers).toEqual({ 'Pick some?': 'Shake, Pull', 'More?': '(skipped on the phone)' });
+    // Timed out after one answer: still sent, the rest marked.
+    const h2 = mk({ answer: (card) => (card.question.text.startsWith('Pick') ? { allow: true, answer: 'Shake' } : { allow: false, timedOut: true }) });
+    const out2 = await h2.handle({ ...base, hook_event_name: 'PreToolUse', tool_name: 'AskUserQuestion', tool_input: { questions } });
+    expect(out2.hookSpecificOutput.updatedInput.answers).toEqual({ 'Pick some?': 'Shake', 'More?': '(not answered on the phone in time)' });
+  });
+
   it('a question not answered on Novi goes back to Claude\'s window (and no double card from PermissionRequest)', async () => {
     const h = mk({ answer: { allow: false, timedOut: true } });
     expect(await h.handle({ ...base, hook_event_name: 'PreToolUse', tool_name: 'AskUserQuestion', tool_input: { questions: [{ question: 'Q?', options: [] }] } })).toEqual({});
@@ -197,5 +211,6 @@ describe('several questions share one longer wait', () => {
     const { answerWaitMs } = await import('../../tools/claude-hook.mjs');
     expect(answerWaitMs({ hook_event_name: 'PreToolUse', tool_name: 'AskUserQuestion' })).toBe(305_000);
     expect(answerWaitMs({ hook_event_name: 'PermissionRequest' })).toBe(125_000);
+    expect(answerWaitMs({ hook_event_name: 'Stop' })).toBe(605_000); // next-step box: 10 minutes
   });
 });

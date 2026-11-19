@@ -193,6 +193,7 @@ class MainActivity : ComponentActivity() {
         if (web == null || loadedBase != store.base) show()
         visible = true
         current = this
+        PayMode.end()
         NoviService.instance?.pageShown(true)
     }
 

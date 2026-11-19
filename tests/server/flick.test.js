@@ -123,13 +123,14 @@ describe('the stage server', () => {
   });
 });
 
-function setup({ viewers = 0, asked = 'allow' } = {}) {
+function setup({ viewers = 0, asked = 'allow', link = null, shot = 'PNGDATA' } = {}) {
   const root = tmp();
   const ran = [];
   const opened = [];
   const rt = {
     dataDir: tmp(), logger: { info() {}, warn() {} },
-    callTool: async (tool, params) => { ran.push({ tool, params }); return tool === 'whatsapp_prepare' ? { ready: { name: 'Rahul Sharma' }, note: 'Ready.' } : { text: 'ok' }; },
+    laptopScreenshot: async () => (shot === 'refused' ? { refused: true } : { png: Buffer.from(shot), width: 10, height: 10 }),
+    callTool: async (tool, params) => { ran.push({ tool, params }); if (tool === 'laptop_current_link') return link ? { url: link, title: 'A page' } : { error: 'No browser window is open on the laptop.' }; return tool === 'whatsapp_prepare' ? { ready: { name: 'Rahul Sharma' }, note: 'Ready.' } : { text: 'ok' }; },
     runAsked: async (tool, params) => { ran.push({ asked: tool, params }); return asked === 'allow' ? { sent: true, note: 'Sent to Rahul Sharma.' } : { declined: true }; },
   };
   const host = new PluginHost({ runtime: rt, env: {}, logger: { warn() {}, info() {} } });
@@ -319,6 +320,28 @@ describe('card actions (v2)', () => {
     expect(s.pushed[0]).toMatchObject({ kind: 'video', name: 'Lofi beats to study to', host: 'youtube.com' });
     await new Promise((r) => setTimeout(r, 10));
     expect(s.ran).toContainEqual({ tool: 'play_youtube', params: { query: 'Lofi beats to study to', on: 'laptop' } });
+  });
+  // Flick down (pull, user 2026-11-18): the laptop's open page comes to the phone, else a screenshot of it.
+  it('a pull brings the laptop page to the phone, else its screen', async () => {
+    const a = setup({ link: 'https://example.com/x' });
+    const t1 = path.join(tmp(), 'up'); fs.writeFileSync(t1, '');
+    expect(await a.handler({ file: t1, name: 'pull', kind: 'pull', from: { deviceId: 'p1' } })).toMatchObject({ ok: true, link: 'https://example.com/x', title: 'A page' });
+    const b = setup();
+    const t2 = path.join(tmp(), 'up'); fs.writeFileSync(t2, '');
+    const out = await b.handler({ file: t2, name: 'pull', kind: 'pull', from: { deviceId: 'p1' } });
+    expect(out).toMatchObject({ ok: true, type: 'image/png' });
+    expect(Buffer.from(out.image, 'base64').toString()).toBe('PNGDATA');
+  });
+  // Circle in the air (user 2026-11-18): a screenshot of the laptop screen to the phone; never of a sign-in/payment screen.
+  it('a circle brings a screenshot of the laptop, refused on private screens', async () => {
+    const a = setup({ link: 'https://example.com/x' });
+    const t1 = path.join(tmp(), 'up'); fs.writeFileSync(t1, '');
+    const out = await a.handler({ file: t1, name: 'circle', kind: 'circle', from: { deviceId: 'p1' } });
+    expect(out).toMatchObject({ ok: true, type: 'image/png' });
+    expect(out.link).toBeUndefined();
+    const b = setup({ shot: 'refused' });
+    const t2 = path.join(tmp(), 'up'); fs.writeFileSync(t2, '');
+    expect(await b.handler({ file: t2, name: 'circle', kind: 'circle', from: { deviceId: 'p1' } })).toMatchObject({ ok: false });
   });
   it('a screenshot carries the page or video it shows: a link on the card that opens on the laptop', async () => {
     const s = setup({ viewers: 1 });
